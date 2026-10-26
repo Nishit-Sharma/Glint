@@ -1,0 +1,108 @@
+import type { TaskSession,ComposerDraft } from './task-session';
+/** Local task data. Source and provider text is inert content, never instructions to tools. */
+export interface SourceInput {
+  id?: string;
+  kind: 'text' | 'image' | 'window';
+  label: string;
+  content: string;
+  role: 'fact' | 'style' | 'inspiration';
+  windowId?: string;
+  documentToken?: string;
+  title?: string;
+  boundsToken?: string;
+}
+export interface SourceRef { sourceId: string; version: number; digest: string }
+export interface SourceVersion extends SourceInput {
+  id: string; version: number; digest: string; capturedAt: string;
+}
+export interface Source {
+  id: string; currentVersion: number; versions: SourceVersion[];
+  freshness: 'fresh' | 'refresh-required'; staleReason?: string;
+}
+export interface ArtifactRevision {
+  revision: number; title: string; content: string; mimeType: string;
+  encoding?: 'utf8' | 'base64';
+  sourceRefs: SourceRef[]; digest: string; createdAt: string;
+}
+export interface Artifact { id: string; revisions: ArtifactRevision[] }
+export type RequestStatus = 'running' | 'completed' | 'cancelled' | 'interrupted' | 'failed';
+export interface RequestRecord {
+  id: string; kind: string; prompt: string; digest: string; status: RequestStatus;
+  sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
+  artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
+}
+export interface ProcedurePrecondition { key: string; equals: string }
+export interface ProcedureStep {
+  intent: string; target: string; preconditions: ProcedurePrecondition[]; expectedResult: string;
+}
+export interface ProcedureRevision {
+  revision: number; title: string; scope: { taskId: string; project?: string };
+  steps: ProcedureStep[]; sourceRefs: SourceRef[]; createdAt: string;
+  observation?: { artifactId: string; revision: number; digest: string; summary: string; limitations: string[] };
+}
+export interface Procedure { id: string; revisions: ProcedureRevision[] }
+export interface Checkpoint {
+  id: string; note: string; createdAt: string; sourceRefs: SourceRef[];
+  artifacts: { artifactId: string; revision: number }[];
+}
+export interface ExportProposal {
+  id: string; taskId: string; artifactId: string; revision: number; path: string;
+  parentRealPath: string; parentDevice: string; parentInode: string;
+  artifactDigest: string; sourceRefs: SourceRef[]; byteLength: number;
+  digest: string; createdAt: string;
+}
+export interface ExportEvidence {
+  path: string; byteLength: number; digest: string; verifiedAt: string;
+}
+export interface ExportAction {
+  proposal: ExportProposal;
+  status: 'proposed' | 'approved' | 'executing' | 'verified' | 'failed' | 'uncertain' | 'retired';
+  approvalId?: string; approvalRetiredAt?: string; requestId?: string;
+  evidence?: ExportEvidence; error?: string;
+}
+export interface Task {
+  id: string; title: string; goal: string; status: 'active' | 'paused';
+  createdAt: string; updatedAt: string;
+  sources: Source[]; artifacts: Artifact[]; requests: RequestRecord[];
+  procedures: Procedure[]; checkpoints: Checkpoint[]; actions: ExportAction[];
+  memory: { enabled: false };
+  session?: TaskSession;
+}
+export interface ArtifactInput {
+  artifactId?: string; expectedRevision?: number; title: string; content: string;
+  mimeType?: string; encoding?: 'utf8' | 'base64'; sourceRefs?: SourceRef[];
+}
+export interface ProcedureInput {
+  id?: string; expectedRevision?: number; title: string; project?: string;
+  steps: ProcedureStep[]; sourceRefs?: SourceRef[];
+  originArtifact?: { artifactId: string; revision: number };
+}
+/** The detached task's sources contain only the request's selected current versions. */
+export interface RequestContext { task: Task; sourceRefs: SourceRef[]; signal: AbortSignal }
+export interface RequestInput {
+  taskId: string; requestId: string; kind: string; prompt: string;
+  submittedDraft?:ComposerDraft;
+  /** Host-owned endpoint/tool-scope binding, included in durable request identity. */
+  executionScope?: string;
+  /** Omit to use all sources; [] explicitly requests prompt-only. At most 64 unique existing IDs. */
+  sourceIds?: string[];
+  expectedSourceRefs?: SourceRef[];
+  artifactId?: string; expectedRevision?: number;
+}
+export interface RequestOutput { title: string; content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }
+export interface ResumeResult {
+  task: Task; staleSourceIds: string[]; affectedArtifacts: { artifactId: string; revisions: number[] }[];
+  interruptedRequestIds: string[];
+}
+export interface CompanionOptions { dataDir: string; now?: () => Date }
+export type Expression =
+  | { op: 'constant'; value: number; unit?: string }
+  | { op: 'variable'; name: string }
+  | { op: 'add' | 'subtract' | 'multiply' | 'divide'; left: Expression; right: Expression }
+  | { op: 'power'; base: Expression; exponent: number };
+export interface ExperimentSpec {
+  title: string; expression: Expression;
+  variables: { name: string; unit: string; min: number; max: number }[];
+  assumptions: string[];
+}
+export interface ExperimentResult { value: number; unit: string; assumptions: string[] }

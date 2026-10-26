@@ -1,0 +1,62 @@
+/** Presentation only. Raw failures stay in the local task record for recovery. */
+export function publicErrorMessage(error:unknown):string {
+ const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
+ if(publicMessages.has(text))return text;
+ if(/screen selection expired/i.test(text))return 'This capture request has ended. Use the screen context shortcut again.';
+ if(/website action.*uncertain|earlier action on this site.*uncertain/i.test(text))return 'The website action may have completed. Inspect its outcome before trying another action.';
+ if(/executable doesn.t exist|browser runtime.*not installed/i.test(text))return 'Browser support is not installed on this device. Install the browser runtime before trying again.';
+ if(/module changed|answer.*choices changed|task session changed|answer changed.*editing.*module/i.test(text))return 'This answer or your saved choices changed. Review the current version before editing again.';
+ if(/remote (?:completion|outcome).*unverified|transport disconnected|stopped waiting/i.test(text))return 'This app stopped waiting. The service may still complete or charge for the request. Check its outcome and usage before sending another request.';
+ if(/not authorized.*nothing was sent/i.test(text))return 'This request was not authorized. Nothing was sent.';
+ if(/not approved/i.test(text))return 'The export was not approved. No file was saved.';
+ if(/uncertain|may have.*(written|saved)|executing.*export/i.test(text))return 'The file may have been saved. Check the destination before trying again.';
+ if(/invalid model draft|unsupported schema|schemaVersion|duplicate JSON|malformed JSON/i.test(text))return 'The response could not be turned into a usable draft. Change your request and try again.';
+ if(/invalid experiment|division by zero|matching units|outside bounds/i.test(text)){
+  if(/division by zero/i.test(text))return 'This calculation divides by zero. Change the inputs and calculate again.';
+  if(/outside bounds/i.test(text))return 'Enter a value within the displayed range.';
+  return 'This calculation could not be completed. Review the inputs and units.';
+ }
+ if(/already exists/i.test(text))return 'A file already exists at this destination. Choose a new filename.';
+ if(/another companion|store lock|recovery.*guarded/i.test(text))return 'This workspace is open in another copy of Companion. Close that copy and try again.';
+ if(/store.*(unreadable|incompatible|persistence failed)/i.test(text))return 'This workspace could not be opened. Keep its files for recovery and reopen the app.';
+ if(/ENOSPC|disk.*full/i.test(text))return 'Your disk is full. Free some space and try again.';
+ if(/EACCES|EPERM|permission denied/i.test(text))return 'The app cannot access this file or folder. Choose another location or check its permissions.';
+ if(/screen recording|screen capture.*permission/i.test(text))return 'Allow screen recording for Companion in System Settings, then capture the window again.';
+ if(/selected capture exceeds|image.*exceeds.*8 MiB/i.test(text))return 'This image is too large. Choose a smaller image or resize the source window before capturing it again.';
+ if(/references exceed.*32 MiB/i.test(text))return 'The selected snapshots are too large together. Capture smaller source windows before continuing.';
+ if(/secure storage.*unavailable/i.test(text))return 'Secure storage is unavailable. Your connection was not saved. Reopen the app and try again.';
+ if(/authorize this destination/i.test(text))return 'Confirm where your selected sources will be sent before connecting.';
+ if(/API key.*(must|invalid)|unauthenticated|invalid.*key|\b401\b|\b403\b/i.test(text))return 'The connection could not be verified. Check your sign-in or API key in Settings.';
+ if(/\b429\b|rate limit|quota|usage limit/i.test(text))return 'This connection has reached its usage limit. Check your account or choose another connection.';
+ if(/provider availability.*unverified|unconfigured|not configured|no.*(credential|connection)/i.test(text))return 'Connect an AI service in Settings before sending a request.';
+ if(/incomplete|ended.*before|closed.*before.*response.*finished|partial response/i.test(text))return 'The response was incomplete. Check your connection before trying again.';
+ if(/offline|disconnect|ECONN|network|fetch failed|timeout|timed out|stalled|\b50[0234]\b/i.test(text))return 'The connection was interrupted. Check your connection before trying again.';
+ if(/refresh|source changed|capture.*(expired|consumed)|snapshot.*expired|rebind|document token/i.test(text))return 'Refresh the selected window before asking again, and review any changed sources.';
+ if(/window.*unavailable|ENOENT/i.test(text))return 'This file or window is no longer available. Choose it again.';
+ if(/artifact changed|procedure changed|newer.*revision/i.test(text))return 'A newer version is available. Load it before saving or requesting changes.';
+ if(/source.*not found/i.test(text))return 'This source is no longer available. Add it again before continuing.';
+ if(/artifact.*not found|missing revision/i.test(text))return 'This saved item is no longer available. Return to the task and choose another item.';
+ if(/resume the task/i.test(text))return 'Resume the task before continuing.';
+ if(/cancelled|canceled|stopped|connection changed/i.test(text))return 'The request stopped. Review the task before starting another request.';
+ if(/proposal changed|approval.*(required|retired)|approved proposal|destination.*changed|bytes.*(differ|match)/i.test(text))return 'This export needs a new review. Check the draft and destination before approving it again.';
+ if(/shortcut/i.test(text))return 'Choose an available shortcut, such as Control+Shift+Space.';
+ if(/source ID|source kind|source role/i.test(text))return 'Choose a valid source before continuing.';
+ if(/unknown.*(command|type)|Unknown companion command|unsupported request/i.test(text))return 'This action is not available. Reopen the app and try again.';
+ if(/must contain.*characters/i.test(text))return 'Complete the required fields and keep the text within the displayed limits.';
+ return 'This action could not be completed. Review the task before continuing.';
+}
+
+/** Connection checks can fail without rejecting IPC. Never display their diagnostic detail. */
+export function connectionIssueMessage(detail:string):string {
+ if(/signed-in|sign.in|login/i.test(detail))return 'Open Codex and sign in, then check the connection.';
+ if(/does not advertise GPT-6 Luna|Luna.*not advertised|reasoning setting.*not supported/i.test(detail))return 'Luna with the required settings is not available for this account. Choose another connection or check your Codex access.';
+ if(/CLI|could not be started|availability could not be verified/i.test(detail))return 'Codex could not be opened. Open or update Codex, then check the connection.';
+ if(/disconnected in this app/i.test(detail))return 'This connection is turned off. Choose it again to reconnect.';
+ return publicErrorMessage(detail);
+}
+
+export function requestStatusLabel(status:string){return ({running:'Working',completed:'Completed',failed:'Could not complete',cancelled:'Stopped',interrupted:'Interrupted'} as Record<string,string>)[status]??'Needs attention';}
+export function sourceRoleLabel(role:string){return ({fact:'Source material',style:'Style reference',inspiration:'Inspiration'} as Record<string,string>)[role]??'Reference';}
+
+// Exact allowlist: repeated formatting cannot turn a safe message into a generic one.
+const publicMessages=new Set(["Your message could not be saved on this Mac. Keep a copy before closing.", "This capture request has ended. Use the screen context shortcut again.", "Automatic page redirects are not supported in this browser yet. Open the final page address and try again.", "Switch to the window you want to use, then press the screen context shortcut again.", "This app stopped waiting. The service may still complete or charge for the request. Check its outcome and usage before sending another request.", "This request was not authorized. Nothing was sent.", "The export was not approved. No file was saved.", "The file may have been saved. Check the destination before trying again.", "The response could not be turned into a usable draft. Change your request and try again.", "This calculation divides by zero. Change the inputs and calculate again.", "Enter a value within the displayed range.", "This calculation could not be completed. Review the inputs and units.", "A file already exists at this destination. Choose a new filename.", "This workspace is open in another copy of Companion. Close that copy and try again.", "This workspace could not be opened. Keep its files for recovery and reopen the app.", "Your disk is full. Free some space and try again.", "The app cannot access this file or folder. Choose another location or check its permissions.", "Allow screen recording for Companion in System Settings, then capture the window again.", "This image is too large. Choose a smaller image or resize the source window before capturing it again.", "The selected snapshots are too large together. Capture smaller source windows before continuing.", "Secure storage is unavailable. Your connection was not saved. Reopen the app and try again.", "Confirm where your selected sources will be sent before connecting.", "The connection could not be verified. Check your sign-in or API key in Settings.", "This connection has reached its usage limit. Check your account or choose another connection.", "Connect an AI service in Settings before sending a request.", "The response was incomplete. Check your connection before trying again.", "The connection was interrupted. Check your connection before trying again.", "Refresh the selected window before asking again, and review any changed sources.", "This file or window is no longer available. Choose it again.", "A newer version is available. Load it before saving or requesting changes.", "This source is no longer available. Add it again before continuing.", "This saved item is no longer available. Return to the task and choose another item.", "Resume the task before continuing.", "The request stopped. Review the task before starting another request.", "This export needs a new review. Check the draft and destination before approving it again.", "Choose an available shortcut, such as Control+Shift+Space.", "Choose a valid source before continuing.", "This action is not available. Reopen the app and try again.", "Complete the required fields and keep the text within the displayed limits.", "This action could not be completed. Review the task before continuing.", "Open Codex and sign in, then check the connection.", "Luna with the required settings is not available for this account. Choose another connection or check your Codex access.", "Codex could not be opened. Open or update Codex, then check the connection.", "This connection is turned off. Choose it again to reconnect."]);
