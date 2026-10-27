@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/pingdotgg/t3code",
+  "commit": "ea41701979c3cb110addeacd144923abe1ba07b2",
+  "files": {
+    "timelineScrollTarget.ts": {
+      "upstream": "apps/web/src/components/chat/timelineScrollTarget.ts",
+      "sha256": "7af3beca20ac2cc06e6fa4d5ed68d5639fa4162b20b15eeed3cc0ca8b625c486"
+    },
+    "LICENSE": {
+      "upstream": "LICENSE",
+      "sha256": "fc800ae3e2c8e200cf1d1ad023ce57df01887005482646d8337ff25e1feafaf5"
+    }
+  },
+  "usage": "Original createUpwardScrollDetector only; unused exported nested-target helper is tree-shaken. MIT notice shipped in renderer licenses. No private workspace or Effect4 imports."
+}

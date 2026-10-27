@@ -1,0 +1,10 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import App from './App';
+import './nexvyn.css';
+import 'streamdown/styles.css';
+import './vendor/transitions/ui-generation.css';
+import './vendor/transitions/text-image-generation.css';
+import './style.css';
+import './app-surface.css';
+createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);

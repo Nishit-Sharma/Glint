@@ -1,0 +1,12 @@
+/* Compile the actual selected component's utility classes; omit Tailwind preflight. */
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@source './vendor/nexvyn';
+@theme inline {--color-foreground:var(--ink);--color-background:var(--paper);--color-muted-foreground:var(--muted)}
+.nexvyn-composer{--color-border:var(--line);--color-card:rgba(255,255,255,.6);--color-accent:var(--accent);--color-surface-2:#eef0f2;--color-muted:var(--muted);--color-fg:var(--ink);--motion-dur-fast:120ms}
+.nexvyn-composer textarea{resize:none;border:0;border-radius:0;min-height:44px!important;line-height:1.55;padding:12px 13px 4px;background:transparent;outline-offset:-2px}
+.nexvyn-composer button{min-height:32px;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:var(--ink);color:var(--paper);gap:0}
+.nexvyn-composer button:hover:not(:disabled){background:#3c4651}
+.nexvyn-composer svg{width:16px;height:16px}
+.nexvyn-composer .mode{min-width:0;max-width:calc(100% - 38px);margin-right:auto}
+.nexvyn-composer .mode select{border:0;background:transparent;width:auto;max-width:100%;min-height:32px;font-size:11px;padding:4px 24px 4px 3px}

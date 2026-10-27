@@ -1,0 +1,12 @@
+.structured-tools .experiment-heading{align-items:center;gap:12px;padding-right:40px}
+.experiment-heading>div:first-child{flex:1;min-width:0}
+.model-object-actions{flex-shrink:0}
+.structured-tools .model-object-actions .task-menu{margin:0}
+.structured-tools .experiment-equation{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:6px 0 14px}
+.experiment-equation>span{font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.structured-tools .experiment-equation output{display:inline;margin:0}
+.structured-tools .experiment-defaults{position:static;margin:20px 0 4px;padding:0;background:transparent}
+.experiment-defaults>.structured-help{margin:0 0 10px}
+.structured-tools .model-export-heading{padding-right:40px}
+.model-draft-export{flex:1;min-height:0;overflow:auto;scrollbar-width:thin}
+.structured-tools .model-file-saved{font-size:13px;color:var(--muted);margin:0 0 14px}

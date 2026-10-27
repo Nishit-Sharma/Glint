@@ -1,0 +1,20 @@
+import { useEffect, useRef, useState } from 'react';
+import type { Task } from '../../../core/types';
+import { publicErrorMessage } from '../../../shared/public-messages';
+import {browserOperationOutcome,browserRequestOutcome} from '../browser-outcome';
+import './browser-task.css';
+
+export function BrowserStart({ onClose, onStart }: { onClose: () => void; onStart: (url: string) => void }) {
+  const dialog = useRef<HTMLDialogElement>(null), input = useRef<HTMLInputElement>(null), [error, setError] = useState('');
+  useEffect(() => { const owner = document.activeElement; dialog.current?.showModal(); input.current?.focus(); return () => { dialog.current?.close(); if (owner instanceof HTMLElement && owner.isConnected) owner.focus(); }; }, []);
+  return <dialog ref={dialog} className="browser-start" onCancel={event => { event.preventDefault(); onClose(); }}><form onSubmit={event => { event.preventDefault(); try { const url = new URL(input.current?.value ?? ''); if (url.username || url.password || !['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && url.hostname !== '127.0.0.1')) throw Error('Enter an HTTPS page address.'); onStart(url.href); } catch { setError('Enter an HTTPS page address without sign-in details.'); input.current?.focus(); } }}>
+    <h2>Which page should I use?</h2><p>Open a separate browser in this task. Your personal sign-ins stay separate.</p><label htmlFor="browser-page-address">Page address</label><input id="browser-page-address" name="url" type="url" required ref={input} placeholder="https://…" autoComplete="off" aria-invalid={!!error} aria-describedby={error?'browser-page-error':undefined}/>{error && <p id="browser-page-error" className="warning" role="alert">{error}</p>}<div className="row"><button type="button" onClick={onClose}>Cancel</button><button type="submit" className="primary">Continue</button></div>
+  </form></dialog>;
+}
+export function BrowserActivity({ task, requestId, onInspect }: { task: Task; requestId: string; onInspect: (runId: string, operationId: string, url: string) => Promise<void> }) {
+  const [pending, setPending] = useState<string>(), [error, setError] = useState('');
+  const run = task.session?.runs.find(run => run.id === requestId); if (!run) return null;
+  if(!run.operations.length)return null;
+  const request=task.requests.find(request=>request.id===requestId),uncertain=request?browserRequestOutcome(task,request)?.needsReview:run.operations.some(operation=>browserOperationOutcome(operation).needsReview);
+  return <details className="browser-activity" open={uncertain || undefined}><summary>{uncertain ? 'An earlier action needs review' : `${run.operations.length} browser ${run.operations.length === 1 ? 'step' : 'steps'}`}</summary><ol>{run.operations.map(operation => <li key={operation.id}><span>{operation.reason}</span><small>{browserOperationOutcome(operation).label}</small>{operation.reconciliation&&<details><summary>Reviewed page</summary><p>{operation.reconciliation.observation.url}</p><p>{operation.reconciliation.observation.text.slice(0,2000)}</p>{operation.reconciliation.observation.text.length>2000&&<small>Only an excerpt is shown.</small>}<small>{operation.reconciliation.note}</small></details>}{browserOperationOutcome(operation).needsReview && <form onSubmit={event => { event.preventDefault(); if (pending) return; const data = new FormData(event.currentTarget), url = String(data.get('url') ?? ''); setPending(operation.id); setError(''); void onInspect(run.id, operation.id, url).catch(error => setError(publicErrorMessage(error))).finally(() => setPending(undefined)); }}><label>Page with the outcome<input name="url" type="url" required defaultValue={operation.receipt?.url ?? operation.result?.url ?? run.origin}/></label><button type="submit" disabled={!!pending}>Inspect outcome</button></form>}</li>)}</ol><div role="status" className="tiny">{pending ? 'Inspecting the selected page…' : ''}</div>{error && <p className="warning" role="alert">{error}</p>}</details>;
+}

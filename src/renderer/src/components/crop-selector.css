@@ -1,0 +1,20 @@
+.crop-selector { display: grid; gap: 8px; min-width: 0; color: var(--ink, #ececec); }
+.crop-selector-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.crop-selector-actions button { min-height: 32px; min-width: 32px; padding: 5px 10px; border: 1px solid #505050; border-radius: 6px; color: inherit; background: #292a2b; font: inherit; font-size: 13px; cursor: pointer; }
+.crop-selector-actions button:hover:not(:disabled), .crop-selector-actions button[aria-pressed="true"] { background: #414243; }
+.crop-selector button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.crop-selector button:disabled { opacity: .5; cursor: default; }
+.crop-selector-help, .crop-selector-status { margin: 0; font-size: 12px; line-height: 1.5; color: #c5c5c5; }
+.crop-selector-status { font-variant-numeric: tabular-nums; }
+.crop-selector-frame { padding: 18px; min-width: 0; background: #171819; border-radius: 6px; }
+.crop-selector-stage { position: relative; margin-inline: auto; touch-action: none; user-select: none; cursor: crosshair; }
+.crop-selector-stage > img { display: block; width: 100%; height: auto; max-width: none; padding: 0; border: 0; border-radius: 0; pointer-events: none; }
+.crop-selector-selection { position: absolute; box-sizing: border-box; border: 1px solid #fff; outline: 1px solid #151515; pointer-events: none; }
+.crop-selector .crop-selector-move { position: absolute; inset: 0; display: block; min-width: 32px; min-height: 32px; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; pointer-events: auto; cursor: move; }
+.crop-selector .crop-selector-handle { position: absolute; display: grid; place-items: center; width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 3px; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; }
+.crop-selector-handle::after { content: ''; width: 10px; height: 10px; box-sizing: border-box; background: #fff; border: 1px solid #171819; }
+.crop-selector .crop-selector-handle:hover:not(:disabled)::after { width: 14px; height: 14px; }
+.crop-selector-nw, .crop-selector-se { cursor: nwse-resize; }
+.crop-selector-ne, .crop-selector-sw { cursor: nesw-resize; }
+.crop-selector-stage.is-drawing .crop-selector-move, .crop-selector-stage.is-drawing .crop-selector-handle { cursor: crosshair; }
+@media (pointer: coarse) { .crop-selector-actions button { min-height: 44px; } }

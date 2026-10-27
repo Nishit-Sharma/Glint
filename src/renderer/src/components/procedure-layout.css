@@ -1,0 +1,27 @@
+/* R120/R129: the step body owns scrolling; actions never overlay its fields. */
+.inspector-content:has(.procedure-tool){display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.inspector-content:has(.procedure-tool)>[data-artifact-motion],
+.inspector-content .model-draft-review:has(>.procedure-tool){display:flex;flex-direction:column;flex:1;min-height:0}
+.structured-tools.procedure-tool{display:flex;flex-direction:column;flex:1;min-height:0}
+.procedure-tool>.structured-heading{flex-shrink:0;margin:0;padding:10px 40px 18px 0}
+.procedure-tool>.procedure-form{display:flex;flex-direction:column;flex:1;min-height:0}
+.procedure-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 2px 20px;scroll-padding-block:16px}
+/* Keep the first edit from shrinking the focused field’s scroll area. */
+.procedure-tool .procedure-footer .structured-save-state:empty{display:block;min-height:18px}
+.procedure-tool .procedure-footer{position:static;bottom:auto;flex-shrink:0;margin:0;padding:14px 0 18px;isolation:isolate}
+.procedure-tool .procedure-check-steps>li{padding:18px 0 22px;border:0}
+.procedure-tool .procedure-check-steps>li:first-child{padding-top:0}
+.procedure-tool .procedure-step-questions{display:grid;gap:12px;margin:16px 0 10px 28px}
+.procedure-tool .procedure-context-field{margin:0;max-width:400px}
+.procedure-tool .procedure-context-field .field{margin:0}
+.procedure-tool .procedure-context-field select{width:100%;font-size:14px;line-height:21px;min-height:38px;padding:7px 10px}
+.procedure-tool .procedure-scroll .procedure-reading{margin-top:8px}
+.procedure-tool .procedure-scroll .procedure-step-editor{margin-bottom:0}
+.procedure-tool .procedure-scroll .procedure-step-editor :is(input,textarea,button){scroll-margin-block:20px}
+@media(max-width:600px){
+ .procedure-tool>.structured-heading{flex-wrap:wrap;gap:10px;padding-bottom:16px}
+ .procedure-tool>.structured-heading>div:first-child{flex-basis:100%}
+ .procedure-tool .procedure-header-actions{flex-wrap:wrap}
+ .procedure-tool .procedure-step-questions{margin-left:0}
+ .procedure-tool .procedure-footer{gap:10px;padding-block:12px}
+}

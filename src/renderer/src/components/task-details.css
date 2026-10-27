@@ -1,0 +1,14 @@
+.task-details{min-width:0;margin:20px 0 0;border-top:1px solid var(--line);color:var(--ink)}
+.task-details>summary{padding:12px 0;min-height:44px;font-size:13px;line-height:20px;color:var(--muted);cursor:pointer}
+.task-details>summary:hover{color:var(--ink)}
+.task-details>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:3px}
+.task-details .task-details-unsaved{margin-left:12px;font-size:12px;color:var(--muted)}
+.task-details .task-details-body{padding:8px 0 16px;max-width:38rem}
+.task-details .field{margin-bottom:14px}
+.task-details input,.task-details textarea{width:100%;min-width:0}
+.task-details textarea{resize:vertical;min-height:84px}
+.task-details .task-details-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.task-details .task-details-status{font-size:12px;line-height:18px;color:var(--muted)}
+.task-details .task-details-error{font-size:13px;line-height:20px;padding:0;margin:-6px 0 14px}
+.task-details .task-details-secondary{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.task-details .task-details-secondary>.danger-zone{margin:0;padding:0;border:0}

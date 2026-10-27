@@ -1,0 +1,24 @@
+/* Grok's quiet roster, adapted to one local task model. 236 + 844 =1080. */
+.task-sidebar{display:none}
+@media(min-width:800px){
+ .task-sidebar{display:flex;flex-direction:column;flex:0 0 236px;width:236px;min-height:0;height:100%;padding:0 10px 10px;background:#191919;color:var(--ink);border-right:1px solid #ffffff09}
+ .task-sidebar button{display:flex;align-items:center;justify-content:flex-start;gap:9px;width:100%;min-height:36px;padding:7px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink);font-size:13px;line-height:20px;text-align:left}
+ .task-sidebar button>svg{color:var(--muted);flex-shrink:0}
+ .roster-toolbar{height:48px;display:flex;align-items:center;flex-shrink:0;margin-bottom:5px}
+ .task-sidebar .task-sidebar-new{color:#c4c4c4;min-height:32px}
+ .task-sidebar-task-list{flex:1;min-height:0;overflow:auto;scrollbar-width:thin}
+ .task-sidebar-task-list ul{list-style:none;padding:0;margin:0}
+ .task-sidebar-task-list li{margin:1px 0}
+ .task-sidebar .task-sidebar-task{min-height:56px;padding:8px 10px;gap:0}
+ .task-sidebar-task[aria-current=page]{background:#2a2a29;color:#f1f1f0}
+ .task-roster-copy{display:grid;gap:2px;width:100%;min-width:0}
+ .task-roster-title{display:flex;gap:8px;align-items:center;min-width:0}
+ .task-roster-title strong{font-size:13px;line-height:20px;font-weight:450;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+ .task-roster-title time{font-size:11px;color:#949494;white-space:nowrap}
+ .task-roster-copy>small{font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#a5a5a3}
+ .task-sidebar-empty{font-size:13px;color:var(--muted);margin:12px 10px}
+ .task-sidebar-bottom{flex-shrink:0;padding-top:8px}
+ .task-sidebar .task-sidebar-settings{width:auto;color:var(--muted)}
+ .task-search{display:flex;align-items:center;gap:7px;margin:0 0 8px;padding:0 8px;background:#242424;border-radius:6px;color:var(--muted)}
+ .task-search input{border:0!important;background:transparent!important;padding:5px 0!important;min-height:32px!important;font-size:13px!important}
+}
