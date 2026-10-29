@@ -2,6 +2,9 @@ import {Schema} from 'effect';
 import type {ArtifactRef,SourceRef,Task} from '../core/types';
 
 export const TRUTH_MODULE_PREFIX='truth-table-v1-';
+export const TRUTH_PREDICTION_PREFIX='truth-pred-v1-';
+export const isTruthPredictionId=(id:string)=>/^truth-pred-v1-[a-f0-9]{64}$/.test(id);
+export const isTruthModuleId=(id:string)=>id.startsWith(TRUTH_MODULE_PREFIX)||isTruthPredictionId(id);
 export const TRUTH_INTRO='A reviewed single assignment is explored as binary Boolean values. Other source lines are not interpreted; this is not VHDL simulation and does not model timing or unknown values.';
 const marker='\n<!--companion-truth-v1:';
 const text=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(500));
@@ -22,9 +25,22 @@ export function makeTruthComparison(rule:BinaryAssignment){
  const rows=([['0','0'],['0','1'],['1','0'],['1','1']] as const).map(([a,b])=>{const result=rule.operator==='and'?a==='1'&&b==='1':rule.operator==='or'?a==='1'||b==='1':a!==b;const why=rule.operator==='and'?'AND is 1 only when both inputs are 1':rule.operator==='or'?'OR is 1 when either input is 1':'XOR is 1 when the inputs differ';return {id:`pair-${a}${b}`,label:`${rule.left} = ${a}; ${rule.right} = ${b}`,values:[result?'1':'0',`${why}. Compared with 00, the output ${result?'changes from 0 to 1':'stays 0'}.`,a==='0'&&b==='0'?rule.quote:'Same reviewed assignment.']};});
  return {kind:'comparison' as const,schemaVersion:1 as const,title:`Binary truth table: ${rule.output}`,question:'Choose an input pair and compare with 00. This is a binary Boolean model, not VHDL simulation.',columns:[rule.output,'Explanation','Reviewed source'],rows};
 }
+/** The stored choices contain only the exact reviewed quote, never computed feedback. */
+export function makeTruthPrediction(rule:BinaryAssignment){
+ return {kind:'comparison' as const,schemaVersion:1 as const,title:`Predict output: ${rule.output}`,question:`For ${rule.left} = 1 and ${rule.right} = 0, predict ${rule.output}.`,columns:['Reviewed source'],rows:[{id:'predict-0',label:'0',values:[rule.quote]},{id:'predict-1',label:'1',values:[rule.quote]}]};
+}
+export function observeTruthPrediction(rule:BinaryAssignment,selected:string|undefined){
+ if(selected===undefined)return null;if(selected!=='predict-0'&&selected!=='predict-1')throw Error('This saved prediction needs review.');
+ const output=rule.operator==='and'?'0':'1',prediction=selected==='predict-0'?'0':'1';
+ const explanation=rule.operator==='and'?`For ${rule.left} = 1 and ${rule.right} = 0, AND returns 0 because both inputs are not 1.`:rule.operator==='or'?`For ${rule.left} = 1 and ${rule.right} = 0, OR returns 1 because one input is 1.`:`For ${rule.left} = 1 and ${rule.right} = 0, XOR returns 1 because the inputs differ.`;
+ return {prediction,output,correct:prediction===output,explanation};
+}
+export function truthPredictionText(rule:BinaryAssignment,selected:string|undefined){
+ const result=observeTruthPrediction(rule,selected);return `Reviewed assignment: ${rule.quote}\nInputs: ${rule.left} = 1; ${rule.right} = 0.\nEarlier exposure is not tracked. This binary model is not VHDL simulation.\n${result?`Your saved prediction: ${result.prediction}.\nComputed output: ${result.output}. ${result.correct?'Matches':'Does not match'} your prediction.\n${result.explanation}`:'No prediction has been saved.'}`;
+}
 export function truthMarkdown(binding:TruthBinding){return TRUTH_INTRO+marker+btoa(encodeURIComponent(JSON.stringify(binding)))+'-->';}
 export function readTruthBinding(markdown:string,moduleId:string):TruthBinding|null{
- if(!moduleId.startsWith(TRUTH_MODULE_PREFIX))return null;
+ if(!isTruthModuleId(moduleId))return null;
  try{if(!markdown.startsWith(TRUTH_INTRO+marker)||!markdown.endsWith('-->'))throw Error('Bad binding');const encoded=markdown.slice((TRUTH_INTRO+marker).length,-3),value=JSON.parse(decodeURIComponent(atob(encoded)));return Schema.decodeUnknownSync(bindingSchema,{onExcessProperty:'error'})(value);}catch{throw Error('This saved truth table needs review. Its source binding is unavailable.');}
 }
 const same=(a:SourceRef,b:SourceRef)=>a.sourceId===b.sourceId&&a.version===b.version&&a.digest===b.digest;

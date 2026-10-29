@@ -1,3 +1,4 @@
+import {isTruthPredictionId,isTruthModuleId,readTruthBinding,parseBinaryAssignment,truthPredictionText} from '../learning/truth-table';
 import {truthTableGuard} from './truth-table-host';
 import {admitPickingAction} from './picking-helper-host';
 import {pickingCanonical} from '../shared/picking-digest';
@@ -18,6 +19,7 @@ export async function editModule(core: Companion, input: { taskId: string; artif
   const action = parseModuleAction(input.action, module.data);
   const session = task.session ?? emptyTaskSession();
   const existing = session.moduleStates.find(state => state.artifactId === artifact.id && state.artifactRevision === revision.revision && (state.moduleId === module.id || (state.moduleId === undefined && answer.modules.length === 1)));
+  if(isTruthPredictionId(module.id)&&existing?.state.selectedRowId!==undefined)throw Error('This saved prediction cannot be replaced in this version.');
   const isPicking=module.data.kind==='helper-studio'&&existing?.state.format==='semantic-table-v2';
   if((isPicking||action.kind==='begin-table-helper')&&task.status!=='active'&&action.kind!=='picking-inspect')throw Error('Resume the owning task before editing its local manifest.');
   const updated=isPicking&&module.data.kind==='helper-studio'?admitPickingAction({taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version,helperId:module.data.id},existing!.state,action):updateModuleState(module.data, existing?.state ?? initialModuleState(module.data), action);
@@ -38,12 +40,13 @@ export async function saveModuleDocument(core: Companion, input: { taskId: strin
   const stateFor=(moduleId:string)=>session.moduleStates.find(saved=>saved.artifactId===artifact.id&&saved.artifactRevision===revision.revision&&(saved.moduleId===moduleId||(saved.moduleId===undefined&&answer.modules.length===1)))?.state;
   const content = [readableModuleIntro(answer,stateFor), ...answer.modules.map(module => {
     const saved = session.moduleStates.find(saved => saved.artifactId === artifact.id && saved.artifactRevision === revision.revision && (saved.moduleId === module.id || (saved.moduleId === undefined && answer.modules.length === 1)));
-    if(module.data.kind==='grounded-join'||module.data.kind==='workflow-lab'||module.data.kind==='helper-studio'||module.id.startsWith('truth-table-v1-')){
+    if(module.data.kind==='grounded-join'||module.data.kind==='workflow-lab'||module.data.kind==='helper-studio'||isTruthModuleId(module.id)){
       const output={artifactId:artifact.id,revision:revision.revision,digest:revision.digest};
       const guard=truthTableGuard(task,answer,output)??(module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):{sourceRefs:[...revision.sourceRefs],artifactRefs:[output]});
       for(const ref of guard.artifactRefs)if(!expectedArtifacts.some(other=>other.artifactId===ref.artifactId))expectedArtifacts.push(ref);
       expectedModuleStates.push({artifactId:artifact.id,artifactRevision:revision.revision,moduleId:module.id,stateRevision:saved?.state.revision??0});
     }
+    if(isTruthPredictionId(module.id)){const binding=readTruthBinding(answer.markdown,module.id),rule=binding&&parseBinaryAssignment(binding.quote);if(!rule)throw Error('This saved prediction needs review.');const state=saved?.state;if(state?.kind!=='comparison'&&state!==undefined)throw Error('This saved prediction needs review.');return truthPredictionText(rule,state?.selectedRowId as string|undefined);}
     return moduleText(module.data, saved?.state);
   }), ...(observedUrls.length ? ['Observed pages\n' + observedUrls.map(url => `- ${url}`).join('\n')] : [])].join('\n\n');
   const title = (revision.title.slice(0, 190) + ' notes').slice(0, 200), existing = task.artifacts.find(item => { const latest = item.revisions.at(-1); return latest?.title === title && latest.content === content && latest.mimeType === 'text/markdown' && latest.sourceRefs.length === revision.sourceRefs.length && latest.sourceRefs.every((ref, index) => { const expected = revision.sourceRefs[index]; return ref.sourceId === expected.sourceId && ref.version === expected.version && ref.digest === expected.digest; }); });
