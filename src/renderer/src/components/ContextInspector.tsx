@@ -1,6 +1,7 @@
 import {useEffect,useLayoutEffect,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {ArrowLeft,FileText,Image as ImageIcon,AppWindow,Plus,RefreshCw} from 'lucide-react';
-import type {Task,Source,SourceInput,SourceRef} from '../../../core/types';
+import type {Task,Source,SourceInput,SourceRef,Artifact,Procedure} from '../../../core/types';
+import {sourceAffectedWork} from '../source-affected-work';
 import {sourceRoleLabel} from '../../../shared/public-messages';
 import {Button,Field,type Run} from '../ui';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
@@ -14,9 +15,9 @@ import type {createLearningDrafts} from '../learning-drafts';
 const latest=<T,>(items:T[])=>items[items.length-1];
 const time=(value:string)=>new Date(value).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 type Mode='list'|'source'|'text'|'image'|'crop';
-interface Props{task:Task;busy:boolean;run:Run;cache:ReturnType<typeof createLearningDrafts>;saveSourceText?:(input:SourceTextSaveInput)=>Promise<unknown>;inspectSourceSave?:(input:SourceTextSaveInspectionInput)=>Promise<unknown>;isCurrent?:()=>boolean;reference?:SourceRef;intake?:'text'|'image';onWindow:()=>void;renderImageEditor:(source:Source)=>ReactNode}
+interface Props{task:Task;busy:boolean;run:Run;cache:ReturnType<typeof createLearningDrafts>;saveSourceText?:(input:SourceTextSaveInput)=>Promise<unknown>;inspectSourceSave?:(input:SourceTextSaveInspectionInput)=>Promise<unknown>;isCurrent?:()=>boolean;reference?:SourceRef;intake?:'text'|'image';onWindow:()=>void;onArtifact:(item:Artifact)=>void;onProcedure:(item:Procedure)=>void;renderImageEditor:(source:Source)=>ReactNode}
 
-export function ContextInspector({task,busy,run,cache,saveSourceText,inspectSourceSave,isCurrent,reference,intake,onWindow,renderImageEditor}:Props){
+export function ContextInspector({task,busy,run,cache,saveSourceText,inspectSourceSave,isCurrent,reference,intake,onWindow,onArtifact,onProcedure,renderImageEditor}:Props){
  const [selection,setSelection]=useState<SourceRef|undefined>(reference),[mode,setMode]=useState<Mode>(intake??(reference?'source':'list'));
  const [editId,setEditId]=useState<string>(),[label,setLabel]=useState(''),[content,setContent]=useState(''),[role,setRole]=useState<SourceInput['role']>('fact');
  const [baseline,setBaseline]=useState({label:'',content:'',role:'fact' as SourceInput['role']});
@@ -54,6 +55,7 @@ export function ContextInspector({task,busy,run,cache,saveSourceText,inspectSour
   <div className="source-capture-row"><small>{time(version.capturedAt)}</small>{version.kind==='window'&&!historical&&<Button kind="text" disabled={busy} onClick={async()=>{const result=await run<Task>({type:'windows.capture',taskId:task.id,windowId:version.windowId!,sourceId:source.id},'New window snapshot saved');if(result){const saved=result.sources.find(s=>s.id===source.id)!,v=latest(saved.versions);setSelection({sourceId:source.id,version:v.version,digest:v.digest});}}}><RefreshCw size={14}/>Refresh capture</Button>}</div>
   {source.freshness!=='fresh'&&<p className="warning">{version.kind==='window'?'Capture this window again to use its latest content.':'Review this source before using it again.'}</p>}
   <div className="source-role-row"><span>Use as</span><span>{sourceRoleLabel(version.role)}</span></div>
+  {(()=>{const affected=sourceAffectedWork(task,source.id);return affected.length?<section className="affected-outputs source-affected-work" aria-label="Saved work to review"><h3>Saved work to review</h3><p className="tiny">The latest saved versions below reference this source and need review. Opening them does not update their sources.</p>{affected.map(entry=><button type="button" key={entry.kind+':'+entry.item.id} onClick={()=>entry.kind==='artifact'?onArtifact(entry.item):onProcedure(entry.item)}><span><strong>{entry.item.revisions.at(-1)?.title}</strong><small>{entry.kind==='artifact'?'Saved result':'Procedure'} · {entry.refs.map(ref=>'Version '+ref.version+(source.versions.some(v=>v.version===ref.version&&v.digest===ref.digest)?'':' (snapshot unavailable)')).join(', ')}</small></span></button>)}</section>:null;})()}
   <details className="source-history"><summary>Source history</summary>{source.versions.map(v=><button type="button" className="source-version-link" key={v.version} onClick={()=>setSelection({sourceId:source.id,version:v.version,digest:v.digest})}>Version {v.version} · {time(v.capturedAt)}</button>)}</details><DeveloperDetails title="Source verification"><pre>{JSON.stringify(selection,null,2)}</pre></DeveloperDetails>
  </>}</section>;
  return <section className="context-list"><div className="context-list-actions"><TaskMenu label="Add source"><Button onClick={onWindow}><AppWindow size={15}/>Window</Button><Button onClick={()=>navigate(()=>setMode('image'))}><ImageIcon size={15}/>Image</Button><Button onClick={()=>navigate(()=>setMode('text'))}><FileText size={15}/>Paste text</Button></TaskMenu></div>{task.sources.length?<div className="source-list" ref={list}>{task.sources.map(source=>{const v=latest(source.versions);return <button className="source-list-row" data-source-id={source.id} key={source.id} onClick={()=>choose(source)}>{v.kind==='text'?<FileText size={17}/>:v.kind==='window'?<AppWindow size={17}/>:<ImageIcon size={17}/>}<span><strong>{v.label}</strong><small>{source.freshness==='fresh'?sourceRoleLabel(v.role):'Refresh required'}</small></span></button>})}</div>:<p className="muted">No context attached yet.</p>}</section>;

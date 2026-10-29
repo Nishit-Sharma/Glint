@@ -12,8 +12,8 @@ import {OnboardingFixture} from './onboarding-fixture';
 /** No task, source or module is seeded. Product onboarding and New task controls
  * create every object. Only OS/provider/transport boundaries are substituted.
  * The pinned-old phase runs actual old Companion+Store, not an old packaged UI. */
-export async function offlineTaskEntry(page:Page){
- const fixture=await OnboardingFixture.open(page,{port:4180});
+export async function offlineTaskEntry(page:Page,port=4180){
+ const fixture=await OnboardingFixture.open(page,{port});
  const invoke=fixture.invoke.bind(fixture);
  const creations:Extract<Command,{type:'tasks.start-local'}>[]=[];
  const phases:Array<{phase:string;utc:string;companionSha256?:string;storeSha256?:string}>=[{phase:'current-renderer/current-core',utc:new Date().toISOString()}];

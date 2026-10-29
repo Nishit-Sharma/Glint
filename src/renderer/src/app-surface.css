@@ -43,3 +43,5 @@
 .compact-companion{--muted:#b8b8b4}.compact-companion .composer-context{max-height:max(64px,calc(var(--compact-height,100dvh) - 132px));overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
 
 @media(max-width:799px){.context-inspector:has(>.inspector-content>.document-workspace)>.inspector-toolbar{height:48px;min-height:48px}}
+
+.source-affected-work{margin:20px 0;padding-top:16px;border-top:1px solid var(--line)}.source-affected-work h3{font-size:15px}.source-affected-work>button span{min-width:0;overflow-wrap:anywhere}.source-affected-work>button small{margin-top:3px}
