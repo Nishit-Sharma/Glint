@@ -174,6 +174,25 @@ export function runHelper(stateValue:unknown,inputValue:unknown,hostValue:unknow
  if(!active)throw Error('Activate a saved version before running this helper.');
  return {...execute(active.definition,text),helperId:state.helperId,version:active.version};
 }
+/** A saved result is evidence of what ran, not an automatic expected answer. */
+export function textRunCheckReview(dataValue:unknown,stateValue:unknown){
+ const state=parseState(dataValue,stateValue),run=state.lastRun;
+ if(!run)throw Error('Run the active helper before reviewing a fresh input.');
+ if(state.recording)throw Error('Finish or cancel the demonstration first.');
+ if(state.draft.tests.length>=20)throw Error('Make room for another declared check first.');
+ if(state.draft.tests.some(check=>check.input===run.input))throw Error('This exact input already has a draft check. Review or edit that check.');
+ const choices=run.result.kind==='output'?[{id:'saved-output',label:'Use this saved exact output as my expectation'},{id:'different-output',label:'Write a different exact output'},{id:'abstain',label:'Expect abstention instead'}]:[{id:'saved-abstention',label:'Use this saved abstention as my expectation'},{id:'different-output',label:'Expect exact text instead'}];
+ return {binding:JSON.stringify([state.helperId,state.revision,run.version,run.input]),run,choices};
+}
+export function textRunCheckFields(dataValue:unknown,stateValue:unknown,requestValue:unknown){
+ const state=parseState(dataValue,stateValue),request=decode(Schema.Struct({expectedRevision:rev,runVersion:Schema.Int.pipe(Schema.between(1,20)),runInput:input,choice:Schema.Literal('saved-output','saved-abstention','different-output','abstain')}),requestValue);
+ if(state.revision!==request.expectedRevision)throw Error('This helper changed. Review the current saved run first.');
+ const review=textRunCheckReview(dataValue,state);
+ if(review.run.version!==request.runVersion||review.run.input!==request.runInput)throw Error('This is not the current saved run.');
+ if(!review.choices.some(choice=>choice.id===request.choice))throw Error('Choose an expected outcome offered for this run.');
+ const abstain=request.choice==='saved-abstention'||request.choice==='abstain';
+ return {editingTest:'',testInput:review.run.input,testOutput:request.choice==='saved-output'&&review.run.result.kind==='output'?review.run.result.text:'',testKind:abstain?'abstain' as const:'output' as const,testRole:'counterexample' as const};
+}
 /** Read-only trial of two immutable checked versions; activation and state stay untouched. */
 export function compareSavedHelperVersions(dataValue:unknown,stateValue:unknown,requestValue:unknown){
  const state=parseState(dataValue,stateValue),request=decode(Schema.Struct({referenceVersion:Schema.Int.pipe(Schema.between(1,20)),candidateVersion:Schema.Int.pipe(Schema.between(1,20)),input}),requestValue);
