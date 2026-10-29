@@ -20,7 +20,7 @@ import {DraftNavigationScope} from '../draft-navigation';
 import './interactive-module.css';
 
 type ModuleMotion = {identity:string;arrivalIdentity:string};
-type Interaction = { pending: boolean; onAction: (action: ModuleAction) => void|Promise<boolean>; motion?:ModuleMotion;task?:Task };
+type Interaction = { pending: boolean; onAction: (action: ModuleAction) => void|Promise<boolean>; motion?:ModuleMotion;task?:Task;onOpenSourceDocument?:()=>void };
 function Part({motion,id,children}:{motion?:ModuleMotion;id:string;children:ReactNode}){
  return motion?<ReadyArtifact identity={motion.identity+':'+id} arrivalIdentity={motion.arrivalIdentity}>{children}</ReadyArtifact>:children;
 }
@@ -45,10 +45,10 @@ export const moduleViews = {
   'workflow-lab':{definition:workflowModule,render(value,state,interaction){const data=workflowLab.parse(value);return <WorkflowLab data={data} state={workflowLab.parseState(data,state)} {...interaction}/>;}},
 } satisfies { [K in keyof typeof moduleRegistry]: RenderDefinition & { definition: typeof moduleRegistry[K] } };
 
-export function ModuleView({ data, state, pending = false, onAction,motion,task,draftOwner }: { data: ModuleDraft; state: ModuleState; pending?: boolean; onAction: (action: ModuleAction) => void|Promise<boolean>;motion?:ModuleMotion;task?:Task;draftOwner?:LearningDraftOwner }) {
+export function ModuleView({ data, state, pending = false, onAction,motion,task,draftOwner,onOpenSourceDocument }: { data: ModuleDraft; state: ModuleState; pending?: boolean; onAction: (action: ModuleAction) => void|Promise<boolean>;motion?:ModuleMotion;task?:Task;draftOwner?:LearningDraftOwner;onOpenSourceDocument?:()=>void }) {
   if (data.kind !== state.kind) return <p role="alert">This answer changed. Reload it to keep editing.</p>;
   let content:ReactNode;
-  try { content=moduleViews[data.kind].render(data, state, { pending, onAction,motion,task }); }
+  try { content=moduleViews[data.kind].render(data, state, { pending, onAction,motion,task,onOpenSourceDocument }); }
   catch { return <section className="interactive-answer" aria-label={data.title}><p role="alert">This saved example needs review before editing. Your saved work is kept.</p></section>; }
   return <section className="interactive-answer" aria-label={data.title}>{data.kind==='join-lab'||data.kind==='grounded-join'||data.kind==='workflow-lab'||data.kind==='helper-studio'?<DraftNavigationScope identity={motion?.identity}><LearningDraftScope owner={draftOwner}>{content}</LearningDraftScope></DraftNavigationScope>:content}</section>;
 }

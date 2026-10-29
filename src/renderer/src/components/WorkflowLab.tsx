@@ -5,9 +5,10 @@ import type {Task} from '../../../core/types';
 import {workflowLab,workflowLimits,workflowTransferDisplayTitle,type WorkflowAction,type WorkflowCase,type WorkflowData,type WorkflowState} from '../../../learning/workflow-lab';
 import {workflowStatus} from '../../../learning/workflow-grounding';
 import {useGuardedAction,useNavigationForm,formSubmission,type FormSubmission} from '../draft-navigation';
+import {workflowSourceDocument} from '../workflow-source-navigation';
 import './workflow-lab.css';
 
-type Props={data:WorkflowData;state:WorkflowState;pending?:boolean;onAction:(action:WorkflowAction)=>void|Promise<boolean>;task?:Task};
+type Props={data:WorkflowData;state:WorkflowState;pending?:boolean;onAction:(action:WorkflowAction)=>void|Promise<boolean>;task?:Task;onOpenSourceDocument?:()=>void};
 type InputAction=(action:WorkflowAction)=>FormSubmission|undefined;
 type Interaction={revision:number;committedState:WorkflowState;disabled:boolean;onAction:InputAction};
 const labelFor=(entries:readonly {id:string;label:string}[],id:string)=>entries.find(entry=>entry.id===id)?.label??'Unavailable';
@@ -92,7 +93,7 @@ function CausalExplanation({value,sourceName}:{value:NonNullable<ReturnType<type
  </section>;
 }
 
-export function WorkflowLab({data,state,pending=false,onAction,task}:Props){
+export function WorkflowLab({data,state,pending=false,onAction,task,onOpenSourceDocument}:Props){
  const view=workflowLab.observe(data,state),firstTransfer=workflowLab.firstTransfer(data,state),status=workflowStatus(data,task),disabled=pending||status.kind!=='current';
  const editable=view.phase==='practice-predict'||view.phase==='practice-reviewed';
  const citationNumber=(id:string)=>data.citations.findIndex(citation=>citation.id===id)+1;
@@ -107,6 +108,7 @@ export function WorkflowLab({data,state,pending=false,onAction,task}:Props){
  return <section className="workflow-lab" data-ui aria-label="Workflow experiment" aria-busy={pending||undefined}>
   <header><h3>{data.title}</h3><p className="workflow-origin">{originLabel[view.origin]} · {view.origin==='synthetic-transfer'?workflowTransferDisplayTitle(data):problem.title}</p></header>
   {status.kind!=='current'&&<p role="alert" className="workflow-source-status">{status.reason} You can inspect this saved work; editing is unavailable.</p>}
+  {status.kind==='stale'&&data.basis.kind==='reviewed-source'&&<section aria-label="Review the source document"><p className="workflow-note">{workflowSourceDocument(task,data.basis)?'Open the latest saved source document to review its links and create a separate lesson. This does not update this saved lesson or its first answer. Current live content remains unknown.':'The source document is unavailable for this lesson. Your saved work is kept.'}</p>{workflowSourceDocument(task,data.basis)&&onOpenSourceDocument&&<button type="button" disabled={pending} onClick={onOpenSourceDocument}>Open source document</button>}</section>}
   {firstTransfer&&<details className="workflow-first-attempt"><summary>Inspect first transfer answer</summary><section aria-label="Saved first transfer attempt">
    <h4>{firstTransfer.title}</h4><p className="workflow-note">Synthetic transfer · Read-only first attempt. Earlier exposure is not tracked. {status.kind!=='current'?'Historical source. The original source changed or is unavailable.':data.basis.kind==='reviewed-window'?'Historical frozen image source.':'Kept with this saved lesson version.'} Opening this view does not change your current practice or apply edits.</p>
    <p>Your first answer: {firstTransfer.predictedStateLabel}; {firstTransfer.prediction.blockedCount} blocked events.</p><p className="workflow-first-reason">Your reasoning (ungraded): {firstTransfer.prediction.reasoning||'(none supplied)'}</p>
