@@ -33,6 +33,7 @@ export class BrowserFixture {
   configured=true;
   checkBarrier?:Promise<void>;
   browserError?:string;
+  taskPinError?:string;
   browserCompletion?:Promise<void>;
   browserInspection?:(command:Extract<Command,{type:'browser.inspect'}>)=>Promise<Task>;
   browserInspectionCancel?:(command:Extract<Command,{type:'browser.inspect.cancel'}>)=>Promise<BrowserInspectionStopResult>;
@@ -179,6 +180,8 @@ export class BrowserFixture {
       }
       case 'context.start':{const activation={activationId:crypto.randomUUID(),tucked:this.surface==='anchor',...(command.newTask?{newTask:true}:{}),...(command.source?{analyze:true,source:command.source,ownerTaskId:command.source.taskId}:command.ownerTaskId?{ownerTaskId:command.ownerTaskId}:{}),...(command.requestId?{requestId:command.requestId}:{}),target:{id:'window:99',title:'Visitor guide',owner:{name:'Document viewer'},bounds:{x:20,y:20,width:600,height:500}},choices:[]};this.activation=activation;await this.emit({type:'context.activate',activation});return null;}
       case 'task-view.get':return this.viewPreferences.read();
+      case 'task-pins.get':return this.viewPreferences.readPins();
+      case 'task-pins.set':if(this.taskPinError)throw Error(this.taskPinError);return this.viewPreferences.setPinned(command.taskId,command.pinned);
       case 'context.pending':return this.activation?{kind:'ready',activation:this.activation}:{kind:'none'};
       case 'context.view':return this.viewPreferences.select(command.taskId??null);
       case 'context.cancel':if(this.activation?.activationId===command.activationId)this.activation=undefined;return null;

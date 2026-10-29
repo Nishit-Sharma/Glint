@@ -23,6 +23,7 @@ export type Command =
   | {type:'tasks.get';taskId:string} | {type:'tasks.delete';taskId:string}
   | {type:'tasks.pause'|'tasks.resume';taskId:string}
   | {type:'tasks.checkpoint';taskId:string;note:string}
+  | {type:'task-pins.get'} | {type:'task-pins.set';taskId:string;pinned:boolean}
   | {type:'draft.save';taskId:string;expectedRevision:number;draft:Pick<ComposerDraft,'text'|'kind'>}
   | {type:'draft.flushed';quitId:string;error?:string}
   | {type:'learning-drafts.read'}

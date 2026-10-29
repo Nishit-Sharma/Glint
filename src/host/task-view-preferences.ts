@@ -2,7 +2,10 @@ import {randomUUID} from 'node:crypto';
 import {mkdir,open,readFile,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {isCode} from '../core/store';
-import type {TaskViewState} from '../shared/task-view';
+import {Schema} from 'effect';
+import type {TaskViewState,TaskPinsState} from '../shared/task-view';
+
+const Pins=Schema.Struct({schemaVersion:Schema.Literal(1),taskIds:Schema.Array(Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200),Schema.pattern(/^[^\0]+$/))).pipe(Schema.maxItems(100))});
 
 export class TaskViewPreferences{
  private queue:Promise<unknown>=Promise.resolve();
@@ -25,6 +28,25 @@ export class TaskViewPreferences{
    if(previous.kind==='available'&&previous.taskId===taskId)return previous;
    await mkdir(this.directory,{recursive:true,mode:0o700});const temporary=join(this.directory,`.task-view-${randomUUID()}.tmp`);
    try{const file=await open(temporary,'wx',0o600);try{await file.writeFile(JSON.stringify({schemaVersion:1,taskId}));await file.sync();}finally{await file.close();}await rename(temporary,join(this.directory,'task-view.json'));const directory=await open(this.directory,'r');try{await directory.sync();}finally{await directory.close();}return {kind:'available',taskId};}
+   finally{await rm(temporary,{force:true});}
+  });
+ }
+ private async loadPins():Promise<TaskPinsState>{
+  try{
+   const value=Schema.decodeUnknownSync(Pins,{onExcessProperty:'error'})(JSON.parse(await readFile(join(this.directory,'task-pins.json'),'utf8')));
+   if(new Set(value.taskIds).size!==value.taskIds.length)throw Error('Duplicate pinned task.');
+   const present=await Promise.all(value.taskIds.map(id=>this.exists(id)));return {kind:'available',taskIds:value.taskIds.filter((_,i)=>present[i])};
+  }catch(error){if(isCode(error,'ENOENT'))return {kind:'available',taskIds:[]};return {kind:'unavailable',taskIds:[],message:'Pinned tasks could not be read. Their saved preferences have been kept.'};}
+ }
+ readPins(){return this.serialize(()=>this.loadPins());}
+ setPinned(taskId:string,pinned:boolean):Promise<TaskPinsState>{
+  return this.serialize(async()=>{
+   if(typeof taskId!=='string'||!taskId.length||taskId.length>200||taskId.includes('\0')||typeof pinned!=='boolean'||!await this.exists(taskId))throw Error('Choose an existing task to pin or unpin.');
+   const current=await this.loadPins();if(current.kind==='unavailable')return current;
+   if(current.taskIds.includes(taskId)===pinned)return current;
+   const taskIds=pinned?[...current.taskIds,taskId]:current.taskIds.filter(id=>id!==taskId);if(taskIds.length>100)throw Error('Unpin a task before pinning another.');
+   await mkdir(this.directory,{recursive:true,mode:0o700});const temporary=join(this.directory,`.task-pins-${randomUUID()}.tmp`);
+   try{const file=await open(temporary,'wx',0o600);try{await file.writeFile(JSON.stringify({schemaVersion:1,taskIds}));await file.sync();}finally{await file.close();}await rename(temporary,join(this.directory,'task-pins.json'));const directory=await open(this.directory,'r');try{await directory.sync();}finally{await directory.close();}return {kind:'available',taskIds};}
    finally{await rm(temporary,{force:true});}
   });
  }

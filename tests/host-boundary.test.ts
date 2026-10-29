@@ -170,6 +170,12 @@ describe('Offline text-first task entry',()=>{
  });
 });
 afterEach(async()=>{vi.restoreAllMocks();for(const cleanup of cleanups.splice(0).reverse())await cleanup()})
+it('task pin commands keep navigation preferences separate from task data and reject redirected fields',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Pin an existing local task'}),before=await f.core.listTasks();
+ expect(await f.command({type:'task-pins.get'})).toEqual({kind:'available',taskIds:[]});expect(await f.command({type:'task-pins.set',taskId:task.id,pinned:true})).toEqual({kind:'available',taskIds:[task.id]});
+ await expect(f.command({type:'task-pins.set',taskId:task.id,pinned:'yes'} as never)).rejects.toThrow('pin');await expect(f.command({type:'task-pins.set',taskId:task.id,pinned:true,otherTaskId:'redirect'} as never)).rejects.toThrow('pin');await expect(f.command({type:'task-pins.set',taskId:'missing',pinned:true})).rejects.toThrow('existing task');expect(await f.core.listTasks()).toEqual(before);expect(f.calls.confirmations).toEqual([]);
+});
+
 async function fixture(settingsBytes?:string){
   const root=resolve('.')
   const dir=await mkdtemp(join(tmpdir(),'setup-host-boundary-')),key='hostBoundary'+randomUUID().replaceAll('-','')
