@@ -32,3 +32,28 @@ it('response content and citations stay on the original associated artifact revi
  task.requests[0]={...task.requests[0],status:'completed',artifactId:'answer'};task.artifacts=[{id:'answer',revisions:[first,{...first,revision:2,content:'A later manual edit.',digest:'later-edit',createdAt:'2026-10-25T09:00:00Z'}]},{id:'unrelated',revisions:[{...first,title:'Unrelated file',sourceRefs:[],content:'Another task item.',createdAt:'2026-10-25T10:00:00Z'}]}];
  expect(requestArtifact(task,task.requests[0])).toEqual({artifact:{id:'answer',revisions:[first]},revision:first});
 });
+
+it('explains a final form-value mismatch without claiming earlier steps did not run',()=>{
+ const task=sample(),run=task.session!.runs[0];
+ task.session={...task.session!,runs:[{...run,operations:[{id:'mismatch',intent:{kind:'click',snapshotId:'observation',targetId:'save'},reason:'Save the draft',status:'retired',error:'The intended form values did not match the current page. No submission was offered or executed.'}]}]};
+ expect(browserRequestOutcome(task,task.requests[0])).toMatchObject({label:'Not run',message:'The intended form values could not be matched to the current page, so this submission was not offered or run. Review the page and your request before continuing. Earlier steps may have run.',needsReview:false});
+});
+
+it('keeps uncertainty foremost even when a later form proposal was not run',()=>{
+ const task=sample(),run=task.session!.runs[0],operation=run.operations[0];
+ task.session={...task.session!,runs:[{...run,operations:[{...operation,status:'uncertain',reconciliation:undefined},{id:'mismatch',intent:{kind:'click',snapshotId:'observation',targetId:'save'},reason:'Save',status:'retired',error:'The intended form values did not match the current page. No submission was offered or executed.'}]}]};
+ expect(browserRequestOutcome(task,task.requests[0])).toMatchObject({label:'Outcome needs review',needsReview:true});
+});
+
+it('does not expose unrecognized persisted errors as an explanation',()=>{
+ const task=sample(),run=task.session!.runs[0];
+ task.session={...task.session!,runs:[{...run,operations:[{id:'other',intent:{kind:'click',snapshotId:'observation',targetId:'save'},reason:'Save',status:'retired',error:'private website details'}]}]};
+ expect(browserRequestOutcome(task,task.requests[0])).toMatchObject({label:'Not run',message:'The last browser action was not run. Earlier steps remain in the conversation.'});
+});
+
+it('preserves a prior review while explaining the later unoffered submission',()=>{
+ const task=sample(),run=task.session!.runs[0];
+ task.session={...task.session!,runs:[{...run,operations:[...run.operations,{id:'mismatch',intent:{kind:'click',snapshotId:'observation',targetId:'save'},reason:'Save',status:'retired',error:'The intended form values did not match the current page. No submission was offered or executed.'}]}]};
+ expect(browserRequestOutcome(task,task.requests[0])).toMatchObject({label:'Actions partly reviewed',reviewed:true,message:expect.stringContaining('this submission was not offered or run')});
+ task.requests[0].status='running';expect(browserRequestOutcome(task,task.requests[0])?.label).toBe('Working');
+});

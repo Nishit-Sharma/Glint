@@ -34,12 +34,14 @@ export function browserRequestOutcome(task:Task,request:RequestRecord){
  const notCompleted=run.operations.filter(operation=>operation.status==='failed'&&operation.reconciliation?.outcome==='not-completed').length;
  const otherIncomplete=run.operations.some(operation=>['failed','retired','proposed','executing'].includes(operation.status)&&!operation.reconciliation);
  const reviewed=completed+notCompleted>0;
+ const last=run.operations.at(-1),formMismatch=last?.status==='retired'&&last.error==='The intended form values did not match the current page. No submission was offered or executed.';
+ const mismatchMessage='The intended form values could not be matched to the current page, so this submission was not offered or run. Review the page and your request before continuing. Earlier steps may have run.';
  if(unknown)return {label:'Outcome needs review',message:`${reviewed?'Some actions have been reviewed. ':''}${unknown===1?'One website action still needs review.':'Some website actions still need review.'} Inspect the outcome before trying another action.`,needsReview:true,reviewed};
- if(!reviewed)return request.status!=='running'&&run.operations.at(-1)?.status==='retired'?{label:'Not run',message:'The last browser action was not run. Earlier steps remain in the conversation.',needsReview:false,reviewed:false}:undefined;
+ if(!reviewed)return request.status!=='running'&&last?.status==='retired'?{label:'Not run',message:formMismatch?mismatchMessage:'The last browser action was not run. Earlier steps remain in the conversation.',needsReview:false,reviewed:false}:undefined;
  if(request.status==='running')return {label:'Working',message:'Earlier actions were reviewed. This request is still running.',needsReview:false,reviewed};
  if(completed&&!notCompleted&&!otherIncomplete)return {label:'Reviewed as completed',message:'You reviewed a fresh page and reported that the website action completed. This is your review, not automatic verification of the whole request.',needsReview:false,reviewed};
  if(notCompleted&&!completed&&!otherIncomplete)return {label:'Reviewed as not completed',message:'You reviewed a fresh page and reported that the website action did not complete. The earlier action has not been retried.',needsReview:false,reviewed};
- return {label:'Actions partly reviewed',message:'Your fresh-page reviews are recorded. Other steps did not complete; review the browser steps before continuing.',needsReview:false,reviewed};
+ return {label:'Actions partly reviewed',message:formMismatch?`Your fresh-page reviews are recorded. ${mismatchMessage}`:'Your fresh-page reviews are recorded. Other steps did not complete; review the browser steps before continuing.',needsReview:false,reviewed};
 }
 
 /** Resolve the response created by this request, including its original revision. */
