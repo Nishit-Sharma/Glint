@@ -38,6 +38,8 @@ import {Schema} from 'effect'
 import {CaptureSettings,CaptureSettingsSaveError} from './capture-settings'
 import {CURRENT_CAPTURE_POLICY_VERSION,CaptureApplicationIdentitySchema,evaluateCapturePolicy,evaluateCapturePrivacy,type CaptureApplicationIdentity,type CaptureSnapshot,type CaptureState} from '../shared/capture-policy'
 import {CharacterPreferences} from './character-preferences'
+import {ResponsePreferences,responsePreferencesContext} from './response-preferences'
+import {readResponsePreferencesUpdate} from '../shared/response-preferences'
 import {createNativeSourceDrag} from './source-drag'
 import {createSourceDragPreview} from './source-drag-preview'
 import {TaskViewPreferences} from './task-view-preferences'
@@ -65,6 +67,7 @@ app.setPath('userData',join(dataDir,'profile'))
 app.setPath('sessionData',join(dataDir,'profile'))
 let botPreferences:BotPreferences
 const characterPreferences=CharacterPreferences.open(dataDir)
+const responsePreferences=new ResponsePreferences(dataDir)
 const native=new NativeSourceAdapter()
 // Disposable integration instances must not compete with the user's running app for input.
 const testNoGlobalInput=process.env.WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT==='1'
@@ -142,7 +145,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
-  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','module.edit','module.document','helper.create','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','module.edit','module.document','helper.create','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='tasks.branch'){const {type,...input}=c;return {type:'tasks.branch',...readResponseBranchInput(input)};}
   if(!allowed.includes(c.type as string))throw Error('Unknown companion command.')
   if(JSON.stringify(c).length>18*1024*1024)throw Error('Command exceeds the local input limit.')
@@ -161,6 +164,8 @@ function validate(value:unknown):Command{
   }
   if(c.type==='task-pins.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown task pin field.');return {type:c.type};}
   if(c.type==='task-pins.set'){if(Object.keys(c).some(key=>!['type','taskId','pinned'].includes(key))||typeof c.pinned!=='boolean')throw Error('Invalid task pin change.');return {type:c.type,taskId:str(c.taskId,'task ID',200),pinned:c.pinned};}
+  if(c.type==='response-preferences.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown response preference field.');return {type:'response-preferences.get'};}
+  if(c.type==='response-preferences.update'){if(Object.keys(c).some(key=>!['type','expectedRevision','enabled','text'].includes(key)))throw Error('Unknown response preference field.');return {type:'response-preferences.update',...readResponsePreferencesUpdate({expectedRevision:c.expectedRevision,enabled:c.enabled,text:c.text})};}
   if(c.type==='preferences.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown appearance preference field.');return {type:'preferences.get'};}
   if(c.type==='bots.change'){if(Object.keys(c).some(key=>!['type','change'].includes(key)))throw Error('Unknown companion field.');return {type:'bots.change',change:readBotCommand(c.change)};}
   if(c.type==='bots.assign'){if(Object.keys(c).some(key=>!['type','taskId','botId','expectedBotId'].includes(key)))throw Error('Unknown assignment field.');return {type:'bots.assign',taskId:str(c.taskId,'task ID',200),botId:str(c.botId,'companion ID',200),expectedBotId:str(c.expectedBotId,'previous companion ID',200)};}
@@ -678,6 +683,8 @@ async function command(c:Command):Promise<unknown>{
     case 'bots.get':return botPreferences.read()
     case 'bots.change':{const result=await botPreferences.command(c.change);if(c.change.type==='complete'&&result.kind==='saved'){await botPreferences.finishExample(core);changed();const state=await botPreferences.read();return state.kind==='available'?{kind:'saved',current:state.current}:state;}return result;}
     case 'bots.assign':{const state=await botPreferences.read();if(state.kind!=='available'||state.current.kind!=='ready'||!state.current.bots.some(bot=>bot.id===c.botId))throw Error('This companion is unavailable. Your task is kept.');return taskMutation(c.taskId,()=>core.assignBot(c.taskId,c.botId,c.expectedBotId));}
+    case 'response-preferences.get':return responsePreferences.read()
+    case 'response-preferences.update':return responsePreferences.update({expectedRevision:c.expectedRevision,enabled:c.enabled,text:c.text},()=>assertCurrentWork(lifecycle))
     case 'preferences.get':return (await characterPreferences).read()
     case 'preferences.update':return (await characterPreferences).update({expectedRevision:c.expectedRevision,profile:c.profile})
     case 'tasks.list':return core.listTasks()
@@ -858,9 +865,10 @@ async function command(c:Command):Promise<unknown>{
       if(c.kind==='revise'&&targetRevision)assertRawModuleOperationAllowed(targetRevision.mimeType,'revise')
       if(c.revisionBasis!==undefined)assertRevisionInstructionRequest(before,c.artifactId!,c.revisionBasis,c.sourceIds,c.expectedSourceRefs)
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)
-      const request=plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
+      const preferences=!plan&&!target&&['explain','create'].includes(kind)?await responsePreferences.lease():undefined;assertCurrentWork(lifecycle);
+      const request=plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(preferences?.scope?{executionScope:preferences.scope}:{}),...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
       let captureRequest=false;let assertWindowPublication=()=>{};
-      const assertResultCurrent=()=>{assertWindowPublication();assertCurrentWork(lifecycle);if(epoch!==keyEpoch)throw Error('Connection changed during request.');if(captureRequest&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'||privacySignal.aborted))throw Error('Capture privacy changed during the request.');};
+      const assertResultCurrent=()=>{preferences?.assertCurrent();assertWindowPublication();assertCurrentWork(lifecycle);if(epoch!==keyEpoch)throw Error('Connection changed during request.');if(captureRequest&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'||privacySignal.aborted))throw Error('Capture privacy changed during the request.');};
       const result=await core.runRequest(request,async ctx=>{
         const response=plan?.bind(ctx),reviewResponse=response?.kind==='join-extraction'||response?.kind==='window-workflow-proposal'?response:undefined;
         captureRequest=ctx.task.sources.some(source=>source.versions.at(-1)?.kind==='window');
@@ -868,11 +876,13 @@ async function command(c:Command):Promise<unknown>{
         const revisionTarget=targetRevision?readTaskArtifactText(ctx.task,target!.id,targetRevision.revision):undefined
         if(revisionTarget&&!revisionTarget.available)throw Error(revisionTarget.reason)
         const revisionTargetDigest=revisionTarget?.available?createHash('sha256').update(revisionTarget.text).digest('hex'):undefined
+        const taskContext=preferences?responsePreferencesContext(ctx.taskHistory,preferences.current):ctx.taskHistory;
+        await preferences?.check();
         const connection=await provider.status();assertCurrentWork(lifecycle)
         if(!connection.configured)throw Error('Provider availability is unverified. Check the connection before authorizing a new request. Nothing was sent.')
         {
-          const consent=await dialog.showMessageBox(panel,{type:'question',message:`Send this request to ${connection.provider==='Meta'?'Meta':'OpenAI'}?`,detail:`${connection.provider==='Meta'?'Destination: Meta (api.meta.ai)':'Destination: OpenAI through your Codex account'}\n\nSources:\n${ctx.task.sources.map(s=>{const v=s.versions.at(-1)!;return `${v.label} · ${v.kind==='window'?'window snapshot':v.kind} · ${v.role} reference · version ${v.version}`}).join('\n')||'No sources selected'}\n\n${ctx.taskHistory?`${taskHistoryReview(ctx.taskHistory)}\n\n`:''}${targetRevision?`Revising “${targetRevision.title}” (version ${targetRevision.revision}).\n\n`:''}${plan?`Using “${plan.review.basisTitle}” (version ${plan.review.basisRevision}). ${plan.review.purpose}\n\n`:''}Request: ${prompt}\n\n${reviewResponse?.kind==='window-workflow-proposal'?'This prepares proposed image transcription and inferred finite state transitions for your review. It does not simulate HDL.\n\n':reviewResponse?'This prepares table transcription for your review. It does not run a database query.\n\n':''}${connection.provider==='Meta'?'Uses your selected Meta account.':'Uses your Codex account and its existing instructions.'} This requests a response; it does not allow changes to your apps or files. Stopping disconnects this app, but the service may already be processing the request.`,buttons:['Cancel',`Send to ${connection.provider==='Meta'?'Meta':'OpenAI'}`],defaultId:0,cancelId:0})
-          assertCurrentWork(lifecycle);if(consent.response!==1)throw Error('Model request was not authorized. Nothing was sent.')
+          const consent=await dialog.showMessageBox(panel,{type:'question',message:`Send this request to ${connection.provider==='Meta'?'Meta':'OpenAI'}?`,detail:`${connection.provider==='Meta'?'Destination: Meta (api.meta.ai)':'Destination: OpenAI through your Codex account'}\n\nSources:\n${ctx.task.sources.map(s=>{const v=s.versions.at(-1)!;return `${v.label} · ${v.kind==='window'?'window snapshot':v.kind} · ${v.role} reference · version ${v.version}`}).join('\n')||'No sources selected'}\n\n${ctx.taskHistory?`${taskHistoryReview(ctx.taskHistory)}\n\n`:''}${targetRevision?`Revising “${targetRevision.title}” (version ${targetRevision.revision}).\n\n`:''}${plan?`Using “${plan.review.basisTitle}” (version ${plan.review.basisRevision}). ${plan.review.purpose}\n\n`:''}Request: ${prompt}\n\n${preferences?preferences.consent+'\n\n':''}${reviewResponse?.kind==='window-workflow-proposal'?'This prepares proposed image transcription and inferred finite state transitions for your review. It does not simulate HDL.\n\n':reviewResponse?'This prepares table transcription for your review. It does not run a database query.\n\n':''}${connection.provider==='Meta'?'Uses your selected Meta account.':'Uses your Codex account and its existing instructions.'} This requests a response; it does not allow changes to your apps or files. Stopping disconnects this app, but the service may already be processing the request.`,buttons:['Cancel',`Send to ${connection.provider==='Meta'?'Meta':'OpenAI'}`],defaultId:0,cancelId:0})
+          assertCurrentWork(lifecycle);await preferences?.check();if(consent.response!==1)throw Error('Model request was not authorized. Nothing was sent.')
         }
         assertCurrentWork(lifecycle);if(ctx.signal.aborted||epoch!==keyEpoch)throw Error('Request stopped or connection changed before transmission.')
         const sources=ctx.task.sources.map(s=>({...s.versions.at(-1)!}))
@@ -900,17 +910,19 @@ async function command(c:Command):Promise<unknown>{
           if(windowSources.length&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'))throw Error('Capture privacy changed before transmission.');
           for(const {binding,capture} of windowSources)if(!capture||boundCapture(c.taskId,binding)!==capture)throw Error('Source changed or expired; select and refresh it.');
         };
-        const captureFence=windowSources.length?{assertCurrent:assertWindowUse,check:async()=>{
+        const windowFence=windowSources.length?{assertCurrent:assertWindowUse,check:async()=>{
           assertWindowUse();
           await documentFollow.poll();assertWindowUse();
           await checkCaptureTarget(windowSources.map(({capture})=>capture!.source),undefined,assertWindowUse);assertWindowUse();
         }}:undefined;
+        const captureFence=preferences?{assertCurrent:()=>{preferences.assertCurrent();assertWindowUse();},check:async()=>{await preferences.check();await windowFence?.check();preferences.assertCurrent();}}:windowFence;
         await captureFence?.check();assertWindowUse();
         if(response?.kind==='window-workflow-proposal')assertWindowPublication=assertWindowUse;
         let streamed=''
         const structured=kind==='experiment'||kind==='procedure'?kind:undefined
         if(reviewResponse)emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:reviewResponse.progress})
-        const content=await provider.run({...(['explain','create','revise'].includes(kind)?{taskContext:ctx.taskHistory}:{}),captureFence,prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,signal:windowSources.length?AbortSignal.any([ctx.signal,privacySignal]):ctx.signal,onChunk:delta=>{if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}})
+        const content=await provider.run({...(['explain','create','revise'].includes(kind)?{taskContext}:{}),captureFence,prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,signal:AbortSignal.any([ctx.signal,...(windowSources.length?[privacySignal]:[]),...(preferences?[preferences.signal]:[])]),onChunk:delta=>{preferences?.assertCurrent();if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}})
+        await preferences?.check();
         if(windowSources.length&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'))throw Error('Capture privacy changed during the request.');
         if(epoch!==keyEpoch)throw Error('Connection changed during request.')
         if(response?.kind==='window-workflow-proposal'){await captureFence?.check();assertWindowUse();}

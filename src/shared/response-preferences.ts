@@ -1,0 +1,18 @@
+import {Schema} from 'effect';
+
+export const RESPONSE_PREFERENCES_LIMIT=4_000;
+export const RESPONSE_PREFERENCES_CHANGED='Response preferences changed. Review the current preferences and send a new request. An earlier request may already have reached the service; its outcome and charges are unverified.';
+export const RESPONSE_PREFERENCES_UNAVAILABLE='Your saved response preferences could not be opened. They have not been changed. Review Responses in Settings before sending a new question.';
+export const RESPONSE_PREFERENCES_CONTEXT_LIMIT='The task context and response preferences exceed the safe context limit. Shorten the preferences or turn them off before sending a new question. Nothing was sent.';
+const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_INTEGER));
+const text=Schema.String.pipe(Schema.maxLength(RESPONSE_PREFERENCES_LIMIT));
+export const ResponsePreferencesSnapshotSchema=Schema.Struct({revision,enabled:Schema.Boolean,text});
+export const ResponsePreferencesUpdateSchema=Schema.Struct({expectedRevision:revision,enabled:Schema.Boolean,text});
+export type ResponsePreferencesSnapshot=typeof ResponsePreferencesSnapshotSchema.Type;
+export type ResponsePreferencesUpdate=typeof ResponsePreferencesUpdateSchema.Type;
+export type ResponsePreferencesState={kind:'available';current:ResponsePreferencesSnapshot}|{kind:'unavailable';message:string};
+export type ResponsePreferencesCommit={kind:'saved'|'conflict';current:ResponsePreferencesSnapshot}|{kind:'unavailable';message:string};
+const unavailable=Schema.Struct({kind:Schema.Literal('unavailable'),message:Schema.String});
+export const readResponsePreferencesUpdate=Schema.decodeUnknownSync(ResponsePreferencesUpdateSchema,{onExcessProperty:'error'});
+export const readResponsePreferencesState=Schema.decodeUnknownSync(Schema.Union(Schema.Struct({kind:Schema.Literal('available'),current:ResponsePreferencesSnapshotSchema}),unavailable),{onExcessProperty:'error'});
+export const readResponsePreferencesCommit=Schema.decodeUnknownSync(Schema.Union(Schema.Struct({kind:Schema.Literal('saved','conflict'),current:ResponsePreferencesSnapshotSchema}),unavailable),{onExcessProperty:'error'});

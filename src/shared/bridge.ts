@@ -17,6 +17,7 @@ export type Command =
   | {type:'capture.settings.private';expectedRevision:number;keep:number[];windowIds:string[]}
   | {type:'bots.get'} | {type:'bots.change';change:BotCommand}
   | {type:'bots.assign';taskId:string;botId:string;expectedBotId:string}
+  | {type:'response-preferences.get'} | {type:'response-preferences.update';expectedRevision:number;enabled:boolean;text:string}
   | {type:'preferences.get'} | {type:'preferences.update';expectedRevision:number;profile:CharacterProfile}
   | {type:'tasks.list'} | {type:'tasks.create';title:string;goal?:string}
   | ({type:'tasks.start-local'} & LocalTaskStartInput)

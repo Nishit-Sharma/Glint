@@ -1,3 +1,4 @@
+import {ResponsePreferences} from '../src/host/response-preferences';
 import {LearningDraftStore} from '../src/host/learning-drafts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -26,6 +27,7 @@ export class BrowserFixture {
   viewPreferences!:TaskViewPreferences;
   learningDrafts!:LearningDraftStore;
   preferences!:CharacterPreferences;
+  responsePreferences!:ResponsePreferences;
   preferenceSaveError?:string;
   losePreferenceAcknowledgement=false;
   loseBranchAcknowledgement=false;
@@ -73,6 +75,7 @@ export class BrowserFixture {
     const fixture = new BrowserFixture(page, directory, core, await core.getTask(taskA.id), await core.getTask(taskB.id));
     fixture.learningDrafts=new LearningDraftStore({directory:join(directory,'store'),lookupTask:async id=>(await fixture.core.listTasks()).find(task=>task.id===id)});
     fixture.preferences=await CharacterPreferences.open(join(directory,'store'));
+    fixture.responsePreferences=new ResponsePreferences(join(directory,'store'));
     fixture.viewPreferences=new TaskViewPreferences(join(directory,'store'),async id=>(await fixture.core.listTasks()).some(task=>task.id===id));
     await fixture.viewPreferences.select(taskA.id);
     if(mode==='companion')fixture.lastSurface='companion';if(mode)fixture.surface=mode;
@@ -145,6 +148,8 @@ export class BrowserFixture {
     this.commands.push(structuredClone(command));
     switch (command.type) {
       case 'bots.get':return undefined;
+      case 'response-preferences.get':return this.responsePreferences.read();
+      case 'response-preferences.update':return this.responsePreferences.update({expectedRevision:command.expectedRevision,enabled:command.enabled,text:command.text});
       case 'preferences.get':return this.preferences.read();
       case 'preferences.update':{if(this.preferenceSaveError)throw Error(this.preferenceSaveError);const result=await this.preferences.update({expectedRevision:command.expectedRevision,profile:command.profile});if(this.losePreferenceAcknowledgement){this.losePreferenceAcknowledgement=false;throw Error('Fixture lost acknowledgement after commit.');}return result;}
 
