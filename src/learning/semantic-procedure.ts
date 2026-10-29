@@ -16,9 +16,11 @@ const fieldSchema=Schema.Union(
 );
 type Field=typeof fieldSchema.Type;
 const recordSchema=Schema.Struct({name:identifier,fields:Schema.Array(fieldSchema).pipe(Schema.minItems(1),Schema.maxItems(semanticProcedureLimits.fields))});
-const valueSchema=Schema.Union(Schema.Struct({kind:Schema.Literal('literal'),value:scalarSchema}),Schema.Struct({kind:Schema.Literal('input'),field:identifier}));
+const atomicValueSchema=Schema.Union(Schema.Struct({kind:Schema.Literal('literal'),value:scalarSchema}),Schema.Struct({kind:Schema.Literal('input'),field:identifier}));
+const arithmeticSchema=Schema.Struct({kind:Schema.Literal('arithmetic'),operator:Schema.Literal('add','subtract','multiply','divide'),left:atomicValueSchema,right:atomicValueSchema});
+const valueSchema=Schema.Union(atomicValueSchema,arithmeticSchema);
 type Value=typeof valueSchema.Type;
-const operandSchema=Schema.Union(valueSchema,Schema.Struct({kind:Schema.Literal('output'),field:identifier}));
+const operandSchema=Schema.Union(atomicValueSchema,Schema.Struct({kind:Schema.Literal('output'),field:identifier}));
 type Operand=typeof operandSchema.Type;
 const operatorSchema=Schema.Literal('eq','ne','gt','gte','lt','lte');
 export type SemanticPredicate=
@@ -161,8 +163,14 @@ export function parseSemanticProcedure(value:unknown):SemanticProcedure {
   switch(value.kind){
    case 'assign':{
     const field=outputs.get(value.field);if(!field)fail(`Unknown output field ${value.field}.`);
-    if(operandType(value.value,assigned,false)!==field.kind)fail(`Assignment type differs for ${value.field}.`);
-    if(value.value.kind==='literal'&&!accepts(field,value.value.value))fail(`Assignment exceeds the output contract for ${value.field}.`);
+    if(value.value.kind==='arithmetic'){
+     if(plan.target!=='local-record')fail('Arithmetic assignments are available only to local record helpers.');
+     if(field.kind!=='number'||operandType(value.value.left,assigned,false)!=='number'||operandType(value.value.right,assigned,false)!=='number')fail('Arithmetic assignments require a numeric result and two numeric inputs or constants.');
+     if(value.value.operator==='divide'&&value.value.right.kind==='literal'&&value.value.right.value===0)fail('A constant divisor must not be zero.');
+    }else{
+     if(operandType(value.value,assigned,false)!==field.kind)fail(`Assignment type differs for ${value.field}.`);
+     if(value.value.kind==='literal'&&!accepts(field,value.value.value))fail(`Assignment exceeds the output contract for ${value.field}.`);
+    }
     step(value.next,new Set([...assigned,value.field]),depth+1);return;
    }
    case 'branch':predicate(value.predicate,assigned,true);step(value.then,assigned,depth+1);step(value.else,assigned,depth+1);return;
@@ -221,7 +229,15 @@ function execute(plan:SemanticProcedure,input:SemanticRecord):SemanticRunResult 
   const inspected:Inspection[]=[];
   switch(step.kind){
    case 'assign':{
-    const value=read(step.value,inspected),field=outputs.get(step.field);
+    let value:SemanticScalar;
+    if(step.value.kind==='arithmetic'){
+     const left=read(step.value.left,inspected),right=read(step.value.right,inspected);
+     const number=typeof left==='number'&&typeof right==='number'?(step.value.operator==='add'?left+right:step.value.operator==='subtract'?left-right:step.value.operator==='multiply'?left*right:left/right):NaN;
+     const reason=step.value.operator==='divide'&&right===0?'Cannot divide by zero.':!Number.isFinite(number)?'The calculation did not produce a finite number.':null;
+     if(reason){trace.push({stepId:step.id,kind:step.kind,inspected,decision:false,reason,output:snapshot()});return stopped('output-contract',step.id,reason);}
+     value=number;
+    }else value=read(step.value,inspected);
+    const field=outputs.get(step.field);
     if(!field||!accepts(field,value)){
      const reason=`Derived value exceeds the output contract for ${step.field}.`;
      trace.push({stepId:step.id,kind:step.kind,inspected,decision:false,reason,output:snapshot()});

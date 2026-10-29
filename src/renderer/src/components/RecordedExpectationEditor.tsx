@@ -5,7 +5,7 @@ import type {SemanticExample,SemanticProcedure,SemanticRecord} from '../../../le
 import {typedInputDefaults,type TypedField} from '../typed-semantic-procedure';
 import {TypedRecordFields} from './TypedProcedureFields';
 export type RecordedExpectationDraft={recordingId:string;outcome:'completed'|'abstained'|'invalid-input';output:Record<string,string>;stopId:string;reason:string};
-export type RecordingStop={id:string;code:'precondition'|'explicit-stop';label:string};
+export type RecordingStop={id:string;code:'precondition'|'explicit-stop'|'output-contract';label:string};
 export function recordedExpectationDraft(recordingId:string,expected:SemanticExample['expected']|undefined,outputs:readonly TypedField[],stopId:string):RecordedExpectationDraft{
  const output=typedInputDefaults(outputs);
  if(expected?.status==='completed')for(const field of outputs){const value=expected.output[field.name];if(typeof value===field.kind)output[field.name]=String(value);}

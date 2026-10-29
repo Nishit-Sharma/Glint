@@ -1,0 +1,10 @@
+{
+  "baseline": "463e270fbd95a3bb26467882ac2b1df087e1d1b06b9db3ce343ac2d3d3b9597a",
+  "baselineHead": "e5e30ff9b9b2101955a7ccc1ac5e6f596df2196b",
+  "purpose": "Exact pre-arithmetic parser/helper reader; copied unchanged source dependencies are local beside one another. Full old task/sidecar probes use separately pinned a91 fixture.",
+  "sources": {
+    "src/learning/semantic-procedure.ts": "7ca1584777f4fcfcbe69d6e2d16c4dfc272ec2ce5a90cbe7975bb78ea539f990",
+    "src/learning/semantic-demonstration.ts": "36f2526dfb88ade512acdaf7c01f5fa2c0e93ff9badcf71b672fedcbce249e89",
+    "src/learning/semantic-helper.ts": "e25d8ff0ae532e1021359816881c9d5289b7193d40fcd16dcc2e292ba4b767d1"
+  }
+}
