@@ -10,6 +10,9 @@ const version=Schema.Int.pipe(Schema.between(1,20));
 const note=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(160),Schema.filter(value=>value.trim().length>0));
 const scalar=Schema.Union(Schema.String.pipe(Schema.maxLength(4000)),Schema.Number.pipe(Schema.between(-1e12,1e12),Schema.filter(Number.isFinite)),Schema.Boolean);
 const input=Schema.Record({key:Schema.String,value:scalar});
+export const semanticBatchLimit=8;
+const batchInput=input.pipe(Schema.filter(value=>Object.keys(value).length<=6&&Object.values(value).every(item=>typeof item!=='string'||item.length<=160)));
+const batchRows=Schema.Array(Schema.Struct({input:batchInput,result:Schema.Unknown})).pipe(Schema.minItems(1),Schema.maxItems(semanticBatchLimit));
 const definitions=Schema.Array(Schema.Struct({procedure:Schema.Unknown})).pipe(Schema.maxItems(20));
 const versions=Schema.Array(Schema.Struct({version,procedureVersion:version,savedAtRevision:revision,changeNote:note,candidate:Schema.Unknown})).pipe(Schema.maxItems(20));
 export const SemanticHelperStateSchema=Schema.Struct({
@@ -18,6 +21,7 @@ export const SemanticHelperStateSchema=Schema.Struct({
  rationales:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),corrections:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),examples:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(20)),recordingCorrections:Schema.optional(Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64))),
  evidenceHistory:Schema.Array(Schema.Struct({atRevision:revision,procedureVersion:version,candidate:Schema.Unknown})).pipe(Schema.maxItems(64)),
  versions,activeVersion:Schema.NullOr(version),lastRun:Schema.NullOr(Schema.Struct({version,input,result:Schema.Unknown})),
+ lastBatchRun:Schema.optional(Schema.NullOr(Schema.Struct({version,rows:batchRows}))),
 });
 export const SemanticHelperActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('correct-semantic-recording-expectation'),recordingId:id,expected:SemanticExpectedSchema,reason:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(500),Schema.filter(value=>value.trim().length>0)),expectedRevision:revision}),
@@ -29,6 +33,7 @@ export const SemanticHelperActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('activate-semantic-version','restore-semantic-version'),version,expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('deactivate-semantic'),expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('run-semantic-active'),input,expectedRevision:revision}),
+ Schema.Struct({kind:Schema.Literal('run-semantic-batch'),inputs:Schema.Array(batchInput).pipe(Schema.minItems(1),Schema.maxItems(semanticBatchLimit)),expectedVersion:version,expectedRevision:revision}),
 );
 export type SemanticHelperAction=typeof SemanticHelperActionSchema.Type;
 export type SemanticHelperState={kind:'helper-studio';format:'semantic-record-v1';helperId:string;revision:number;
@@ -36,7 +41,8 @@ export type SemanticHelperState={kind:'helper-studio';format:'semantic-record-v1
  recordingCorrections?:readonly SemanticRecordingCorrection[];rationales:SemanticDemonstrationCandidate['rationales'];corrections:SemanticDemonstrationCandidate['corrections'];examples:SemanticDemonstrationCandidate['examples'];
  evidenceHistory:{atRevision:number;procedureVersion:number;candidate:SemanticDemonstrationCandidate}[];
  versions:{version:number;procedureVersion:number;savedAtRevision:number;changeNote:string;candidate:SemanticDemonstrationCandidate}[];
- activeVersion:number|null;lastRun:{version:number;input:Record<string,string|number|boolean>;result:SemanticRunResult}|null};
+ activeVersion:number|null;lastRun:{version:number;input:Record<string,string|number|boolean>;result:SemanticRunResult}|null;
+ lastBatchRun?:{version:number;rows:{input:Record<string,string|number|boolean>;result:SemanticRunResult}[]}|null};
 
 function fail(message:string):never{throw Error(message);}
 // Detach and reject getters, prototypes, symbols, cycles and bounded-work attacks
@@ -128,6 +134,7 @@ function parseState(helperId:string,value:unknown):SemanticHelperState{
  }
  if(state.activeVersion!==null&&!state.versions.some(item=>item.version===state.activeVersion))fail('The active semantic helper version is unavailable.');
  if(state.lastRun){const saved=state.versions.find(item=>item.version===state.lastRun!.version);if(!saved||canonical(runSemanticProcedure(saved.candidate.procedure,state.lastRun.input))!==canonical(state.lastRun.result))fail('The saved semantic result differs from its input and version.');}
+ if(state.lastBatchRun){const saved=state.versions.find(item=>item.version===state.lastBatchRun!.version);if(!saved||state.activeVersion!==saved.version||state.lastBatchRun.rows.some(row=>canonical(runSemanticProcedure(saved.candidate.procedure,row.input))!==canonical(row.result)))fail('The saved batch differs from its inputs and active version.');}
  return state;
 }
 function initial(helperId:string):SemanticHelperState{return {kind:'helper-studio',format:'semantic-record-v1',helperId:decode(id,helperId),revision:0,definitions:[],draftVersion:null,recordings:[],rationales:[],corrections:[],examples:[],evidenceHistory:[],versions:[],activeVersion:null,lastRun:null};}
@@ -135,7 +142,7 @@ function update(helperId:string,stateValue:unknown,actionValue:unknown):Semantic
  const state=parseState(helperId,stateValue),action=decode(SemanticHelperActionSchema,actionValue);
  if(action.expectedRevision!==state.revision)fail('This semantic helper changed. Reload it before editing.');
  if(state.revision>=500)fail('The helper reached its local revision limit.');
- let next:SemanticHelperState={...state,revision:state.revision+1,lastRun:null};
+ let next:SemanticHelperState={...state,revision:state.revision+1,lastRun:null,...(state.lastBatchRun!==undefined?{lastBatchRun:null}:{})};
  const archiveEvidence=()=>{
   if(!state.rationales.length&&!state.corrections.length&&!state.examples.length&&!state.recordingCorrections?.length)return state.evidenceHistory;
   if(state.evidenceHistory.length>=64)fail('The semantic evidence history limit was reached.');
@@ -173,6 +180,12 @@ function update(helperId:string,stateValue:unknown,actionValue:unknown):Semantic
    next={...next,definitions:[...state.definitions,{procedure}],draftVersion:procedure.version,evidenceHistory:archiveEvidence(),rationales:saved.candidate.rationales,corrections:saved.candidate.corrections,examples:saved.candidate.examples,...(state.recordingCorrections||saved.candidate.recordingCorrections?{recordingCorrections:saved.candidate.recordingCorrections??[]}:{})};break;
   }
   case 'deactivate-semantic':next={...next,activeVersion:null};break;
+  case 'run-semantic-batch':{
+   const saved=state.versions.find(item=>item.version===state.activeVersion);if(!saved)fail('Activate a saved semantic helper first.');
+   if(saved.version!==action.expectedVersion)fail('The active helper version changed. Review the batch before running it.');
+   if(saved.candidate.procedure.input.fields.length>6)fail('Batch runs support up to six typed input fields.');
+   next={...next,lastBatchRun:{version:saved.version,rows:action.inputs.map(input=>({input,result:runSemanticProcedure(saved.candidate.procedure,input)}))}};break;
+  }
   case 'run-semantic-active':{
    const saved=state.versions.find(item=>item.version===state.activeVersion);if(!saved)fail('Activate a saved semantic helper first.');
    next={...next,lastRun:{version:saved.version,input:action.input,result:runSemanticProcedure(saved.candidate.procedure,action.input)}};break;
@@ -201,5 +214,6 @@ export function semanticHelperText(helperId:string,stateValue:unknown):string{
  if(state.draftVersion!==null){const checked=check(state);parts.push('## Current checks',checked.passed?'The local checks pass.':'The local checks need review.','The other input is declared by the user; independence and mastery are not established.',...checked.issues.map(issue=>quote('Check to review',issue)));}
  if(active)parts.push(`## Active definition`,quote('Purpose',active.candidate.procedure.intent));
  if(state.lastRun)parts.push(`## Latest run — version ${state.lastRun.version}`,quote('Input fields',state.lastRun.input),...resultText(state.lastRun.result));
+ if(state.lastBatchRun){parts.push(`## Latest batch — version ${state.lastBatchRun.version}`,'Each record was evaluated independently; stopped and invalid records are not completed outputs.');for(const [index,row] of state.lastBatchRun.rows.entries())parts.push(`### Record ${index+1}`,quote('Exact input fields',row.input),...resultText(row.result));}
  return parts.join('\n\n');
 }

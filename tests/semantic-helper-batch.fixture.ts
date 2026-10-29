@@ -1,0 +1,9 @@
+import {semanticHelper} from '../src/learning/semantic-helper';
+import {typedProcedure,typedProcedureExample} from '../src/renderer/src/typed-semantic-procedure';
+export const batchProcedure=(days=30)=>{const draft=typedProcedureExample();draft.rules[1].conditions[1].value=String(days);return typedProcedure(draft);};
+export const batchInput=(item:string,change:Record<string,string|number|boolean>={})=>({item,condition:'working',days:25,approved:true,recalled:false,...change});
+export const batchEvidence=(recordingId:string)=>({rationales:[{id:'batch-reason',kind:'inferred-rationale',stepId:'rule-2',basis:[{recordingId,traceStepId:'rule-2'}],reason:'Reviewed approval, recall, condition and age select a local result.'}],corrections:[],examples:[{id:'fresh',role:'held-out',input:batchInput('CHECK-4',{condition:'damaged',days:42}),expected:{status:'completed',output:{item:'CHECK-4',route:'repair'}}},{id:'no',role:'counterexample',input:batchInput('NO-4',{approved:false}),expected:{status:'abstained',code:'precondition',haltedStepId:'required-1'}},{id:'recall',role:'exception',input:batchInput('STOP-4',{recalled:true}),expected:{status:'abstained',code:'explicit-stop',haltedStepId:'rule-1-stop'}}]});
+export function readyBatchHelper(id='batch-helper'){
+ let state=semanticHelper.initial(id);const act=(action:Record<string,unknown>)=>state=semanticHelper.update(id,state,{...action,expectedRevision:state.revision});
+ act({kind:'set-semantic-procedure',procedure:batchProcedure()});act({kind:'record-semantic-input',input:batchInput('TRAIN-1',{days:12})});act({kind:'set-semantic-evidence',...batchEvidence(state.recordings[0].recordingId)});act({kind:'save-semantic-version',changeNote:'Checked equipment returns.'});act({kind:'activate-semantic-version',version:1});return {get state(){return state;},act};
+}
