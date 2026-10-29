@@ -52,6 +52,8 @@ export type Command =
   | {type:'truth.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction'}
   | {type:'signal.review';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;example?:{target:0|1;value:0|1};retryOf?:string}
   | {type:'signal.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;example?:{target:0|1;value:0|1}}
+  | {type:'signal.practice';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;answer:0|1;reasoning:string;retryOf?:string}
+  | {type:'signal.practice.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true}
   | {type:'workflow.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'workflow.contextual.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'browser.run';taskId:string;requestId:string;prompt:string;url:string;submittedDraft?:ComposerDraft}

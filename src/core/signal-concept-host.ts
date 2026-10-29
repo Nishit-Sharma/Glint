@@ -14,7 +14,7 @@ const create=Schema.Struct({...input.fields,retryOf:Schema.optional(id)});
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const maxAttempts=64;
 type Input=typeof input.Type;
-function admitted(task:Task,value:Input){
+export function admittedSignalConcept(task:Task,value:Input){
  const context=prepareWorkflowSourceContext(task,value.basis),basis=task.artifacts.find(a=>a.id===value.basis.artifactId)?.revisions.at(-1);
  if(!basis?.mimeType.startsWith('text/')||basis.encoding==='base64')throw Error('Review a saved text document.');
  if(JSON.stringify(value.expectedSourceRefs)!==JSON.stringify(context.sourceRefs))throw Error('Linked sources changed. Review their current versions.');
@@ -24,23 +24,23 @@ function admitted(task:Task,value:Input){
  const sourceRefs=task.sources.flatMap(source=>{const found=context.sourceRefs.find(ref=>ref.sourceId===source.id);return found?[found]:[];});if(sourceRefs.length!==context.sourceRefs.length)throw Error('Linked source identities changed.');
  const binding={taskId:value.taskId,basis:context.artifact,sourceRefs,sourceId:value.sourceId,start:value.start,end:value.end,quote:value.quote,...(value.example?{example:value.example}:{})};return {binding,content:signalConceptDocument(rule,value.example)};
 }
-const attemptId=(binding:ReturnType<typeof admitted>['binding'],index:number)=>(binding.example?'signal-concept-v2-':'signal-concept-v1-')+hash(binding)+(index?'_'+index:'');
-const attemptNumber=(binding:ReturnType<typeof admitted>['binding'],requestId:string)=>{for(let index=0;index<maxAttempts;index++)if(attemptId(binding,index)===requestId)return index;return -1;};
+const attemptId=(binding:ReturnType<typeof admittedSignalConcept>['binding'],index:number)=>(binding.example?'signal-concept-v2-':'signal-concept-v1-')+hash(binding)+(index?'_'+index:'');
+const attemptNumber=(binding:ReturnType<typeof admittedSignalConcept>['binding'],requestId:string)=>{for(let index=0;index<maxAttempts;index++)if(attemptId(binding,index)===requestId)return index;return -1;};
 function savedResult(task:Task,value:Input,request:Task['requests'][number]){
- const {binding,content}=admitted(task,value),saved=request.artifactId&&task.artifacts.find(a=>a.id===request.artifactId)?.revisions.at(-1);
+ const {binding,content}=admittedSignalConcept(task,value),saved=request.artifactId&&task.artifacts.find(a=>a.id===request.artifactId)?.revisions.at(-1);
  if(request.status!=='completed'||!saved||saved.revision!==request.answer?.revision||saved.digest!==request.answer.digest||saved.mimeType!=='text/markdown'||saved.content!==content||JSON.stringify(saved.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The saved explanation changed. Review its source before continuing.');
  return {task,artifactId:request.artifactId!,revision:saved.revision};
 }
 export async function createSignalConcept(core:Companion,raw:unknown){
  let value:typeof create.Type;try{value=Schema.decodeUnknownSync(create,{onExcessProperty:'error'})(raw);}catch{throw Error('Review and confirm one exact linked source line.');}
- const task=await core.getTask(value.taskId),{binding}=admitted(task,value);let index=0;
+ const task=await core.getTask(value.taskId),{binding}=admittedSignalConcept(task,value);let index=0;
  if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
- const result=await core.runRequest({taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Explain one reviewed signal assignment.',executionScope:(binding.example?'signal-concept-v2:':'signal-concept-v1:')+hash(binding),sourceIds:binding.sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]},async context=>{const fresh=admitted(context.task,value);return {title:'Understanding a signal assignment',mimeType:'text/markdown',content:fresh.content};});
+ const result=await core.runRequest({taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Explain one reviewed signal assignment.',executionScope:(binding.example?'signal-concept-v2:':'signal-concept-v1:')+hash(binding),sourceIds:binding.sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]},async context=>{const fresh=admittedSignalConcept(context.task,value);return {title:'Understanding a signal assignment',mimeType:'text/markdown',content:fresh.content};});
  if(result.status!=='completed'||!result.artifactId)throw Error(result.error??'The reviewed explanation could not be created.');return savedResult(await core.getTask(value.taskId),value,result);
 }
 export async function inspectSignalConcept(core:Companion,raw:unknown){
  let value:Input;try{value=Schema.decodeUnknownSync(input,{onExcessProperty:'error'})(raw);}catch{throw Error('Review and confirm one exact linked source line.');}
- const task=await core.getTask(value.taskId),{binding}=admitted(task,value);let latest:Task['requests'][number]|undefined;
+ const task=await core.getTask(value.taskId),{binding}=admittedSignalConcept(task,value);let latest:Task['requests'][number]|undefined;
  for(let index=0;index<maxAttempts;index++){const request=task.requests.find(r=>r.id===attemptId(binding,index));if(!request)break;if(request.kind!=='experiment'||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The publication record needs review.');latest=request;}
  if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};
  if(latest.status==='completed'){const saved=savedResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision};}
