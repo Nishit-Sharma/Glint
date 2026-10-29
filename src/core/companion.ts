@@ -8,6 +8,8 @@ import {sourceResumeContext} from './source-resume';
 import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
 import { projectTaskDialogue } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
+import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
+import {encodeBrowserReviewNotesReceipt,findBrowserReviewNotesReceipt} from './browser-review-notes-receipt';
 import {parseModuleAnswer} from './interactive-modules';
 import {assertRawModuleOperationAllowed} from '../shared/module-contract';
 import {readLocalTaskStart,type LocalTaskStartResult} from '../shared/local-task-start';
@@ -516,6 +518,26 @@ export class Companion {
   }
   saveArtifact(taskId: string, input: ArtifactInput): Promise<{ artifactId: string; revision: ArtifactRevision }> {
     return this.exclusive(() => this.commit(state => this.appendArtifact(this.task(state, taskId), input)));
+  }
+  /** Saving shown recovery evidence is local data, never authority to retry a website action. */
+  async saveBrowserReviewNotes(input:unknown,assertCurrent:()=>void=()=>{}):Promise<BrowserReviewNotesSaved>{
+    const value=clone(readBrowserReviewNotesSave(input)),intentId='browser-review-notes:'+hash(JSON.stringify([value.taskId,value.runId,value.operationId,value.binding])),claimHash=hash(intentId);
+    return this.exclusive<BrowserReviewNotesSaved>(()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),preview=browserReviewNotesPreview(task,value.runId,value.operationId);
+      if(preview.binding!==value.binding)return reject('conflict','The reviewed page or outcome changed. Review the current shown notes before saving.');
+      const payloadDigest=hash(preview.content),receipt=findBrowserReviewNotesReceipt(this.state.usedRequestIds,claimHash);
+      if(receipt){
+        const original=task.artifacts.find(artifact=>artifact.id===receipt.artifactId)?.revisions.find(revision=>revision.revision===receipt.revision);
+        if(receipt.taskId!==task.id||receipt.payloadDigest!==payloadDigest||!original||original.digest!==receipt.digest||hash(original.content)!==receipt.digest||original.content!==preview.content||original.mimeType!=='text/markdown'||original.sourceRefs.length)return reject('conflict','The original saved notes are unavailable or changed. No replacement was created.');
+        return clone({taskId:value.taskId,runId:value.runId,operationId:value.operationId,binding:value.binding,artifactId:receipt.artifactId,revision:receipt.revision,digest:receipt.digest,alreadySaved:true});
+      }
+      return this.commit(state=>{
+        assertCurrent();const current=this.task(state,value.taskId);if(browserReviewNotesPreview(current,value.runId,value.operationId).binding!==value.binding)return reject('conflict','The reviewed page or outcome changed. Review it again.');
+        this.claimRequest(state,intentId);const saved=this.appendArtifact(current,{title:BROWSER_REVIEW_NOTES_TITLE,content:preview.content,mimeType:'text/markdown',sourceRefs:[]});
+        state.usedRequestIds.push(encodeBrowserReviewNotesReceipt({claimHash,payloadDigest,taskId:current.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
+        return {taskId:value.taskId,runId:value.runId,operationId:value.operationId,binding:value.binding,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest,alreadySaved:false};
+      });
+    });
   }
   checkpoint(taskId: string, note: string): Promise<Task> {
     return this.exclusive(() => this.commit(state => {

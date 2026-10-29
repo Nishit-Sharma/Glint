@@ -65,6 +65,7 @@ export type Command =
   | {type:'browser.run';taskId:string;requestId:string;prompt:string;url:string;submittedDraft?:ComposerDraft}
   | {type:'browser.inspect';taskId:string;runId:string;operationId:string;url:string;attemptId?:string}
   | {type:'browser.inspect.cancel';taskId:string;runId:string;operationId:string;attemptId:string}
+  | {type:'browser.review.notes';taskId:string;runId:string;operationId:string;binding:string;confirmed:'shown-review-notes'}
   | {type:'browser.detach';taskId:string}
   | {type:'procedure.save';taskId:string;procedure:ProcedureInput}
   | {type:'procedure.check';taskId:string;procedureId:string;context:Record<string,string>}
