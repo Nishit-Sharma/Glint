@@ -12,6 +12,7 @@ import {prepareWorkflowReview,createReviewedWorkflow,createContextualReviewedWor
 import {createWorkflowExample} from '../core/workflow-lab-host'
 import {DocumentSourceAdapter,readMacFocusedDocument} from './document-source-native'
 import {DocumentSourceFollow} from './document-source-follow'
+import {BrowserInspectionAttempts} from './browser/inspection-attempts'
 import {documentStampChange,persistedDocumentStamp,type DocumentBinding,type RuntimeDocumentStamp,type DocumentCapture} from '../shared/document-source'
 import {taskHistoryReview} from './request-review'
 import {BotPreferences} from './bot-preferences'
@@ -76,6 +77,7 @@ let compactFit:CompactFitState|undefined
 let shortcutRegistered=false,tray:Tray|undefined
 const modifierShortcut=createModifierShortcut({platform:process.platform,hasAccessibilityPermission:()=>systemPreferences.isTrustedAccessibilityClient(false),onActivate:activateShortcut})
 const pendingEffects=new Set<string>()
+const browserInspectionAttempts=new BrowserInspectionAttempts()
 type CollapsePresentation={id:string;epoch:number;phase:'drawing'|'hidden';captureStarted:boolean;bounds:Electron.Rectangle;anchor?:Electron.Rectangle;mode:'companion'|'workspace';timer:ReturnType<typeof setTimeout>}
 let collapsePresentation:CollapsePresentation|undefined
 type EntrancePresentation={id:string;epoch:number;anchor:Electron.Rectangle;timer:ReturnType<typeof setTimeout>}
@@ -134,7 +136,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
-  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.update','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','artifact.save','module.edit','module.document','helper.create','workflow.example','workflow.prepare','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.inspect','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.update','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','artifact.save','module.edit','module.document','helper.create','workflow.example','workflow.prepare','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.inspect','browser.inspect.cancel','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(!allowed.includes(c.type as string))throw Error('Unknown companion command.')
   if(JSON.stringify(c).length>18*1024*1024)throw Error('Command exceeds the local input limit.')
   if(c.type==='source.drag.cancel'||c.type==='source.choose'){if(Object.keys(c).length!==1)throw Error('Unknown source gesture field.');return {type:c.type};}
@@ -158,11 +160,11 @@ function validate(value:unknown):Command{
   if('taskId' in c)str(c.taskId,'task ID',200)
   if(c.type==='task-view.get'&&Object.keys(c).some(key=>key!=='type'))throw Error('Unknown task view field.')
   if(c.type==='context.view'&&Object.keys(c).some(key=>!['type','taskId'].includes(key)))throw Error('Unknown context view field.')
-  if(c.type==='browser.run'||c.type==='browser.inspect'){
-    const keys=c.type==='browser.run'?['type','taskId','requestId','prompt','url','submittedDraft']:['type','taskId','runId','operationId','url']
+  if(c.type==='browser.run'||c.type==='browser.inspect'||c.type==='browser.inspect.cancel'){
+    const keys=c.type==='browser.run'?['type','taskId','requestId','prompt','url','submittedDraft']:c.type==='browser.inspect'?['type','taskId','runId','operationId','url','attemptId']:['type','taskId','runId','operationId','attemptId']
     if(Object.keys(c).some(key=>!keys.includes(key)))throw Error('Unknown browser request field.')
-    str(c.taskId,'task ID',200);str(c.url,'page address',4000)
-    if(c.type==='browser.run'){str(c.requestId,'request ID',200);str(c.prompt,'request',16000)}else{str(c.runId,'earlier request',200);str(c.operationId,'earlier action',200)}
+    str(c.taskId,'task ID',200);if(c.type!=='browser.inspect.cancel')str(c.url,'page address',4000)
+    if(c.type==='browser.run'){str(c.requestId,'request ID',200);str(c.prompt,'request',16000)}else{str(c.runId,'earlier request',200);str(c.operationId,'earlier action',200);if(c.type==='browser.inspect.cancel'||c.attemptId!==undefined)str(c.attemptId,'inspection attempt',200)}
   }
   if(c.type==='learning-drafts.read'||c.type==='learning-drafts.cleanup'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown practice draft field.');return {type:c.type};}
   if(c.type==='learning-drafts.recover'){if(Object.keys(c).some(key=>!['type','recoveryToken'].includes(key)))throw Error('Unknown practice recovery field.');return {type:c.type,recoveryToken:parseLearningDraftRecoveryToken(c.recoveryToken)};}
@@ -708,7 +710,12 @@ async function command(c:Command):Promise<unknown>{
     case 'draft.save':return core.saveComposerDraft(c.taskId,c.expectedRevision,c.draft)
     case 'draft.flushed':quitDrafts.acknowledge(c.quitId,c.error);return null
     case 'browser.run':{const service=await getBrowserService();assertCurrentWork(lifecycle);return service.run(c)}
-    case 'browser.inspect':return (await getBrowserService()).inspect(c)
+    case 'browser.inspect':{
+      if(!c.attemptId)return (await getBrowserService()).inspect(c)
+      const attempt=browserInspectionAttempts.begin({...c,attemptId:c.attemptId});
+      try{return await (await getBrowserService()).inspect(c,attempt)}finally{attempt.finish()}
+    }
+    case 'browser.inspect.cancel':return browserInspectionAttempts.stop(c)
     case 'browser.detach':return taskMutation(c.taskId,()=>core.clearBrowserContext(c.taskId))
     case 'source.text.inspect':{const {type,...input}=c;return core.inspectTextSourceSave(input)}
     case 'source.text':{
@@ -993,7 +1000,7 @@ const quitDrafts=createQuitDraftBarrier({
 async function stopForQuit(){
  sourceDrag?.cancel();sourceDragPreview?.clear();sourceContextEpoch++
  retireDocumentFollow('App closing. A new user gesture is required after restart.');quitting=true;quitEpoch++;keyEpoch++;contextIntake=undefined;modifierShortcut.stop();globalShortcut.unregisterAll();shortcutRegistered=false;if(monitor){clearInterval(monitor);monitor=undefined;}
- capturePrivacyAbort.abort();captures.clear();metaProvider.reset();codexProvider.close();browserCodexProvider.close();browserService?.close();browserService=undefined;
+ capturePrivacyAbort.abort();captures.clear();metaProvider.reset();codexProvider.close();browserCodexProvider.close();browserInspectionAttempts.close();browserService?.close();browserService=undefined;
  try{await viewSelectionQueue;if(core)for(const task of await core.listTasks())for(const request of task.requests)if(request.status==='running')await core.cancelRequest(task.id,request.id);}catch{return 'The local task store could not confirm pending message saves.';}
 }
 async function finishQuit(){
@@ -1016,7 +1023,7 @@ async function beginQuit(){
   const decision=await quitDrafts.request(stopFailure);
   if(!decision.allowQuit){
    // Retired work keeps its old signal and quit epoch; later gestures get a fresh cancellation scope.
-   capturePrivacyAbort=new AbortController();
+   capturePrivacyAbort=new AbortController();browserInspectionAttempts.resume();
    quitting=false;quitInProgress=false;emit({type:'draft.resume',quitId:decision.id});
    if(!testNoGlobalInput){shortcutRegistered=globalShortcut.register(shortcut,()=>void activateShortcut());await modifierShortcut.start();}
    monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000);return;

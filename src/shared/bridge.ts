@@ -50,7 +50,8 @@ export type Command =
   | {type:'workflow.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'workflow.contextual.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'browser.run';taskId:string;requestId:string;prompt:string;url:string;submittedDraft?:ComposerDraft}
-  | {type:'browser.inspect';taskId:string;runId:string;operationId:string;url:string}
+  | {type:'browser.inspect';taskId:string;runId:string;operationId:string;url:string;attemptId?:string}
+  | {type:'browser.inspect.cancel';taskId:string;runId:string;operationId:string;attemptId:string}
   | {type:'browser.detach';taskId:string}
   | {type:'procedure.save';taskId:string;procedure:ProcedureInput}
   | {type:'procedure.check';taskId:string;procedureId:string;context:Record<string,string>}
@@ -87,6 +88,7 @@ export interface HostStatus {
 export interface AttachedWindow {id:string;title:string;ownerName:string}
 export interface CompactFit {id:string;maxHeight:number}
 export interface CompactFitBounds {height:number;maxHeight:number}
+export type BrowserInspectionStopResult={kind:'stopped'|'finishing'|'not-active'}
 export interface ContextActivation {activationId:string;tucked:boolean;target?:WindowChoice;choices:WindowChoice[];trigger?:'shortcut';origin?:'user-drop'|'source-picker';intent?:'attach';newTask?:boolean;analyze?:boolean;source?:SourceRef&{taskId:string};requestId?:string;ownerTaskId?:string}
 /** Read-only recovery of a live host gesture; absent after expiry, retirement or restart. */
 export type ContextPending={kind:'none'}|{kind:'ready';activation:ContextActivation}|{kind:'busy'}

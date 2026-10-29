@@ -29,7 +29,7 @@ import {REVISION_INSTRUCTIONS_SLOT,emptyRevisionInstructions} from '../src/share
 const cleanups:Array<()=>Promise<void>>=[]
 it('temporary production host resolves exactly the project dependencies without ambient module paths',async()=>{
  const f=await fixture(),loadTemporary=createRequire(pathToFileURL(join(f.directory,'host-under-test.cjs'))),loadProject=createRequire(pathToFileURL(join(resolve('.'),'package.json')));
- expect(await realpath(join(f.directory,'node_modules'))).toBe(await realpath(join(resolve('.'),'node_modules')));
+ expect(await realpath(join(f.directory,'node_modules','effect','package.json'))).toBe(await realpath(loadProject.resolve('effect/package.json')));
  for(const name of ['effect','diff'])expect(await realpath(loadTemporary.resolve(name))).toBe(await realpath(loadProject.resolve(name)));
 });
 it('revision instruction host admits only inert closed-slot raw under its exact saved-document owner',async()=>{
@@ -174,7 +174,14 @@ async function fixture(settingsBytes?:string){
   const root=resolve('.')
   const dir=await mkdtemp(join(tmpdir(),'setup-host-boundary-')),key='hostBoundary'+randomUUID().replaceAll('-','')
   cleanups.push(()=>rm(dir,{recursive:true,force:true}))
-  await symlink(await realpath(join(root,'node_modules')),join(dir,'node_modules'),'dir')
+  const loadProject=createRequire(pathToFileURL(join(root,'package.json'))),effectPackage=await realpath(loadProject.resolve('effect/package.json'))
+  let dependencies:string|undefined
+  for(const directory of loadProject.resolve.paths('effect')??[]){
+    if(await realpath(join(directory,'effect','package.json')).catch(()=>undefined)!==effectPackage)continue
+    dependencies=await realpath(directory);break
+  }
+  if(!dependencies)throw Error('The project dependency directory could not be resolved.')
+  await symlink(dependencies,join(dir,'node_modules'),'dir')
   if(settingsBytes!==undefined)await writeFile(join(dir,'capture-settings.json'),settingsBytes);
   // These command tests start with a chosen legacy appearance; first-run setup has its own journey.
   await writeFile(join(dir,'character-preferences.json'),JSON.stringify({schemaVersion:1,revision:0,profile:DEFAULT_CHARACTER}));
@@ -1332,4 +1339,31 @@ it('saved ordinary text edit crosses closed production IPC with atomic identity 
  const confirmed=await f.command(command);expect(confirmed).toMatchObject({kind:'confirmed',intentId,binding,reference:{sourceId:source.id,version:2}});expect(confirmed.task.sources[0].versions[1]).toMatchObject({label:'First nonblank source name Ω',content:payload.source.content,role:'inspiration'});
  const before=await f.core.getTask(task.id);expect(await f.command(inspect)).toMatchObject({kind:'confirmed',reference:confirmed.reference});expect(await f.core.getTask(task.id)).toEqual(before);expect((await f.command(command)).reference).toEqual(confirmed.reference);expect((await f.core.getTask(task.id)).sources[0].versions).toHaveLength(2);
  await expect(f.command({...inspect,extra:true})).rejects.toThrow();await expect(f.command({...inspect,taskId:'missing'})).rejects.toThrow();expect(f.calls.provider).toEqual([]);expect(f.calls.captures).toBe(0);expect(f.calls.confirmations).toEqual([]);
+});
+
+it('stops only the matching browser inspection before a late host consent can open a page',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Owned inspection cancellation'}),base={taskId:task.id,runId:'run',operationId:'action',attemptId:'attempt-a'};
+ let entered!:()=>void,release!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;}),waiting=new Promise<void>(resolve=>{release=resolve;});
+ f.seams.confirm=async()=>{entered();await waiting;return {response:1};};
+ const pending=f.command({type:'browser.inspect',...base,url:'https://owned.example/receipt'}),outcome=pending.then(()=>undefined,error=>error);
+ try{
+  await started;
+  await expect(f.command({type:'browser.inspect.cancel',...base,attemptId:'other'})).resolves.toEqual({kind:'not-active'});
+  await expect(f.command({type:'browser.inspect.cancel',...base,taskId:'other-task'})).resolves.toEqual({kind:'not-active'});
+  await expect(f.command({type:'browser.inspect.cancel',...base,extra:true})).rejects.toThrow('Unknown browser request field');
+  await expect(f.command({type:'browser.inspect.cancel',...base})).resolves.toEqual({kind:'stopped'});
+  expect((await outcome).message).toContain('Browser inspection stopped');release();await Promise.resolve();
+  expect(f.calls.provider).toEqual([]);expect(f.calls.captures).toBe(0);expect((await f.core.getTask(task.id)).requests).toEqual([]);
+ }finally{release();await outcome;}
+});
+
+it('allows a new inspection after the user keeps the app open during quit',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Owned kept-open inspection'});
+ f.seams.quitFlush=id=>{f.barrier.acknowledge(id,'Owned unsaved draft');};f.setResponse(0);await f.beginQuit();
+ expect(f.nativeQuitCalls()).toBe(0);
+ let entered!:()=>void,release!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;}),waiting=new Promise<void>(resolve=>{release=resolve;});
+ f.seams.confirm=async()=>{entered();await waiting;return {response:1};};
+ const base={taskId:task.id,runId:'run',operationId:'action',attemptId:'after-quit'},pending=f.command({type:'browser.inspect',...base,url:'https://owned.example/receipt'}),outcome=pending.then(()=>undefined,error=>error);
+ try{await started;await expect(f.command({type:'browser.inspect.cancel',...base})).resolves.toEqual({kind:'stopped'});expect((await outcome).message).toContain('Browser inspection stopped');}
+ finally{release();await outcome;}
 });

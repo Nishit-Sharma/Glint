@@ -4,7 +4,7 @@ import type { Companion } from '../../core/companion';
 import type { MetaRunInput } from '../provider';
 import type { ConnectionStatus } from '../../shared/bridge';
 import { BrowserCoordinator, browserPlannerPrompt, parseBrowserPlan } from './coordinator';
-import { BrowserReconciliation } from './reconciliation';
+import { BrowserReconciliation,untilInspectionStopped } from './reconciliation';
 import type {ComposerDraft} from '../../core/task-session';
 import type {BrowserWindowOwner} from './local-browser';
 
@@ -65,15 +65,18 @@ export class BrowserService {
     if (result.status !== 'completed') throw Error(result.error ?? 'The browser task stopped before completion. Your progress is kept.');
     return this.core.getTask(input.taskId);
   }
-  async inspect(input: { taskId: string; runId: string; operationId: string; url: string }) {
-    const permission = await dialog.showMessageBox(this.options.panel(), { type: 'question', message: 'Check the earlier action’s outcome?', detail: `Open a fresh read-only view of ${input.url}. This will not retry the earlier action or use a personal sign-in. No model request is made.`, buttons: ['Cancel', 'Inspect page'], defaultId: 0, cancelId: 0 });
-    if (permission.response !== 1) return this.core.getTask(input.taskId);
-    const inspection = await this.reconciliation.inspect({ ...input, signal: this.lifetime.signal });
+  async inspect(input: { taskId: string; runId: string; operationId: string; url: string },control?:{signal:AbortSignal;beginCommit:()=>void}) {
+    const signal=control?AbortSignal.any([this.lifetime.signal,control.signal]):this.lifetime.signal;
+    if(signal.aborted)throw Error('Browser inspection stopped.');
+    const permission = await untilInspectionStopped(dialog.showMessageBox(this.options.panel(), { type: 'question', signal, message: 'Check the earlier action’s outcome?', detail: `Open a fresh read-only view of ${input.url}. This will not retry the earlier action or use a personal sign-in. No model request is made.`, buttons: ['Cancel', 'Inspect page'], defaultId: 0, cancelId: 0 }),signal);
+    if (permission.response !== 1) {const task=await untilInspectionStopped(this.core.getTask(input.taskId),signal);if(signal.aborted)throw Error('Browser inspection stopped.');return task;}
+    const inspection = await untilInspectionStopped(this.reconciliation.inspect({ ...input, signal }),signal);
     const text = inspection.observation.text;
     await this.reconciliation.resolve(inspection.id, async current => {
-      const outcome = await dialog.showMessageBox(this.options.panel(), { type: 'question', message: 'What does this fresh page show?', detail: `Earlier action: ${current.reason}\nPage: ${current.observation.url}\n\n${text.slice(0, 8_000)}${text.length > 8_000 ? '\n\nOnly an excerpt is shown. Leave the outcome uncertain if this is not enough evidence.' : ''}\n\nThis records your review. It does not retry the action.`, buttons: ['Leave uncertain', 'It completed', 'It did not complete'], defaultId: 0, cancelId: 0 });
+      if(signal.aborted)throw Error('Browser inspection stopped.');
+      const outcome = await untilInspectionStopped(dialog.showMessageBox(this.options.panel(), { type: 'question', signal, message: 'What does this fresh page show?', detail: `Earlier action: ${current.reason}\nPage: ${current.observation.url}\n\n${text.slice(0, 8_000)}${text.length > 8_000 ? '\n\nOnly an excerpt is shown. Leave the outcome uncertain if this is not enough evidence.' : ''}\n\nThis records your review. It does not retry the action.`, buttons: ['Leave uncertain', 'It completed', 'It did not complete'], defaultId: 0, cancelId: 0 }),signal);
       return { outcome: outcome.response === 1 ? 'completed' : outcome.response === 2 ? 'not-completed' : 'uncertain', note: outcome.response === 1 ? 'User reviewed the fresh observed page and reported the action completed.' : outcome.response === 2 ? 'User reviewed the fresh observed page and reported the action did not complete.' : 'The fresh observed page did not settle the outcome.' };
-    });
+    },{signal,beginCommit:control?.beginCommit??(()=>{})});
     this.options.changed(input.taskId); return this.core.getTask(input.taskId);
   }
   close(){this.lifetime.abort();}

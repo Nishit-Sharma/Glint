@@ -4,6 +4,7 @@ import {MODULE_EXPORT_RECOVERY,MODULE_REVISION_RECOVERY} from './module-contract
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
  if(publicMessages.has(text)||text===MODULE_EXPORT_RECOVERY||text===MODULE_REVISION_RECOVERY)return text;
+ if(text==='Browser inspection stopped.'||text==='Stopped checking. The earlier action still needs review.')return 'Stopped checking. The earlier action still needs review.';
  if(/native source targeting is unavailable/i.test(text))return 'Drag attachment is unavailable on this device. Press Down Arrow to choose a window.';
  if(/capture setup could not be opened/i.test(text))return 'Capture settings could not be opened. Your saved setup is kept.';
  if(/capture setup|setup (?:appears saved|could not be reconciled)|Finish the setup review/i.test(text))return 'Capture setup needs a new review. Press the screen context shortcut again.';

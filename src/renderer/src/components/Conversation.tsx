@@ -1,6 +1,7 @@
 import type {ReactNode} from 'react';
 import {ArrowUpRight} from 'lucide-react';
 import type {Artifact,ArtifactRevision,Task} from '../../../core/types';
+import type {BrowserInspectionStopResult} from '../../../shared/bridge';
 import {readScreenBrief} from '../../../core/screen-brief';
 import {requestStatusLabel,publicErrorMessage} from '../../../shared/public-messages';
 import {readModelDraft} from './ModelDraftReview';
@@ -14,7 +15,7 @@ import {browserRequestOutcome,requestArtifact} from '../browser-outcome';
 
 /** Durable requests supply the transcript. A proactive brief has no invented
  * user message. Each reply resolves its original revision, not a later edit. */
-export function Conversation({task,pendingId,pendingKind,pendingPrompt,stream,active,renderBrief,onArtifact,onConnection,onInspectBrowser}:{task:Task;pendingId?:string;pendingKind?:string;pendingPrompt?:string;stream?:{requestId:string;text:string};active:boolean;renderBrief:(artifact:Artifact)=>ReactNode;onArtifact:(artifact:Artifact)=>void;onConnection:()=>void;onInspectBrowser?:(runId:string,operationId:string,url:string)=>Promise<void>}){
+export function Conversation({task,pendingId,pendingKind,pendingPrompt,stream,active,renderBrief,onArtifact,onConnection,onInspectBrowser,onStopBrowserInspection}:{task:Task;pendingId?:string;pendingKind?:string;pendingPrompt?:string;stream?:{requestId:string;text:string};active:boolean;renderBrief:(artifact:Artifact)=>ReactNode;onArtifact:(artifact:Artifact)=>void;onConnection:()=>void;onInspectBrowser?:(taskId:string,runId:string,operationId:string,url:string,attemptId:string)=>Promise<void>;onStopBrowserInspection?:(taskId:string,runId:string,operationId:string,attemptId:string)=>Promise<BrowserInspectionStopResult>}){
  function result(item:Artifact,revision:ArtifactRevision){
   const exact={...item,revisions:[revision]},identity=[task.id,item.id,revision.revision,revision.digest].join(':');
   if(readScreenBrief(revision.content,revision.sourceRefs))return renderBrief(exact);
@@ -28,7 +29,7 @@ export function Conversation({task,pendingId,pendingKind,pendingPrompt,stream,ac
   return <article key={request.id} className="conversation-turn" aria-label={request.kind==='brief'?'Screen insight':'Conversation turn'}>
    {request.kind!=='brief'&&<div className="conversation-question"><p>{request.prompt}</p></div>}
    <div className="conversation-answer">{request.id===pendingId?<StreamingText text={stream?.requestId===request.id?stream.text:request.kind==='brief'?'Reading this snapshot…':'Preparing a response…'} streaming={active}/>:<>{outcome&&<><p className="conversation-status">{outcome.label}</p><p className={outcome.needsReview?'warning':'tiny'} role={outcome.needsReview&&request.id===task.requests.at(-1)?.id?'alert':undefined}>{outcome.message}</p>{outcome.reviewed&&request.status!=='completed'&&<details><summary>Original request interruption</summary><p>{requestStatusLabel(request.status)}. The request ended before a completed response was saved. The website outcome was reviewed later.</p></details>}</>}{request.status==='completed'&&item&&revision?result(item,revision):<>{!outcome&&<><p className="conversation-status">{requestStatusLabel(request.status)}</p>{request.error&&<><p className="warning" role={request.id===task.requests.at(-1)?.id?'alert':undefined}>{publicErrorMessage(request.error)}</p>{/connection|service may still/i.test(publicErrorMessage(request.error))&&<button type="button" className="conversation-open" onClick={onConnection}>Check connection</button>}</>}</>}{stream?.requestId===request.id&&<StreamingText text={stream.text} streaming={false}/>}</>}</>}</div>
-   {request.kind==='browser'&&onInspectBrowser&&<BrowserActivity task={task} requestId={request.id} onInspect={onInspectBrowser}/>}
+   {request.kind==='browser'&&onInspectBrowser&&onStopBrowserInspection&&<BrowserActivity task={task} requestId={request.id} onInspect={(runId,operationId,url,attemptId)=>onInspectBrowser(task.id,runId,operationId,url,attemptId)} onStop={(runId,operationId,attemptId)=>onStopBrowserInspection(task.id,runId,operationId,attemptId)}/>}
   </article>;
  })}{pendingId&&!task.requests.some(request=>request.id===pendingId)&&<article className="conversation-turn" aria-label={pendingKind==='brief'?'Screen insight':'Conversation turn'}>{pendingKind!=='brief'&&<div className="conversation-question"><p>{pendingPrompt}</p></div>}<div className="conversation-answer"><StreamingText text={stream?.requestId===pendingId?stream.text:pendingKind==='brief'?'Reading this snapshot…':'Preparing a response…'} streaming={active}/></div></article>}</div>;
 }

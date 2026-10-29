@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { createCompanion, evaluateExperiment, type Companion } from '../src/core/companion';
-import type { CompactFit, Command, CompanionBridge, CompanionEvent, ConnectionStatus, HostStatus, Task } from '../src/shared/bridge';
+import type { BrowserInspectionStopResult, CompactFit, Command, CompanionBridge, CompanionEvent, ConnectionStatus, HostStatus, Task } from '../src/shared/bridge';
 import {isExportCommand,readExportReply,type ExportHandlers} from '../src/shared/export-contract';
 import {CharacterPreferences} from '../src/host/character-preferences';
 import {screenBriefInsight} from '../src/core/screen-brief';
@@ -35,6 +35,7 @@ export class BrowserFixture {
   browserError?:string;
   browserCompletion?:Promise<void>;
   browserInspection?:(command:Extract<Command,{type:'browser.inspect'}>)=>Promise<Task>;
+  browserInspectionCancel?:(command:Extract<Command,{type:'browser.inspect.cancel'}>)=>Promise<BrowserInspectionStopResult>;
   draftSaveBarrier?:Promise<void>;
   draftSaveError?:string;
   calculationBarrier?:Promise<void>;
@@ -170,6 +171,7 @@ export class BrowserFixture {
       case 'source.preview': return null;
       case 'browser.detach': return this.mutation(command.taskId,()=>this.core.clearBrowserContext(command.taskId));
       case 'browser.inspect':{if(!this.browserInspection)throw Error('Browser inspection is not enabled in this renderer fixture.');const result=await this.browserInspection(command);await this.changed(command.taskId);return result;}
+      case 'browser.inspect.cancel':{if(!this.browserInspectionCancel)throw Error('Browser inspection cancellation is not enabled in this renderer fixture.');return this.browserInspectionCancel(command);}
       case 'browser.run':{
         if(!this.browserError&&!this.browserCompletion)throw Error('Browser execution is not enabled in this renderer fixture.');
         const request=await this.core.runRequest({taskId:command.taskId,requestId:command.requestId,kind:'browser',prompt:command.prompt,sourceIds:[],...(command.submittedDraft?{submittedDraft:command.submittedDraft}:{})},async()=>{await this.emit({type:'stream',taskId:command.taskId,requestId:command.requestId,text:'Reading the selected page…'});if(this.browserCompletion)await this.browserCompletion;if(this.browserError)throw Error(this.browserError);return {title:'Browser findings',content:'The observed page supports this answer.',mimeType:'text/markdown'};});
