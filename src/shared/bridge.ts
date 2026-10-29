@@ -47,6 +47,8 @@ export type Command =
   | {type:'workflow.example';taskId:string;requestId:string}
   | {type:'helper.create';taskId:string;requestId:string}
   | {type:'workflow.prepare';taskId:string;basis:ArtifactRef}
+  | {type:'truth.review';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;retryOf?:string}
+  | {type:'truth.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true}
   | {type:'workflow.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'workflow.contextual.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'browser.run';taskId:string;requestId:string;prompt:string;url:string;submittedDraft?:ComposerDraft}

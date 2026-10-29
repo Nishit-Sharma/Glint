@@ -1,3 +1,4 @@
+import {TruthSourceReview} from './components/TruthSourceReview';
 import {createRevisionInstructionsController} from './revision-instructions-controller';
 import {Composer} from './components/Composer';
 import {RevisionInstructionsInput} from './components/RevisionInstructionsInput';
@@ -40,7 +41,7 @@ import {ContextInspector} from './components/ContextInspector';
 import {TaskMenu} from './components/TaskMenu';
 import {Inspector} from './components/Inspector';
 import {TaskHistory} from './components/TaskHistory';
-import {Button,Empty,Field,SectionTitle,type Run,type RequestKind} from './ui';
+import {Button,Empty,Field,SectionTitle,type Run,type RunScope,type RequestKind} from './ui';
 import {StreamingText} from './components/StreamingText';
 import {GeneratedSurface} from './components/GeneratedSurface';
 import {ArtifactMotionProvider,ReadyArtifact} from './components/ReadyArtifact';
@@ -155,19 +156,19 @@ export default function App() {
     return()=>{alive=false;unsubscribe();}; }, []);
     // First-time choices keep their pending activation for setup.
     useEffect(()=>{if(!contextReady||completedChoiceHere.current)return;const pending=queuedActivation.current;queuedActivation.current=undefined;if(pending)void beginContext(pending.activation,false,pending.navigationEpoch);},[contextReady]);
-    function run<C extends ExportCommand>(command:C,success?:string):Promise<ExportReply<C>|undefined>;
-    function run<T=unknown>(command:OtherCommand,success?:string):Promise<T|undefined>;
-    async function run(command:Command,success?:string):Promise<unknown> { if (lock.current)
+    function run<C extends ExportCommand>(command:C,success?:string,scope?:RunScope):Promise<ExportReply<C>|undefined>;
+    function run<T=unknown>(command:OtherCommand,success?:string,scope?:RunScope):Promise<T|undefined>;
+    async function run(command:Command,success?:string,scope?:RunScope):Promise<unknown> { if (lock.current||scope&&!scope.isCurrent())
         return; const revisionErrorScope=command.type==='model.run'&&command.kind==='revise'&&command.revisionBasis!==undefined?{navigation:newQuestionEpoch.current,activation:incomingActivationEpoch.current}:undefined;
         lock.current = true; setBusy(true); setError('');lastRunError.current=''; try {
         const result = isExportCommand(command)?await bridge.invoke(command):await bridge.invoke(command);
         await refresh();
-        if (success && (!('taskId' in command) || command.taskId === taskRef.current?.id))
+        if (success && (!scope||scope.isCurrent()) && (!('taskId' in command) || command.taskId === taskRef.current?.id))
             setNotice(success);
         return result;
     }
     catch (e) {
-        if(!revisionErrorScope||revisionErrorScope.navigation===newQuestionEpoch.current&&revisionErrorScope.activation===incomingActivationEpoch.current){lastRunError.current=publicErrorMessage(e);if (!('taskId' in command) || command.taskId === taskRef.current?.id){if(command.type==='model.run'||command.type==='browser.run'){requestErrorOwner.current={taskId:command.taskId,requestId:command.requestId};setErrorValue(lastRunError.current);}else setError(lastRunError.current);}}
+        if((!scope||scope.isCurrent())&&(!revisionErrorScope||revisionErrorScope.navigation===newQuestionEpoch.current&&revisionErrorScope.activation===incomingActivationEpoch.current)){lastRunError.current=publicErrorMessage(e);if (!('taskId' in command) || command.taskId === taskRef.current?.id){if(command.type==='model.run'||command.type==='browser.run'){requestErrorOwner.current={taskId:command.taskId,requestId:command.requestId};setErrorValue(lastRunError.current);}else setError(lastRunError.current);}}
         return undefined;
     }
     finally {
@@ -370,7 +371,7 @@ function ArtifactEditor({task, artifact, cache,scope,isCurrent,saveDocument,busy
  onWorkflowCreated:(saved:{task:Task;artifactId:string;revision:number})=>void;workflowReviewScope:string;workflowReviewCurrent:()=>boolean;
 }) {
  const [createdArtifactId,setCreatedArtifactId]=useState<string>();
- const [workflowReview,setWorkflowReview]=useState<{basis:ArtifactRef;mode:WorkflowSourceMode;epoch:number}>();
+ const [workflowReview,setWorkflowReview]=useState<{basis:ArtifactRef;mode:WorkflowSourceMode|'truth';epoch:number}>();
  const workflowEntry=useRef({identity:'',epoch:0});
  const currentArtifact=artifact??task.artifacts.find(item=>item.id===createdArtifactId);
  const current=currentArtifact?last(currentArtifact.revisions):undefined;
@@ -430,16 +431,16 @@ function ArtifactEditor({task, artifact, cache,scope,isCurrent,saveDocument,busy
  const exportHeading=currentExport?.status==='uncertain'?'Check this save':currentExport?.status==='failed'?'Could not save file':currentExport?.status==='retired'?'Approval expired':'Export '+draft.title;
  useEffect(()=>{if(exportOpen&&currentExport?.status==='verified'){setSavedExport({actionId:currentExport.proposal.id,revision:currentExport.proposal.revision});setExportOpen(false);requestAnimationFrame(()=>{if(documentScroll.current)documentScroll.current.scrollTop=readingScroll.current;});}},[exportOpen,currentExport?.status,currentExport?.proposal.id]);
  const exportBlocked=busy||dirty||conflict||stale.length>0;
- function openWorkflowReview(mode:WorkflowSourceMode){
+ function openWorkflowReview(mode:WorkflowSourceMode|'truth'){
   if(!currentArtifact||!current||!current.mimeType.startsWith('text/')||current.encoding==='base64'||busy||dirty||conflict||stale.length||running||task.status==='paused')return;
   const basis={artifactId:currentArtifact.id,revision:current.revision,digest:current.digest};
   workflowEntry.current=advanceWorkflowReviewScope(workflowEntry.current,JSON.stringify([task.id,basis,mode,'review']));
   setWorkflowReview({basis,mode,epoch:workflowEntry.current.epoch});
  }
- if(workflowReview){const entry=workflowReview,isCurrent=()=>workflowEntry.current.epoch===entry.epoch&&workflowReviewCurrent();return <WorkflowSourceReview task={task} mode={entry.mode} continuationScope={workflowReviewScope+':'+entry.mode+':'+entry.epoch} isContinuationCurrent={isCurrent} basis={entry.basis} busy={busy} run={run} onCreated={saved=>{if(isCurrent())onWorkflowCreated(saved);}} onCancel={()=>{if(!isCurrent())return;workflowEntry.current=advanceWorkflowReviewScope(workflowEntry.current,JSON.stringify([task.id,'document',entry.epoch]));setWorkflowReview(undefined);}}/>;}
+ if(workflowReview){const entry=workflowReview,isCurrent=()=>workflowEntry.current.epoch===entry.epoch&&workflowReviewCurrent();if(entry.mode==='truth')return <TruthSourceReview task={task} basis={entry.basis} busy={busy} run={run} continuationScope={workflowReviewScope+':truth:'+entry.epoch} isCurrent={isCurrent} onCreated={saved=>{if(isCurrent())onWorkflowCreated(saved);}} onCancel={()=>{if(!isCurrent())return;workflowEntry.current=advanceWorkflowReviewScope(workflowEntry.current,JSON.stringify([task.id,'document',entry.epoch]));setWorkflowReview(undefined);}}/>;return <WorkflowSourceReview task={task} mode={entry.mode} continuationScope={workflowReviewScope+':'+entry.mode+':'+entry.epoch} isContinuationCurrent={isCurrent} basis={entry.basis} busy={busy} run={run} onCreated={saved=>{if(isCurrent())onWorkflowCreated(saved);}} onCancel={()=>{if(!isCurrent())return;workflowEntry.current=advanceWorkflowReviewScope(workflowEntry.current,JSON.stringify([task.id,'document',entry.epoch]));setWorkflowReview(undefined);}}/>;}
  return <section className="document-workspace">
   <form className="document-layout" onSubmit={save}>
-   <header className="document-toolbar">{!editingDraft&&<div><h2>{comparing?'Compare versions':exportOpen?exportHeading:draft.title}</h2></div>}<div className="document-toolbar-actions">{editingDraft?<><Button onClick={()=>{if(!currentArtifact){back();return;}clearNavigationDraft.guard(()=>{if(documentController){void documentController.discard();return;}void loadRevision(current);setRevise('');setEditing(false);setEditingLinks(false);});}}>Cancel</Button><Button type="submit" kind="primary" disabled={busy||conflict||stale.length>0||!draft.title.trim()||!draft.content.trim()||!!documentView&&!documentView.canSave}>{currentArtifact?'Save revision':'Save draft'}</Button></>:exportOpen||comparing?null:<>{currentArtifact&&<Button kind="text" onClick={editDocument}>{current?.mimeType==='image/png'?'Edit image details':current?.mimeType==='text/markdown'&&!canEditRichText(draft.content)?'Edit Markdown':'Edit document'}</Button>}{current&&<Button kind="text" disabled={exportBlocked} onClick={async()=>{readingScroll.current=documentScroll.current?.scrollTop??0;const action=await run({type:'export.propose',taskId:task.id,artifactId:currentArtifact!.id,revision:draft.base!.revision});if(action){setExportActionId(action.proposal.id);setExportOpen(true);}}}><Download size={14}/>Export</Button>}<TaskMenu label="Document options"><Button onClick={()=>setInfoOpen(!infoOpen)}>Sources & versions</Button><Button onClick={()=>{setExportOpen(false);setInfoOpen(true);setEditingLinks(true);}}>Edit links</Button>{currentArtifact&&current?.mimeType.startsWith('text/')&&current.encoding!=='base64'&&<Button disabled={busy||dirty||conflict||stale.length>0||running||task.status==='paused'} onClick={()=>openWorkflowReview('legacy')}>Review workflow rules</Button>}{currentArtifact&&current?.mimeType.startsWith('text/')&&current.encoding!=='base64'&&<Button disabled={busy||dirty||conflict||stale.length>0||running||task.status==='paused'} onClick={()=>openWorkflowReview('contextual')}>Learn from these rules</Button>}{currentArtifact&&draft.base?.mimeType.startsWith('text/')&&draft.base.encoding!=='base64'&&currentArtifact.revisions.filter(r=>r.mimeType.startsWith('text/')&&r.encoding!=='base64').length>1&&<Button onClick={()=>setComparing(true)}>Compare versions</Button>}</TaskMenu></>}{editing&&<TaskMenu label="Document options"><Button onClick={()=>setInfoOpen(!infoOpen)}>Sources & versions</Button>{(!draft.base||draft.base.mimeType==='text/markdown')&&<Button disabled={sourceEditing&&!canEditRichText(draft.content)} onClick={()=>setSourceMode({key:formatKey,source:!sourceEditing})}>{sourceEditing?'Edit rich text':'Edit Markdown'}</Button>}</TaskMenu>}</div></header>
+   <header className="document-toolbar">{!editingDraft&&<div><h2>{comparing?'Compare versions':exportOpen?exportHeading:draft.title}</h2></div>}<div className="document-toolbar-actions">{editingDraft?<><Button onClick={()=>{if(!currentArtifact){back();return;}clearNavigationDraft.guard(()=>{if(documentController){void documentController.discard();return;}void loadRevision(current);setRevise('');setEditing(false);setEditingLinks(false);});}}>Cancel</Button><Button type="submit" kind="primary" disabled={busy||conflict||stale.length>0||!draft.title.trim()||!draft.content.trim()||!!documentView&&!documentView.canSave}>{currentArtifact?'Save revision':'Save draft'}</Button></>:exportOpen||comparing?null:<>{currentArtifact&&<Button kind="text" onClick={editDocument}>{current?.mimeType==='image/png'?'Edit image details':current?.mimeType==='text/markdown'&&!canEditRichText(draft.content)?'Edit Markdown':'Edit document'}</Button>}{current&&<Button kind="text" disabled={exportBlocked} onClick={async()=>{readingScroll.current=documentScroll.current?.scrollTop??0;const action=await run({type:'export.propose',taskId:task.id,artifactId:currentArtifact!.id,revision:draft.base!.revision});if(action){setExportActionId(action.proposal.id);setExportOpen(true);}}}><Download size={14}/>Export</Button>}<TaskMenu label="Document options"><Button onClick={()=>setInfoOpen(!infoOpen)}>Sources & versions</Button><Button onClick={()=>{setExportOpen(false);setInfoOpen(true);setEditingLinks(true);}}>Edit links</Button>{currentArtifact&&current?.mimeType.startsWith('text/')&&current.encoding!=='base64'&&<Button disabled={busy||dirty||conflict||stale.length>0||running||task.status==='paused'} onClick={()=>openWorkflowReview('legacy')}>Review workflow rules</Button>}{currentArtifact&&current?.mimeType.startsWith('text/')&&current.encoding!=='base64'&&<Button disabled={busy||dirty||conflict||stale.length>0||running||task.status==='paused'} onClick={()=>openWorkflowReview('contextual')}>Learn from these rules</Button>}{currentArtifact&&current?.mimeType.startsWith('text/')&&current.encoding!=='base64'&&<Button disabled={busy||dirty||conflict||stale.length>0||running||task.status==='paused'} onClick={()=>openWorkflowReview('truth')}>Explore a binary assignment</Button>}{currentArtifact&&draft.base?.mimeType.startsWith('text/')&&draft.base.encoding!=='base64'&&currentArtifact.revisions.filter(r=>r.mimeType.startsWith('text/')&&r.encoding!=='base64').length>1&&<Button onClick={()=>setComparing(true)}>Compare versions</Button>}</TaskMenu></>}{editing&&<TaskMenu label="Document options"><Button onClick={()=>setInfoOpen(!infoOpen)}>Sources & versions</Button>{(!draft.base||draft.base.mimeType==='text/markdown')&&<Button disabled={sourceEditing&&!canEditRichText(draft.content)} onClick={()=>setSourceMode({key:formatKey,source:!sourceEditing})}>{sourceEditing?'Edit rich text':'Edit Markdown'}</Button>}</TaskMenu>}</div></header>
    <div className="document-scroll" ref={documentScroll}>
    {documentController&&<SavedDocumentDraftStatus controller={documentController} cache={cache}/>}
 

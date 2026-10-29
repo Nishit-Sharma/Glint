@@ -1,3 +1,4 @@
+import {truthTableGuard} from './truth-table-host';
 import {admitPickingAction} from './picking-helper-host';
 import {pickingCanonical} from '../shared/picking-digest';
 import type { Companion,ArtifactRef,ModuleStateRef } from './companion';
@@ -24,7 +25,7 @@ export async function editModule(core: Companion, input: { taskId: string; artif
   const state = Schema.decodeUnknownSync(StoredModuleStateSchema,{onExcessProperty:'error'})(updated);
   const states = session.moduleStates.filter(state => state !== existing);
   const output={artifactId:artifact.id,revision:revision.revision,digest:revision.digest};
-  const guard=module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):module.data.kind==='helper-studio'?{sourceRefs:[...revision.sourceRefs],artifactRefs:[output],...((isPicking||action.kind==='begin-table-helper')?{requireActive:true}:{})}:undefined;
+  const guard=truthTableGuard(task,answer,output)??(module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):module.data.kind==='helper-studio'?{sourceRefs:[...revision.sourceRefs],artifactRefs:[output],...((isPicking||action.kind==='begin-table-helper')?{requireActive:true}:{})}:undefined);
   return core.replaceSession(input.taskId, session.revision, { ...session, moduleStates: [...states, { artifactId: artifact.id, artifactRevision: revision.revision, moduleId: module.id, state }] },guard);
 }
 
@@ -37,9 +38,9 @@ export async function saveModuleDocument(core: Companion, input: { taskId: strin
   const stateFor=(moduleId:string)=>session.moduleStates.find(saved=>saved.artifactId===artifact.id&&saved.artifactRevision===revision.revision&&(saved.moduleId===moduleId||(saved.moduleId===undefined&&answer.modules.length===1)))?.state;
   const content = [readableModuleIntro(answer,stateFor), ...answer.modules.map(module => {
     const saved = session.moduleStates.find(saved => saved.artifactId === artifact.id && saved.artifactRevision === revision.revision && (saved.moduleId === module.id || (saved.moduleId === undefined && answer.modules.length === 1)));
-    if(module.data.kind==='grounded-join'||module.data.kind==='workflow-lab'||module.data.kind==='helper-studio'){
+    if(module.data.kind==='grounded-join'||module.data.kind==='workflow-lab'||module.data.kind==='helper-studio'||module.id.startsWith('truth-table-v1-')){
       const output={artifactId:artifact.id,revision:revision.revision,digest:revision.digest};
-      const guard=module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):{sourceRefs:[...revision.sourceRefs],artifactRefs:[output]};
+      const guard=truthTableGuard(task,answer,output)??(module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):{sourceRefs:[...revision.sourceRefs],artifactRefs:[output]});
       for(const ref of guard.artifactRefs)if(!expectedArtifacts.some(other=>other.artifactId===ref.artifactId))expectedArtifacts.push(ref);
       expectedModuleStates.push({artifactId:artifact.id,artifactRevision:revision.revision,moduleId:module.id,stateRevision:saved?.state.revision??0});
     }

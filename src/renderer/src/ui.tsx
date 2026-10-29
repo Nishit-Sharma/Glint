@@ -1,8 +1,9 @@
 import {useId,cloneElement,isValidElement,type ReactNode} from 'react';
 import type {ExportCommand,ExportReply,OtherCommand} from '../../shared/export-contract';
+export type RunScope={isCurrent:()=>boolean};
 export interface Run {
-    <C extends ExportCommand>(cmd:C,success?:string):Promise<ExportReply<C>|undefined>;
-    <T=unknown>(cmd:OtherCommand,success?:string):Promise<T|undefined>;
+    <C extends ExportCommand>(cmd:C,success?:string,scope?:RunScope):Promise<ExportReply<C>|undefined>;
+    <T=unknown>(cmd:OtherCommand,success?:string,scope?:RunScope):Promise<T|undefined>;
 }
 export type RequestKind = 'explain'|'create'|'experiment'|'procedure';
 export function Button({ children, onClick, disabled = false, kind = '', title, type = 'button', 'data-presentation-exit-control':exitControl }: {

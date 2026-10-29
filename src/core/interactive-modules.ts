@@ -1,3 +1,4 @@
+import {readTruthBinding,TRUTH_INTRO,TRUTH_MODULE_PREFIX} from '../learning/truth-table';
 import { Schema } from 'effect';
 import { createModuleRegistry, defineModule } from './module-registry';
 import { joinLab, JoinLessonSchema, JoinStateSchema, JoinActionSchema, validateLesson } from '../learning/join-lab';
@@ -86,6 +87,7 @@ export function parseModuleAnswer(value: unknown): ModuleAnswer {
 }
 /** Keep the host-created artifact immutable while describing its chosen helper mode. */
 export function readableModuleIntro(answer:ModuleAnswer,stateFor?:(moduleId:string)=>unknown):string{
+  if(answer.modules.some(module=>module.id.startsWith(TRUTH_MODULE_PREFIX))){try{return readTruthBinding(answer.markdown,answer.modules[0].id)?TRUTH_INTRO:'This truth table needs review.';}catch{return 'This truth table needs review.';}}
   if(answer.markdown!=='Local text helper. Teach only the listed text operations on text you paste here.'||answer.modules.length!==1)return answer.markdown;
   const module=answer.modules[0];if(module.data.kind!=='helper-studio')return answer.markdown;
   const state=stateFor?.(module.id);
