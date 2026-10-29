@@ -27,6 +27,11 @@ import {REVISION_INSTRUCTIONS_SLOT,emptyRevisionInstructions} from '../src/share
 // Bundle the production host handler. Only OS/network boundaries are substituted;
 // source versions, request authority and all durable writes use the actual core.
 const cleanups:Array<()=>Promise<void>>=[]
+it('temporary production host resolves exactly the project dependencies without ambient module paths',async()=>{
+ const f=await fixture(),loadTemporary=createRequire(pathToFileURL(join(f.directory,'host-under-test.cjs'))),loadProject=createRequire(pathToFileURL(join(resolve('.'),'package.json')));
+ expect(await realpath(join(f.directory,'node_modules'))).toBe(await realpath(join(resolve('.'),'node_modules')));
+ for(const name of ['effect','diff'])expect(await realpath(loadTemporary.resolve(name))).toBe(await realpath(loadProject.resolve(name)));
+});
 it('revision instruction host admits only inert closed-slot raw under its exact saved-document owner',async()=>{
  const f=await fixture(),created=await f.core.createTask({title:'Owned revision instruction IPC'}),saved=await f.core.saveArtifact(created.id,{title:'Committed document',content:'Original body.',mimeType:'text/plain',sourceRefs:[]}),task=await f.core.getTask(created.id),owner=savedDocumentDraftOwner(task.id,saved.artifactId),basis=savedDocumentDraftBasis(task,saved.artifactId,saved.revision),value={initial:serializeLearningDraftJson(emptyRevisionInstructions),value:serializeLearningDraftJson({present:true,text:'  Inert α 👋 instructions  '}),basis},command={type:'learning-drafts.save',owner,slot:REVISION_INSTRUCTIONS_SLOT,expectedEpoch:'initial',expectedRevision:0,value};
  for(const invalid of [{...command,permissions:['capture']},{...command,slot:REVISION_INSTRUCTIONS_SLOT+':future'},{...command,owner:{...owner,artifactId:'missing'}},{...command,value:{...value,value:serializeLearningDraftJson({present:true,text:'Inert text',execute:true})}}])await expect(f.command(invalid)).rejects.toThrow();
@@ -168,6 +173,8 @@ afterEach(async()=>{vi.restoreAllMocks();for(const cleanup of cleanups.splice(0)
 async function fixture(settingsBytes?:string){
   const root=resolve('.')
   const dir=await mkdtemp(join(tmpdir(),'setup-host-boundary-')),key='hostBoundary'+randomUUID().replaceAll('-','')
+  cleanups.push(()=>rm(dir,{recursive:true,force:true}))
+  await symlink(await realpath(join(root,'node_modules')),join(dir,'node_modules'),'dir')
   if(settingsBytes!==undefined)await writeFile(join(dir,'capture-settings.json'),settingsBytes);
   // These command tests start with a chosen legacy appearance; first-run setup has its own journey.
   await writeFile(join(dir,'character-preferences.json'),JSON.stringify({schemaVersion:1,revision:0,profile:DEFAULT_CHARACTER}));
@@ -198,7 +205,7 @@ async function fixture(settingsBytes?:string){
   let bounds={x:1350,y:20,width:430,height:760},minimum=[360,500]
   let visible=true;const presentationAcks:Promise<unknown>[]=[];
   host.setPanel({isDestroyed:()=>false,isVisible:()=>visible,hide:()=>{visible=false},setAlwaysOnTop:()=>{},webContents:{isLoading:()=>false,capturePage:async()=>{calls.presentationCaptures++;return seams.presentationCapture();},send:(_topic:string,event:any)=>{calls.events.push(event);if(event.type==='draft.flush')seams.quitFlush?.(event.quitId);if(event.type==='presentation.prepare'&&seams.autoPresentation)presentationAcks.push(host.command({type:'presentation.capture',exitId:event.exitId}));if(event.type==='presentation.exit'&&seams.autoPresentation)presentationAcks.push(host.command({type:'presentation.finish',exitId:event.exitId}).then(()=>event.purpose==='collapse'?host.command({type:'presentation.reveal',exitId:event.exitId}):null));if(event.type==='presentation.enter')presentationAcks.push(host.command({type:'presentation.show',entranceId:event.entranceId}));}},setMinimumSize:(w:number,h:number)=>{minimum=[w,h]},setBounds:(b:typeof bounds)=>{bounds=b},getBounds:()=>bounds,getSize:()=>[bounds.width,bounds.height],show:()=>{visible=true;calls.shows++},showInactive:()=>{visible=true}})
-  cleanups.push(async()=>{host.stopMonitor();await core.close();evictHostFixture(loadHost,outfile);Reflect.deleteProperty(globalThis,key);await rm(dir,{recursive:true,force:true})})
+  cleanups.push(async()=>{host.stopMonitor();await core.close();evictHostFixture(loadHost,outfile);Reflect.deleteProperty(globalThis,key)})
   const command=async(c:unknown):Promise<any>=>host.command(host.validate(c))
   return {core,command,calls,seams,directory:dir,stop:host.stopForQuit,beginQuit:host.beginQuit,barrier:host.quitDrafts,resume:host.resumeForTest,hide:()=>{visible=false;},nativeQuitCalls:()=>seams.quitCalls,shortcut:host.activateShortcut,settlePresentation:async()=>{await Promise.resolve();for(let index=0;index<presentationAcks.length;index++)await presentationAcks[index]},bounds:()=>bounds,minimum:()=>minimum,attach:host.attach,monitor:host.monitorAttached,cache:host.captureCache as Map<string,any>,setConfigured:(v:boolean)=>{configured=v},setResponse:(v:number)=>{response=v},setOutput:(v:string)=>{output=v},setCapture:(size:number,name:string)=>{bytes=size;label=name}}
 }
