@@ -1,3 +1,5 @@
+import {assertRevisionInstructionRequest} from '../shared/revision-instructions'
+import {parseSavedDocumentDraftBasis} from '../shared/saved-document-draft'
 import {createWindowWorkflow,windowWorkflowCandidateForReview} from '../core/window-workflow-host'
 import {createWindowWorkflowCaptureFence} from './window-workflow-capture'
 import {LearningDraftStore} from './learning-drafts'
@@ -193,8 +195,9 @@ function validate(value:unknown):Command{
   }
   if('submittedDraft' in c){if(c.type!=='model.run'&&c.type!=='browser.run')throw Error('This command cannot submit a message draft.');validateComposerValue(c.submittedDraft,true);}
   if(c.type==='model.run'){
-    if(Object.keys(c).some(key=>!['type','taskId','requestId','prompt','kind','artifactId','sourceIds','expectedSourceRefs','submittedDraft','briefAction'].includes(key)))throw Error('Unknown model request field.');
+    if(Object.keys(c).some(key=>!['type','taskId','requestId','prompt','kind','artifactId','sourceIds','expectedSourceRefs','revisionBasis','submittedDraft','briefAction'].includes(key)))throw Error('Unknown model request field.');
     str(c.requestId,'request ID',200);str(c.prompt,'request',16000);
+    if(c.revisionBasis!==undefined){const basis=parseSavedDocumentDraftBasis(str(c.revisionBasis,'document revision basis',16*1024));if(c.kind!=='revise'||c.artifactId!==basis.artifactId||c.taskId!==basis.taskId||c.briefAction!==undefined||c.submittedDraft!==undefined)throw Error('Revision instructions require their exact saved document.');}
   }
   if(c.type==='module.edit'||c.type==='module.document'){
     const keys=c.type==='module.edit'?['type','taskId','artifactId','artifactRevision','moduleId','action']:['type','taskId','artifactId','artifactRevision','sessionRevision']
@@ -823,6 +826,7 @@ async function command(c:Command):Promise<unknown>{
       const before=await core.getTask(c.taskId),target=c.artifactId?before.artifacts.find(a=>a.id===c.artifactId):undefined,targetRevision=target?.revisions.at(-1)
       assertCurrentWork(lifecycle);if(c.kind==='revise'&&!targetRevision)throw Error('Select an existing artifact to revise.')
       if(c.kind==='revise'&&targetRevision)assertRawModuleOperationAllowed(targetRevision.mimeType,'revise')
+      if(c.revisionBasis!==undefined)assertRevisionInstructionRequest(before,c.artifactId!,c.revisionBasis,c.sourceIds,c.expectedSourceRefs)
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)
       const request=plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
       let captureRequest=false;let assertWindowPublication=()=>{};

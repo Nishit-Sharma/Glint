@@ -1,4 +1,5 @@
 import {SavedDocumentDraftOwnerSchema,SAVED_DOCUMENT_DRAFT_SLOT,SAVED_DOCUMENT_CONTENT_LIMIT,SAVED_DOCUMENT_DRAFT_JSON_BYTES,emptySavedDocumentDraft,parseSavedDocumentDraft,parseSavedDocumentDraftBasis} from './saved-document-draft';
+import {REVISION_INSTRUCTIONS_SLOT,emptyRevisionInstructions,parseRevisionInstructions} from './revision-instructions';
 import {pickingRawPolicy,isPickingRawPolicy,validatePickingRaw,PICKING_DEFINITION_DRAFT_JSON_BYTES,PICKING_CASE_DRAFT_JSON_BYTES,type PickingRawPolicy} from './picking-draft-form-policy';
 import {Schema,ParseResult} from 'effect';
 import {LOCAL_TASK_DRAFT_JSON_BYTES,LOCAL_TASK_DRAFT_STRING_LIMIT,LOCAL_TASK_DRAFT_SLOT,emptyLocalTaskDraft,localTaskDraftBasis,parseLocalTaskDraft} from './local-task-draft';
@@ -127,7 +128,9 @@ export function parseLearningDraftValue(value:unknown,owner?:LearningDraftOwner,
  canonicalJson(value,jsonLimit(policy));const parsed=decode(Value,value);
  const initial=parseLearningDraftJson(parsed.initial,policy),current=parseLearningDraftJson(parsed.value,policy);
  if(owner&&'kind' in owner&&owner.kind==='saved-document-edit'){
-  try{const basis=parseSavedDocumentDraftBasis(parsed.basis);if(slot!==SAVED_DOCUMENT_DRAFT_SLOT||basis.taskId!==owner.taskId||basis.artifactId!==owner.artifactId||parsed.initial!==serializeLearningDraftJson(emptySavedDocumentDraft,'saved-document-edit'))throw Error();parseSavedDocumentDraft(initial);parseSavedDocumentDraft(current);}
+  try{const basis=parseSavedDocumentDraftBasis(parsed.basis);if(basis.taskId!==owner.taskId||basis.artifactId!==owner.artifactId)throw Error();
+   if(slot===REVISION_INSTRUCTIONS_SLOT){if(parsed.initial!==serializeLearningDraftJson(emptyRevisionInstructions))throw Error();parseRevisionInstructions(initial);parseRevisionInstructions(current);}
+   else{if(slot!==SAVED_DOCUMENT_DRAFT_SLOT||parsed.initial!==serializeLearningDraftJson(emptySavedDocumentDraft,'saved-document-edit'))throw Error();parseSavedDocumentDraft(initial);parseSavedDocumentDraft(current);}}
   catch{throw invalid('Document edits need review.');}
  }
  if(owner&&'kind' in owner&&owner.kind==='source-text-edit'){
@@ -162,7 +165,7 @@ export function parseLearningDraftRecord(value:unknown):LearningDraftRecord{
  const fields=envelopeFields(value,['owner','slot','revision','value']);
  const owner=parseLearningDraftOwner(fields.owner),slot=parseLearningDraftSlot(fields.slot);
  if(!isTaskLearningDraftOwner(owner)&&slot!==LOCAL_TASK_DRAFT_SLOT)throw invalid('Local task draft slot is invalid.');
- if('kind' in owner&&owner.kind==='saved-document-edit'&&slot!==SAVED_DOCUMENT_DRAFT_SLOT)throw invalid('Document edit slot is invalid.');
+ if('kind' in owner&&owner.kind==='saved-document-edit'&&slot!==SAVED_DOCUMENT_DRAFT_SLOT&&slot!==REVISION_INSTRUCTIONS_SLOT)throw invalid('Document edit slot is invalid.');
  if('kind' in owner&&owner.kind==='source-text-edit'&&slot!==SOURCE_TEXT_DRAFT_SLOT)throw invalid('Source edit slot is invalid.');
  const parsedValue=parseLearningDraftValue(fields.value,owner,slot);
  return decode(RecordSchema,{owner,slot,revision:canonicalJson(fields.revision),value:parsedValue});

@@ -156,6 +156,24 @@ export function nextPickingDefinition(state:PickingState,value:unknown,forceNew=
 }
 const initial=(helperId:string):PickingState=>({kind:'helper-studio',format:'semantic-table-v2',helperId,revision:0,owner:null,contexts:[],currentContextId:null,recording:null,observations:[],candidate:null,candidateHistory:[],cases:[],corrections:[],releases:[],activation:{generation:0,version:null,digest:null},attempts:[]});
 export const parsePickingCase=(value:unknown)=>decode(caseSchema,value);
+/** A saved recipe outcome is evidence; only the chosen option supplies the new expectation. */
+export function pickingRunCaseReview(state:PickingState,runId:string){
+ const attempt=state.attempts.find(value=>value.id===runId),context=attempt&&state.contexts.find(value=>value.id===attempt.contextId),release=attempt&&state.releases.find(value=>value.digest===attempt.releaseDigest),definition=state.candidate?.definition;
+ if(!state.owner||!attempt||!context||!release||!definition)throw Error('The saved run, original context or checked version is unavailable. Inspect the saved receipt first.');
+ if(!(attempt.status==='completed'&&attempt.result.status==='completed'||attempt.status==='failed'&&attempt.result.status!=='completed')||attempt.result.status==='invalid-input'&&attempt.result.stage==='definition')throw Error('Inspect or settle this receipt first. Cancellation, changed targets and unconfirmed replies are not recipe counterexamples.');
+ if(!same(context.definition.table.columns,definition.table.columns))throw Error('The table columns changed. Review the original saved input before creating a case.');
+ const saved=attempt.result.status==='completed'?{status:'completed' as const,output:attempt.result.output}:attempt.result.status==='abstained'?{status:'abstained' as const,code:attempt.result.code,...(attempt.result.haltedStepId?{haltedStepId:attempt.result.haltedStepId}:{})}:{status:'invalid-input' as const,stage:attempt.result.stage};
+ const caseId='runCase'+pickingDigest({owner:state.owner,runId});
+ const make=(expected:PickingCase['expected'])=>parsePickingCase({id:caseId,role:'counterexample',table:context.table,request:context.request,expected});
+ const choices:{id:string;label:string;expected:PickingCase['expected']}[]=[{id:'saved',label:attempt.result.status==='completed'?'I expect the saved output':'I expect the saved recipe refusal',expected:make(saved).expected}];
+ for(const condition of definition.body.preconditions)choices.push({id:'precondition:'+condition.id,label:'Expect request refusal: '+condition.reason,expected:{status:'abstained',code:'precondition',haltedStepId:condition.id}});
+ const visit=(step:SemanticStep):void=>{if(step.kind==='abstain')choices.push({id:'stop:'+step.id,label:'Expect stop: '+step.reason,expected:{status:'abstained',code:'explicit-stop',haltedStepId:step.id}});else if(step.kind==='assign')visit(step.next);else if(step.kind==='branch'){visit(step.then);visit(step.else);}};visit(definition.body.root);
+ return {caseId,context,release,attempt,choices,make};
+}
+export function pickingCaseFromRun(state:PickingState,runId:string,choiceId:string):PickingCase{
+ const review=pickingRunCaseReview(state,runId),choice=review.choices.find(value=>value.id===choiceId);
+ if(!choice)throw Error('Choose the expected outcome explicitly before adding this declared case.');return review.make(choice.expected);
+}
 const parseAction=(value:unknown)=>decode(PickingActionSchema,value);
 function update(helperId:string,value:unknown,actionValue:unknown):PickingState{
  const state=parseState(helperId,value),action=parseAction(actionValue);if(action.expectedRevision!==state.revision||state.revision>=500)throw Error('This picking helper changed or reached its revision limit.');

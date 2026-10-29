@@ -128,6 +128,7 @@ export interface AiInputProps {
   placeholder?: string
   maxRows?: number
   disabled?: boolean
+  stopWhileDisabled?: boolean
   submitDisabled?: boolean
   name?: string
   startSlot?: ReactNode
@@ -154,6 +155,7 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
       placeholder = 'Type a message…',
       maxRows = 6,
       disabled = false,
+      stopWhileDisabled = false,
       submitDisabled = false,
       name,
       startSlot,
@@ -187,14 +189,24 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
       if (!active) return
       const el = internalRef.current
       if (!el) return
-      el.style.height = 'auto'
-      const computed = getComputedStyle(el)
-      const lineHeight = parseFloat(computed.lineHeight)
-      if (Number.isNaN(lineHeight)) return
-      const max = lineHeight * maxRows
-      const next = Math.min(el.scrollHeight, max)
-      el.style.height = `${next}px`
-      el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+      const resize = () => {
+        el.style.height = 'auto'
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight)
+        if (Number.isNaN(lineHeight)) return
+        const max = lineHeight * maxRows
+        el.style.height = `${Math.min(el.scrollHeight, max)}px`
+        el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+      }
+      resize()
+      let width = el.getBoundingClientRect().width
+      const observer = new ResizeObserver(() => {
+        const nextWidth = el.getBoundingClientRect().width
+        if (nextWidth === width) return
+        width = nextWidth
+        resize()
+      })
+      observer.observe(el)
+      return () => observer.disconnect()
     }, [value, maxRows, active])
 
     const trimmed = value.trim()
@@ -347,6 +359,7 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
                   onPointerDown={(e) => e.preventDefault()}
                   disabled={buttonDisabled}
                   aria-label={showStop ? 'Stop' : submitLabel}
+                  style={disabled && showStop && stopWhileDisabled ? { pointerEvents: 'auto' } : undefined}
                   className={cn(
                     'relative flex shrink-0 items-center justify-center size-8 rounded-full squircle cursor-pointer outline-none',
                     'bg-foreground text-background',

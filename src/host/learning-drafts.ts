@@ -1,4 +1,5 @@
 import {SAVED_DOCUMENT_DRAFT_SLOT,parseSavedDocumentDraftBasis,parseSavedDocumentDraft,ordinaryTextDocument,sameDocumentRefs} from '../shared/saved-document-draft';
+import {REVISION_INSTRUCTIONS_SLOT,parseRevisionInstructions} from '../shared/revision-instructions';
 import {createHash,randomUUID} from 'node:crypto';
 import {LOCAL_TASK_DRAFT_SLOT} from '../shared/local-task-draft';
 import {isWorkflowSourceSlot} from '../shared/workflow-source-admission';
@@ -99,8 +100,11 @@ export class LearningDraftStore{
   const task=await this.options.lookupTask(owner.taskId);
   if(!task||task.id!==owner.taskId)return false;
   if('kind' in owner&&owner.kind==='saved-document-edit'){
-   if(slot!==SAVED_DOCUMENT_DRAFT_SLOT)return false;
-   try{const basis=parseSavedDocumentDraftBasis(value.basis),raw=parseSavedDocumentDraft(parseLearningDraftJson(value.value,'saved-document-edit')),artifact=task.artifacts.find(item=>item.id===owner.artifactId),revision=artifact?.revisions.find(item=>item.revision===basis.revision&&item.digest===basis.digest);return basis.taskId===owner.taskId&&basis.artifactId===owner.artifactId&&!!revision&&ordinaryTextDocument(revision)&&sameDocumentRefs(revision.sourceRefs,basis.sourceRefs)&&raw.sourceRefs.every(ref=>task.sources.some(source=>source.id===ref.sourceId&&source.versions.some(version=>version.version===ref.version&&version.digest===ref.digest)));}catch{return false;}
+   if(slot!==SAVED_DOCUMENT_DRAFT_SLOT&&slot!==REVISION_INSTRUCTIONS_SLOT)return false;
+   try{const basis=parseSavedDocumentDraftBasis(value.basis),artifact=task.artifacts.find(item=>item.id===owner.artifactId),revision=artifact?.revisions.find(item=>item.revision===basis.revision&&item.digest===basis.digest);
+    if(basis.taskId!==owner.taskId||basis.artifactId!==owner.artifactId||!revision||!ordinaryTextDocument(revision)||!sameDocumentRefs(revision.sourceRefs,basis.sourceRefs))return false;
+    if(slot===REVISION_INSTRUCTIONS_SLOT){parseRevisionInstructions(parseLearningDraftJson(value.value));return true;}
+    const raw=parseSavedDocumentDraft(parseLearningDraftJson(value.value,'saved-document-edit'));return raw.sourceRefs.every(ref=>task.sources.some(source=>source.id===ref.sourceId&&source.versions.some(version=>version.version===ref.version&&version.digest===ref.digest)));}catch{return false;}
   }
   if('kind' in owner&&owner.kind==='source-text-edit'){
    if(slot!==SOURCE_TEXT_DRAFT_SLOT)return false;
