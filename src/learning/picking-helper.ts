@@ -37,7 +37,7 @@ export const PickingActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('picking-save'),note:reason,...common}),
  Schema.Struct({kind:Schema.Literal('picking-activate'),version,digest,generation:revision,...common}),
  Schema.Struct({kind:Schema.Literal('picking-restore'),version,...common}),
- Schema.Struct({kind:Schema.Literal('picking-deactivate','picking-propose','picking-record-stop','picking-record-cancel'),...common}),
+ Schema.Struct({kind:Schema.Literal('picking-deactivate','picking-propose','picking-propose-contrast','picking-record-stop','picking-record-cancel'),...common}),
  Schema.Struct({kind:Schema.Literal('picking-context'),table:Schema.Unknown,request:record,...common}),
  Schema.Struct({kind:Schema.Literal('picking-record-start'),contextId:TableIdSchema,...common}),
  Schema.Struct({kind:Schema.Literal('picking-select-row'),rowId:TableIdSchema,...common}),

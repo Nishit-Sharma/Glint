@@ -1,3 +1,4 @@
+import {inferPickingContrast} from '../learning/picking-contrast-demonstration';
 import {Schema} from 'effect';
 import {pickingHelper,pickingDefinition,pickingContext,contextTable,recordingStep,nextPickingDefinition,attemptPayload,PickingOwnerSchema,observationPayload,type PickingOwner,type PickingState,type PickingObservation,type PickingAction} from '../learning/picking-helper';
 import {parseTableSnapshot,parseTableRequest,runTableProcedure,type TableProcedureV2} from '../learning/semantic-table-procedure';
@@ -41,7 +42,7 @@ export function admitPickingAction(ownerValue:PickingOwner,value:unknown,actionV
   const row=context.table.rows.find(r=>r.id===recording.selectedRow),lastFor=(field:string)=>[...recording.events].reverse().find(e=>(e.step.kind==='copy'||e.step.kind==='literal')&&e.step.output===field),keyCopy=lastFor('itemKey'),labelCopy=lastFor('label'),stockIndex=context.definition.table.columns.findIndex(c=>c.kind==='integer'),privateIndex=context.definition.table.columns.findIndex(c=>c.kind==='boolean');
   const rowValue=(event:ReturnType<typeof lastFor>)=>{const step=event?.step;return step?.kind==='copy'&&step.source==='row'?row?.values[context.definition.table.columns.findIndex(c=>c.id===step.field)]:undefined;};
   const quantity=context.request.quantity,available=row?.values[stockIndex];
-  if(!row||context.request.reviewed!==true||!['pickup','courier'].includes(String(context.request.delivery))||row.values[privateIndex]===true||typeof quantity!=='number'||!Number.isSafeInteger(quantity)||quantity<1||quantity>10000||typeof available!=='number'||available<quantity||available>10000||output.itemKey!==context.request.key||rowValue(keyCopy)!==output.itemKey||rowValue(labelCopy)!==output.label||output.quantity!==quantity)throw Error('The local manifest outcome must match the reviewed request, selected row and available quantity. Repair the recording before finishing.');
+  if(!row||context.request.reviewed!==true||typeof context.request.delivery!=='string'||!context.request.delivery.trim()||row.values[privateIndex]===true||typeof quantity!=='number'||!Number.isSafeInteger(quantity)||quantity<1||quantity>10000||typeof available!=='number'||available<quantity||available>10000||output.itemKey!==context.request.key||rowValue(keyCopy)!==output.itemKey||rowValue(labelCopy)!==output.label||output.quantity!==quantity)throw Error('The local manifest outcome must match the reviewed request, selected row and available quantity. Repair the recording before finishing.');
   const targetRevision=context.target.revision+1,payload={id:'observation'+next.revision,kind:'observed-app-actions' as const,admission:'owned-module-host' as const,physicalGestureVerified:false as const,recordingId:recording.id,owner,contextId:context.id,events:recording.events,output,targetRevision},observation:PickingObservation={...payload,digest:pickingDigest(payload)};
   next={...next,contexts:state.contexts.map(c=>c.id===context.id?{...c,target:{...c.target,revision:targetRevision,value:output}}:c),recording:null,observations:[...state.observations,observation]};
  }else if(action.kind==='picking-propose'){
@@ -58,6 +59,10 @@ export function admitPickingAction(ownerValue:PickingOwner,value:unknown,actionV
   proposed=nextPickingDefinition(state,{...proposed,body:{...proposed.body,root:infer(proposed.body.root)}});
   const proposedReason='Observed row and field-copy actions support these proposed key/projection bindings. Stock, protection and delivery rules are declared and must be checked.';
   next={...next,candidateHistory:[...state.candidateHistory,{atRevision:next.revision,candidate:state.candidate}],candidate:{definition:proposed,observationId:observation.id,proposedReason,currentReason:proposedReason}};
+ }else if(action.kind==='picking-propose-contrast'){
+  if(state.recording||!state.candidate)throw Error('Finish the current recording before proposing conditional steps.');
+  const proposal=inferPickingContrast(state.candidate.definition,state.observations,state.contexts),definition=nextPickingDefinition(state,proposal.definition);
+  next={...next,candidateHistory:[...state.candidateHistory,{atRevision:next.revision,candidate:state.candidate}],candidate:{definition,observationId:state.observations.at(-1)!.id,proposedReason:proposal.reason,currentReason:proposal.reason}};
  }else if(action.kind==='picking-prepare'){
   if(state.recording||state.attempts.length>=20)throw Error('Finish recording or inspect the receipt limit before another run.');
   const release=state.releases.find(r=>r.digest===action.releaseDigest),context=pickingContext(state,action.contextId);

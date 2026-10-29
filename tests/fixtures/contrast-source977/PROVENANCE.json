@@ -1,0 +1,11 @@
+{
+  "sourceDigest": "374c3b344000782f30d370e976917b19879892e4fe16c24187f206b4f70aec4f",
+  "purpose": "Pinned reader/evaluator/host showing unchanged saved-state format and bounded known-action compatibility",
+  "files": {
+    "src/learning/picking-helper.ts": "f5ba6f2fb780b8cace8b1452f7106add759ee0b061d4e0c22f5d32b1f4a797fa",
+    "src/learning/semantic-table-procedure.ts": "89d33fe57efebf32c4fb14cf3ece17cb2868e48b28e01bf90caea0cf5daa7739",
+    "src/learning/semantic-procedure.ts": "7ca1584777f4fcfcbe69d6e2d16c4dfc272ec2ce5a90cbe7975bb78ea539f990",
+    "src/shared/picking-digest.ts": "6d48b4dca531f1480626f0bbe36d8a1ea107ed954608c708bd302725afa90cf2",
+    "src/core/picking-helper-host.ts": "98538a08cc323466b6c7c8a6da8601a81538db473ccbd9f5c389de928d7aa532"
+  }
+}

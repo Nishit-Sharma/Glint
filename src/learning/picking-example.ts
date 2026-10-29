@@ -28,15 +28,19 @@ export function suggestedPickingCases(definition:TableProcedureV2,table:TableSna
  const keyIndex=definition.table.columns.findIndex(c=>c.id===definition.lookup.column),labelIndex=definition.table.columns.findIndex(c=>c.id===definition.lookup.bindings.find(b=>b.input==='matchedLabel')?.column),stockIndex=definition.table.columns.findIndex(c=>c.id===definition.lookup.bindings.find(b=>b.input==='available')?.column),privateIndex=definition.table.columns.findIndex(c=>c.id===definition.lookup.bindings.find(b=>b.input==='protected')?.column);
  const row=table.rows.find(r=>r.values[keyIndex]===request.key);if(!row||typeof request.quantity!=='number')return [];
  const key='Fresh-'+String(request.key).slice(0,150),freshValues=[...row.values];freshValues[keyIndex]=key;freshValues[labelIndex]='A different local item';freshValues[stockIndex]=Math.min(10000,request.quantity+3);freshValues[privateIndex]=false;
- let courier='Prepare for courier';const find=(step:SemanticStep)=>{if(step.kind==='assign'){if(step.id==='courierhandling'&&step.value.kind==='literal'&&typeof step.value.value==='string')courier=step.value.value;find(step.next);}else if(step.kind==='branch'){find(step.then);find(step.else);}};find(definition.body.root);
+ const choices:Array<{delivery:string;handling:string}>=[];
+ const handling=(step:SemanticStep):string|undefined=>step.kind==='assign'?(step.field==='handling'&&step.value.kind==='literal'&&typeof step.value.value==='string'?step.value.value:handling(step.next)):undefined;
+ const visit=(step:SemanticStep):void=>{if(step.kind==='assign')visit(step.next);else if(step.kind==='branch'){const predicate=step.predicate;if(predicate.kind==='compare'&&predicate.operator==='eq'&&predicate.left.kind==='input'&&predicate.left.field==='delivery'&&predicate.right.kind==='literal'&&typeof predicate.right.value==='string'){const value=handling(step.then);if(value!==undefined)choices.push({delivery:predicate.right.value,handling:value});}visit(step.then);visit(step.else);}};visit(definition.body.root);
+ const different=choices.find(choice=>choice.delivery!==request.delivery)??choices[0]??{delivery:'courier',handling:'Prepare for courier'};
+ let unseen='unsupported';while(choices.some(choice=>choice.delivery===unseen))unseen+='-other';
  const one=(name:string,values:readonly (string|number|boolean)[])=>({id:name,rows:[{id:'row',values}]});
  const privateValues=[...row.values];privateValues[privateIndex]=true;const lowStock=[...row.values];lowStock[stockIndex]=Math.max(0,request.quantity-1);
  return [
- {id:'fresh',role:'held-out',table:one('freshInventory',freshValues),request:{...request,key,delivery:'courier'},expected:{status:'completed',output:{itemKey:key,label:'A different local item',quantity:request.quantity,handling:courier}}},
+ {id:'fresh',role:'held-out',table:one('freshInventory',freshValues),request:{...request,key,delivery:different.delivery},expected:{status:'completed',output:{itemKey:key,label:'A different local item',quantity:request.quantity,handling:different.handling}}},
  {id:'review',role:'counterexample',table,request:{...request,reviewed:false},expected:{status:'abstained',code:'precondition',haltedStepId:'reviewed'}},
  {id:'protected',role:'exception',table:one('protectedInventory',privateValues),request,expected:{status:'abstained',code:'explicit-stop',haltedStepId:'protectedStop'}},
  {id:'stock',role:'exception',table:one('lowInventory',lowStock),request,expected:{status:'abstained',code:'explicit-stop',haltedStepId:'stockStop'}},
- {id:'delivery',role:'exception',table,request:{...request,delivery:'unsupported'},expected:{status:'abstained',code:'explicit-stop',haltedStepId:'deliveryStop'}},
+ {id:'delivery',role:'exception',table,request:{...request,delivery:unseen},expected:{status:'abstained',code:'explicit-stop',haltedStepId:'deliveryStop'}},
  {id:'missing',role:'exception',table,request:{...request,key:'Missing-'+String(request.key).slice(0,148)},expected:{status:'abstained',code:'lookup-missing'}},
  {id:'duplicate',role:'exception',table:{id:'duplicateInventory',rows:[{id:'first',values:row.values},{id:'second',values:row.values}]},request,expected:{status:'abstained',code:'lookup-ambiguous'}},
  ];
