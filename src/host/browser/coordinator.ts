@@ -5,7 +5,7 @@ import { emptyTaskSession, type TaskSession, type BrowserObservation, type Compo
 import { moduleText, parseModelModule, parseModuleAnswer, type ModelModuleDraft } from '../../core/interactive-modules';
 import type { Task } from '../../core/types';
 import {readTaskArtifactText} from '../../core/task-dialogue';
-import { LocalBrowser, ExpectedFormFields, type FormValuesMismatch, type BrowserProposal, type WriteScope, type BrowserWindowOwner } from './local-browser';
+import { LocalBrowser, BrowserObservationChangedError, ExpectedFormFields, type FormValuesMismatch, type BrowserProposal, type WriteScope, type BrowserWindowOwner } from './local-browser';
 
 const PlannedActionSchema = Schema.Struct({ kind: Schema.Literal('action'), reason: Schema.String, action: Schema.Union(Schema.Struct({ kind: Schema.Literal('click'), targetId: Schema.String, expectedFields: Schema.optional(ExpectedFormFields) }), Schema.Struct({ kind: Schema.Literal('fill'), targetId: Schema.String, value: Schema.String })) });
 type PlannedAction = typeof PlannedActionSchema.Type;
@@ -71,12 +71,20 @@ export class BrowserCoordinator {
         let observation = await browser.observe();
         input.onProgress?.(`Reading ${observation.title || 'the selected page'}…`);
         await this.core.beginBrowserRun(input.taskId,{id:input.requestId,endpointKey,origin:input.origin,browserId:browser.id,initialObservation:observation},ctx.task.session?.contextRevision??0);
-        let admissionFailure:FormValuesMismatch|undefined;
+        const boundBrowser=browser;
+        const assertRecoveryOwner=(current:Task)=>{
+          if(ctx.signal.aborted)throw Error('Stopped before reading the changed page.');
+          if(endpointKey!==this.planner.endpointKey)throw Error('Planner configuration changed. Start a newly authorized request.');
+          const run=current.session?.runs.find(run=>run.id===input.requestId),request=current.requests.find(request=>request.id===input.requestId);
+          if(current.id!==input.taskId||current.status!=='active'||request?.kind!=='browser'||request.status!=='running'||!run||run.browserId!==boundBrowser.id||run.origin!==input.origin||run.endpointKey!==endpointKey||run.initialObservation.taskId!==input.taskId||run.initialObservation.browserId!==boundBrowser.id||boundBrowser.taskId!==input.taskId||boundBrowser.origin!==input.origin||observation.taskId!==input.taskId||observation.browserId!==boundBrowser.id||new URL(observation.url).origin!==input.origin)throw Error('The browser binding changed. Start a newly authorized request.');
+        };
+        let admissionFailure:FormValuesMismatch|undefined,refreshedBeforeProposal=false;
         for (let step = 0; step < 8; step++) {
           if (ctx.signal.aborted) throw Error('Stopped by user.');
           if (endpointKey !== this.planner.endpointKey) throw Error('Planner configuration changed. Start a newly authorized request.');
           observation=await browser.observe();
           const task = await this.core.getTask(input.taskId);
+          if(refreshedBeforeProposal)assertRecoveryOwner(task);
           const plan = await this.planner.plan({ goal: input.goal, context: taskContext(task, input.requestId,{observation,admissionFailure}), observation, signal: ctx.signal });
           if (ctx.signal.aborted) throw Error('Stopped before accepting the plan.');
           if (endpointKey !== this.planner.endpointKey) throw Error('Planner configuration changed during generation. This result cannot authorize an action.');
@@ -88,7 +96,18 @@ export class BrowserCoordinator {
             return { title: 'Browser findings', mimeType: 'application/vnd.window-companion.modules+json', content: JSON.stringify({ schemaVersion: 1, markdown: plan.markdown, modules: modules.map((data, index) => ({ id: `${input.requestId}-module-${index}`, version: 1, data, provenance: observations.map(({ id, browserId, documentId, url, digest }) => ({ observationId: id, browserId, documentId, url, digest })) })) }) };
           }
           const action=plan.action.kind==='click'?{kind:plan.action.kind,targetId:plan.action.targetId}:plan.action;
-          const proposal = await browser.propose({ ...action, snapshotId: observation.id });
+          let proposal:BrowserProposal;
+          try { proposal = await browser.propose({ ...action, snapshotId: observation.id }); }
+          catch(error){
+            // This exact boundary precedes durable proposal, review, approval and execution.
+            // A class name/message from untrusted content cannot request recovery.
+            if(!(error instanceof BrowserObservationChangedError)||refreshedBeforeProposal)throw error;
+            if(ctx.signal.aborted)throw Error('Stopped before reading the changed page.');
+            assertRecoveryOwner(await this.core.getTask(input.taskId));
+            refreshedBeforeProposal=true;admissionFailure=undefined;
+            input.onProgress?.('The page changed before an action was prepared. Reading its current controls again…');
+            continue; // Uses the same eight-step budget; no previous action is replayed.
+          }
           await this.patch(input.taskId, session => ({ ...session, runs: session.runs.map(run => run.id !== input.requestId ? run : { ...run, operations: [...run.operations, { id: proposal.id, intent: proposal.intent, reason: plan.reason, status: 'proposed' }] }) }));
           const review = await browser.review(proposal.id);
           if(review.write){

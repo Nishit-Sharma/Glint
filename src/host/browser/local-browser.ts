@@ -20,6 +20,10 @@ export type BrowserWindowOwner = (processId:number)=>()=>void;
 export class BrowserRedirectError extends Error{
   constructor(){super('Automatic page redirects are not supported in this browser yet. Open the final page address and try again.');this.name='BrowserRedirectError';}
 }
+/** Trusted current-observation check only; never classify from website/model text. */
+export class BrowserObservationChangedError extends Error {
+  constructor(part:'page'|'target') { super(part==='page'?'The page changed. Observe it again before proposing an action.':'The target changed. Observe it again before proposing an action.');this.name='BrowserObservationChangedError'; }
+}
 type Target = { handle: ElementHandle<HTMLElement | SVGElement>; fingerprint: string };
 type Grant = { token: string; write?: { method: string; url: string; digest: string }; used: boolean; receipt?: { status: number; url: string; body: string } };
 
@@ -226,9 +230,12 @@ export class LocalBrowser {
   }
   private async validateTarget(intent: BrowserIntent) {
     this.assertOpen();
-    if (this.busy || !this.snapshot || this.snapshot.id !== intent.snapshotId || this.snapshot.browserId !== this.id || this.snapshot.documentId !== this.documentId || (await this.read()).digest !== this.snapshot.digest) throw Error('The page changed. Observe it again before proposing an action.');
+    if (this.busy || !this.snapshot || this.snapshot.id !== intent.snapshotId || this.snapshot.browserId !== this.id) throw Error('The page changed. Observe it again before proposing an action.');
+    // read() rejects a closed or cross-origin page before granting stale recovery.
+    if ((await this.read()).digest !== this.snapshot.digest || this.snapshot.documentId !== this.documentId) throw new BrowserObservationChangedError('page');
     const target = this.targets.get(intent.targetId);
-    if (!target || await this.fingerprint(target.handle) !== target.fingerprint || !(await target.handle.isVisible())) throw Error('The target changed. Observe it again before proposing an action.');
+    if (!target) throw Error('The target changed. Observe it again before proposing an action.');
+    if (await this.fingerprint(target.handle) !== target.fingerprint || !(await target.handle.isVisible())) throw new BrowserObservationChangedError('target');
     return target;
   }
   /** Trusted host only: never wire this method to a model-generated approval. */
