@@ -5,6 +5,21 @@ type BrowserRun=TaskSession['runs'][number];
 type BrowserOperation=BrowserRun['operations'][number];
 const operationLabels={proposed:'Waiting for review',executing:'In progress',observed:'Observed',uncertain:'Outcome needs review',failed:'Stopped',retired:'Not run'};
 
+/** Suggest a saved same-site page, without treating it as evidence of the outcome. */
+export function browserInspectionStartUrl(run:BrowserRun,operationId:string):string{
+ const index=run.operations.findIndex(operation=>operation.id===operationId);if(index<0)return '';
+ let origin:URL;
+ try{origin=new URL(run.origin);}catch{return '';}
+ if(origin.origin!==run.origin||origin.username||origin.password||!['https:','http:'].includes(origin.protocol)||(origin.protocol==='http:'&&origin.hostname!=='127.0.0.1'))return '';
+ const action=run.operations[index],prior=run.operations.slice(0,index).reverse().flatMap(operation=>operation.result?[operation.result]:[]);
+ const observations=[...(action.result?[action.result]:[]),...prior,run.initialObservation].filter(observation=>observation.browserId===run.browserId&&observation.taskId===run.initialObservation.taskId);
+ for(const value of [action.receipt?.url,...observations.map(observation=>observation.url),origin.href]){
+  if(!value)continue;
+  try{const url=new URL(value);if(url.protocol===origin.protocol&&url.origin===origin.origin&&!url.username&&!url.password)return url.href;}catch{/* Try an earlier saved page. */}
+ }
+ return '';
+}
+
 export function browserOperationOutcome(operation:BrowserOperation){
  const reviewed=operation.reconciliation?.outcome;
  return {label:operation.status==='uncertain'?operationLabels.uncertain:reviewed==='completed'?'Reviewed as completed':reviewed==='not-completed'?'Reviewed as not completed':operationLabels[operation.status],needsReview:operation.status==='uncertain'};
