@@ -64,7 +64,7 @@ it('review is held while storage is unconfirmed and while quit is frozen, then w
 });
 it.each(['reject-before','lose-after'] as const)('Cancel after source review keeps exact raw through a %s discard until storage is reconciled',async mode=>{
  const f=await fixture();f.controller.edit({title:'Cancel this exact title',content:''});await f.cache.flush();await f.refresh();f.button().props.onClick();await f.cache.flush();f.fault.tombstone=mode;
- expect(await f.controller.discard()).toBe(false);expect(f.discarded).toBe(0);expect(f.controller.snapshot().fields).toMatchObject({title:'Cancel this exact title',content:'',sourceRefs:[{version:2}]});expect(f.button().props.disabled).toBe(true);
+ expect(await f.controller.discard()).toBe(false);expect(f.discarded).toBe(0);expect(f.controller.snapshot().fields).toMatchObject({title:'Cancel this exact title',content:'',sourceRefs:[{version:2}]});f.renderer.render();expect(f.renderer.nodes().filter(node=>node.type==='button').every(node=>node.props.disabled)).toBe(true);
  expect(await f.controller.check()).toBe(true);expect(f.discarded).toBe(1);const reopened=f.makeCache();await reopened.load();const view=f.controller.snapshot();expect(reopened.readForm(view.owner,view.slot,emptySavedDocumentDraft,view.basis).value.present).toBe(false);expect((await f.core.getTask(f.task.id)).artifacts[0].revisions).toEqual([f.saved.revision]);
 });
 it('deleting the reviewed document owner refuses a captured review and cannot recreate the sidecar record',async()=>{

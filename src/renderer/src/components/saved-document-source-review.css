@@ -1,0 +1,9 @@
+.saved-document-source-review { min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.saved-document-source-review h3 { margin: 18px 0 8px; }
+.saved-document-source-review p { margin: 8px 0; }
+.saved-document-source-review .document-source-change { min-width: 0; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.saved-document-source-review h4 { margin: 0 0 6px; font-size: 14px; font-weight: 550; }
+.saved-document-source-review summary { min-height: 36px; cursor: pointer; }
+.saved-document-source-review button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; justify-content: flex-start; }
+.saved-document-source-review .source-snapshot-difference { padding: 10px; }
+.document-scroll .dependency-picker:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }

@@ -3,9 +3,10 @@ import type {ArtifactInput,ArtifactRevision,Task} from '../../core/types';
 import {SAVED_DOCUMENT_DRAFT_SLOT,emptySavedDocumentDraft,parseSavedDocumentDraft,parseSavedDocumentDraftBasis,savedDocumentDraftOwner,savedDocumentDraftBasis,ordinaryTextDocument,orderedDocumentRefs,sameDocumentRefs,type SavedDocumentDraft} from '../../shared/saved-document-draft';
 import {learningDraftKey,parseLearningDraftJson,LearningDraftValidationError} from '../../shared/learning-drafts';
 import {changedDependencies} from './editor-state';
+import {savedDocumentSourceChanges,type SavedDocumentSourceChange} from './saved-document-source-changes';
 import type {createLearningDrafts} from './learning-drafts';
 type Fields=Pick<SavedDocumentDraft,'title'|'content'|'sourceRefs'>;
-type SourceReview={identity:string;sourceRefs:Fields['sourceRefs']};
+type SourceReview={identity:string;sourceRefs:Fields['sourceRefs'];changes:SavedDocumentSourceChange[]};
 type Options={cache:ReturnType<typeof createLearningDrafts>;artifactId:string;task:()=>Task;base:()=>ArtifactRevision;isCurrent:()=>boolean;scope?:()=>string;onDiscard?:()=>void;send:(input:ArtifactInput)=>Promise<Task|undefined>;onSaved:(revision:ArtifactRevision,task:Task)=>void;notify?:()=>void};
 export function createSavedDocumentDraftController(options:Options){
  const {cache,artifactId}=options,owner=savedDocumentDraftOwner(options.task().id,artifactId),slot=SAVED_DOCUMENT_DRAFT_SLOT,key=learningDraftKey(owner,slot);
@@ -18,18 +19,20 @@ export function createSavedDocumentDraftController(options:Options){
   const raw=discarding??parseSavedDocumentDraft(earlier?parseLearningDraftJson(earlier.value,'saved-document-edit'):form.value),fields:Fields=raw.present?{title:raw.title,content:raw.content,sourceRefs:raw.sourceRefs}:{title:base.title,content:base.content,sourceRefs:base.sourceRefs};
   const latest=task.artifacts.find(item=>item.id===artifactId)?.revisions.at(-1),changed=latest?.revision!==base.revision||latest?.digest!==base.digest||changedDependencies(task,fields.sourceRefs).length>0;
   const state=cache.getSnapshot(),held=state.frozen||state.maintenance||form.status!=='ready'||!!form.error||!!cache.getEditRejection(owner,slot)||!ordinaryTextDocument(base)||!operation&&changed||!!pending||!!discarding;
-  let sourceReview:SourceReview|undefined;
+  const sourceChanges=savedDocumentSourceChanges(task,fields.sourceRefs);let sourceReview:SourceReview|undefined;
   if(options.isCurrent()&&task.id===owner.taskId&&!operation&&!pending&&!discarding&&state.ready&&!state.frozen&&!state.maintenance&&!state.error&&!form.error&&!cache.getEditRejection(owner,slot)&&ordinaryTextDocument(base)&&latest?.revision===base.revision&&latest.digest===base.digest&&(form.status==='ready'||form.status==='recovery')){
    const earlierBasis=entry?.local?parseSavedDocumentDraftBasis(entry.local.basis):undefined;
    const sameArtifact=!earlierBasis||earlierBasis.taskId===task.id&&earlierBasis.artifactId===artifactId&&earlierBasis.revision===base.revision&&earlierBasis.digest===base.digest&&sameDocumentRefs(earlierBasis.sourceRefs,base.sourceRefs);
-   const sourceRefs=fields.sourceRefs.flatMap(ref=>{const source=task.sources.find(item=>item.id===ref.sourceId),version=source?.versions.at(-1);return source?.freshness==='fresh'&&version&&source.currentVersion===version.version?[{sourceId:source.id,version:version.version,digest:version.digest}]:[];});
-   if(sameArtifact&&sourceRefs.length===fields.sourceRefs.length&&changedDependencies(task,fields.sourceRefs).length)sourceReview={identity:JSON.stringify([options.scope?.(),basis,orderedDocumentRefs(fields.sourceRefs),orderedDocumentRefs(sourceRefs)]),sourceRefs};
+   const sourceRefs=fields.sourceRefs.map(ref=>{const change=sourceChanges.find(item=>item.reference.sourceId===ref.sourceId);return change?.kind==='ready'?change.current:ref;});
+   if(sameArtifact&&sourceChanges.length)sourceReview={identity:JSON.stringify([options.scope?.(),basis,orderedDocumentRefs(fields.sourceRefs),sourceChanges.map(change=>[change.reference.sourceId,change.kind,change.kind==='unavailable'?null:change.current])]),sourceRefs,changes:sourceChanges};
   }
-  return {owner,slot,key,basis,form,raw,fields,changed,operation,pending:!!pending||!!discarding,message,held,frozen:state.frozen,entry:state.entries[key],sourceReview,canSave:!held&&!operation&&!!fields.title.trim()&&!!fields.content.trim()};
+  return {owner,slot,key,basis,form,raw,fields,changed,operation,pending:!!pending||!!discarding,message,held,frozen:state.frozen,entry:state.entries[key],sourceReview,sourceChanges,canSave:!held&&!operation&&!!fields.title.trim()&&!!fields.content.trim()};
  }
- function reviewSources(review:SourceReview):boolean{
+ function reviewSources(review:SourceReview,sourceId?:string):boolean{
   const view=snapshot();if(!view.sourceReview||view.sourceReview.identity!==review.identity)return false;
-  const accepted=cache.reviewDocumentSources(owner,view.entry?.generation,view.basis,{present:true,...view.fields,sourceRefs:view.sourceReview.sourceRefs});if(accepted){message='';notify();}return accepted;
+  const chosen=view.sourceReview.changes.filter(change=>sourceId===undefined||change.reference.sourceId===sourceId);if(!chosen.length||chosen.some(change=>change.kind!=='ready'))return false;
+  const sourceRefs=view.fields.sourceRefs.map(ref=>{const change=chosen.find(item=>item.reference.sourceId===ref.sourceId);return change?.kind==='ready'?change.current:ref;});
+  const accepted=cache.reviewDocumentSources(owner,view.entry?.generation,view.basis,{present:true,...view.fields,sourceRefs});if(accepted){message='';notify();}return accepted;
  }
  function edit(change:Partial<Fields>|((fields:Fields)=>Partial<Fields>)){
   const view=snapshot();if(view.held)return {kind:'held' as const,reason:'recovery' as const};
