@@ -174,6 +174,16 @@ export function runHelper(stateValue:unknown,inputValue:unknown,hostValue:unknow
  if(!active)throw Error('Activate a saved version before running this helper.');
  return {...execute(active.definition,text),helperId:state.helperId,version:active.version};
 }
+/** Read-only trial of two immutable checked versions; activation and state stay untouched. */
+export function compareSavedHelperVersions(dataValue:unknown,stateValue:unknown,requestValue:unknown){
+ const state=parseState(dataValue,stateValue),request=decode(Schema.Struct({referenceVersion:Schema.Int.pipe(Schema.between(1,20)),candidateVersion:Schema.Int.pipe(Schema.between(1,20)),input}),requestValue);
+ if(request.referenceVersion===request.candidateVersion)throw Error('Choose two different saved versions.');
+ const reference=state.versions.find(saved=>saved.version===request.referenceVersion),candidate=state.versions.find(saved=>saved.version===request.candidateVersion);
+ if(!reference||!candidate)throw Error('Choose two available saved versions.');
+ const trial=(saved:typeof reference)=>{try{const result=execute(saved.definition,request.input);return {version:saved.version,changeNote:saved.changeNote,result,error:null,exception:saved.definition.exceptions.find(rule=>rule.id===result.exceptionId)??null};}catch(cause){return {version:saved.version,changeNote:saved.changeNote,result:null,error:cause instanceof Error?cause.message:'This version could not compute the input.',exception:null};}};
+ const before=trial(reference),after=trial(candidate),visible=(result:NonNullable<typeof before.result>)=>result.kind==='output'?{kind:result.kind,text:result.text}:{kind:result.kind,reason:result.reason};
+ return {helperId:state.helperId,input:request.input,reference:before,candidate:after,sameOutcome:before.result&&after.result?JSON.stringify(visible(before.result))===JSON.stringify(visible(after.result)):null};
+}
 export function discoverHelper(dataValue:unknown,stateValue:unknown,query=''){
  const data=decode(HelperDataSchema,dataValue),state=parseState(data,stateValue),active=state.versions.find(v=>v.version===state.activeVersion);
  if(!active)return null;
