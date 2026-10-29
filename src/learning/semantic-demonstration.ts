@@ -1,5 +1,5 @@
 import {Schema} from 'effect';
-import {checkSemanticExamples,parseSemanticProcedure,runSemanticProcedure,type SemanticExample,type SemanticExampleCheck,type SemanticProcedure,type SemanticRunResult,type SemanticStep} from './semantic-procedure';
+import {SemanticExpectedSchema,checkSemanticExamples,parseSemanticProcedure,runSemanticProcedure,type SemanticExample,type SemanticExampleCheck,type SemanticProcedure,type SemanticRunResult,type SemanticStep} from './semantic-procedure';
 
 export const semanticDemonstrationLimits=Object.freeze({members:20000,characters:512000,depth:64,recordings:8,rationales:64,corrections:64,examples:20});
 const id=Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9_-]{1,80}$/),Schema.filter(value=>!['__proto__','prototype','constructor'].includes(value)));
@@ -95,15 +95,18 @@ const rationaleSchema=Schema.Struct({id,kind:Schema.Literal('inferred-rationale'
 const correctionSchema=Schema.Struct({id,proposalId:id,before:reason,after:reason,reason});
 export type SemanticRationaleProposal=typeof rationaleSchema.Type;
 export type SemanticRationaleCorrection=typeof correctionSchema.Type;
+const recordingCorrectionSchema=Schema.Struct({kind:Schema.Literal('declared-recording-expectation'),id,helperId:id,recordingId:id,atRevision:revision,procedureVersion:Schema.Int.pipe(Schema.between(1,20)),previousCorrectionId:Schema.NullOr(id),before:SemanticExpectedSchema,after:SemanticExpectedSchema,reason});
+export type SemanticRecordingCorrection=typeof recordingCorrectionSchema.Type;
+export type SemanticRecordingExpectation={readonly recordingId:string;readonly original:SemanticExample;readonly effective:SemanticExample;readonly correctionIds:readonly string[]};
 const candidateSchema=Schema.Struct({schemaVersion:Schema.Literal(1),procedure:Schema.Unknown,
  recordings:Schema.Array(Schema.Unknown).pipe(Schema.minItems(1),Schema.maxItems(semanticDemonstrationLimits.recordings)),
- rationales:Schema.Array(rationaleSchema).pipe(Schema.minItems(1),Schema.maxItems(semanticDemonstrationLimits.rationales)),
+ rationales:Schema.Array(rationaleSchema).pipe(Schema.maxItems(semanticDemonstrationLimits.rationales)),
  corrections:Schema.Array(correctionSchema).pipe(Schema.maxItems(semanticDemonstrationLimits.corrections)),
- examples:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(semanticDemonstrationLimits.examples)),
+ examples:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(semanticDemonstrationLimits.examples)),recordingCorrections:Schema.optional(Schema.Array(recordingCorrectionSchema).pipe(Schema.maxItems(64))),
 });
 export type SemanticDemonstrationCandidate=Omit<typeof candidateSchema.Type,'procedure'|'recordings'|'examples'>&{readonly procedure:SemanticProcedure;readonly recordings:readonly SemanticRecording[];readonly examples:readonly SemanticExample[]};
 export type SemanticRationale={readonly proposalId:string;readonly stepId:string;readonly basis:ReadonlyArray<typeof basisSchema.Type>;readonly proposedReason:string;readonly currentReason:string;readonly status:'proposed'|'corrected';readonly correctionIds:readonly string[]};
-export type SemanticDemonstrationCheck={readonly passed:boolean;readonly issues:readonly string[];readonly recordings:readonly SemanticRecording[];readonly rationales:readonly SemanticRationale[];readonly checks:SemanticExampleCheck|null;readonly hostOwnershipVerified:false;readonly independentHeldOutVerified:false;readonly activationAuthorized:false;readonly effectAuthority:'none'};
+export type SemanticDemonstrationCheck={readonly passed:boolean;readonly issues:readonly string[];readonly recordings:readonly SemanticRecording[];readonly recordingExpectations:readonly SemanticRecordingExpectation[];readonly rationales:readonly SemanticRationale[];readonly checks:SemanticExampleCheck|null;readonly hostOwnershipVerified:false;readonly independentHeldOutVerified:false;readonly activationAuthorized:false;readonly effectAuthority:'none'};
 
 function unique(values:readonly (string|number)[],message:string):void {if(new Set(values).size!==values.length)fail(message);}
 function stepIds(procedure:SemanticProcedure):Set<string> {
@@ -123,6 +126,26 @@ function recordingExample(recording:SemanticRecording,index:number):SemanticExam
  const result=recording.result,id=`recorded-${index+1}`;
  if(result.status==='completed')return {id,role:'example',input:recording.input,expected:{status:'completed',output:result.output}};
  return {id,role:result.code==='explicit-stop'?'exception':'counterexample',input:recording.input,expected:{status:'abstained',haltedStepId:result.haltedStepId,code:result.code}};
+}
+
+/** Receipts change declared checks only; the original replay is never rewritten. */
+export function semanticRecordingExpectations(context:SemanticRecordingContext,procedure:SemanticProcedure,recordings:readonly SemanticRecording[],correctionsValue:unknown):readonly SemanticRecordingExpectation[]{
+ const corrections=decode(Schema.Array(recordingCorrectionSchema).pipe(Schema.maxItems(64)),correctionsValue);
+ unique(corrections.map(item=>item.id),'Recorded-expectation correction identities must be unique.');
+ const expectations=recordings.map((recording,index)=>{const original=recordingExample(recording,index);return {recordingId:recording.recordingId,original,effective:original,correctionIds:[] as string[]};});
+ let previousRevision=-1;
+ for(const correction of corrections){
+  const recording=recordings.find(item=>item.recordingId===correction.recordingId),entry=expectations.find(item=>item.recordingId===correction.recordingId);
+  if(!recording||!entry)fail('A corrected expectation refers to an unavailable original recording.');
+  if(correction.helperId!==context.helperId)fail('A corrected expectation belongs to another helper.');
+  if(correction.atRevision<=recording.atRevision||correction.atRevision>context.atRevision||correction.atRevision<=previousRevision)fail('Recorded-expectation corrections must retain their original revision order.');
+  if(correction.procedureVersion<=recording.procedure.version||correction.procedureVersion>procedure.version)fail('Correct an original recording only in a later draft definition.');
+  if(correction.previousCorrectionId!==(entry.correctionIds.at(-1)??null)||canonical(correction.before)!==canonical(entry.effective.expected))fail('A corrected expectation does not match its previous declared expectation.');
+  if(canonical(correction.before)===canonical(correction.after))fail('A correction must change the expected outcome.');
+  const expected=correction.after,role=expected.status==='completed'?'example':expected.status==='abstained'&&expected.code==='explicit-stop'?'exception':'counterexample';
+  entry.effective={...entry.original,role,expected};entry.correctionIds.push(correction.id);previousRevision=correction.atRevision;
+ }
+ return expectations;
 }
 
 /**
@@ -166,9 +189,11 @@ export function checkSemanticDemonstration(contextValue:unknown,candidateValue:u
    if(correction.before===correction.after)fail('A correction must change the rationale text.');
    rationales.set(correction.proposalId,{...previous,currentReason:correction.after,status:'corrected',correctionIds:[...previous.correctionIds,correction.id]});
   }
-  const checks=checkSemanticExamples(procedure,[...recordings.map(recordingExample),...candidate.examples]);
+  const recordingExpectations=semanticRecordingExpectations(context,procedure,recordings,candidate.recordingCorrections??[]);
+  const checks=checkSemanticExamples(procedure,[...recordingExpectations.map(item=>item.effective),...candidate.examples]);
   const issues=[...checks.coverageIssues,...checks.cases.filter(check=>!check.passed).map(check=>`Example ${check.id} does not match its expected outcome.`)];
+  if(!candidate.rationales.length)issues.unshift('Add a reason grounded in a recorded computation.');
   if(!recordings.some(recording=>recording.result.status==='completed'))issues.unshift('Record at least one completed local computation.');
-  return {passed:issues.length===0&&checks.passed,issues,recordings,rationales:[...rationales.values()],checks,hostOwnershipVerified:false,independentHeldOutVerified:false,activationAuthorized:false,effectAuthority:'none'};
- }catch(error){return {passed:false,issues:[error instanceof Error?error.message:'Invalid demonstration.'],recordings:[],rationales:[],checks:null,hostOwnershipVerified:false,independentHeldOutVerified:false,activationAuthorized:false,effectAuthority:'none'};}
+  return {passed:issues.length===0&&checks.passed,issues,recordings,recordingExpectations,rationales:[...rationales.values()],checks,hostOwnershipVerified:false,independentHeldOutVerified:false,activationAuthorized:false,effectAuthority:'none'};
+ }catch(error){return {passed:false,issues:[error instanceof Error?error.message:'Invalid demonstration.'],recordings:[],recordingExpectations:[],rationales:[],checks:null,hostOwnershipVerified:false,independentHeldOutVerified:false,activationAuthorized:false,effectAuthority:'none'};}
 }

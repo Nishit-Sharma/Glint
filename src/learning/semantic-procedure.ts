@@ -258,14 +258,14 @@ export function runSemanticProcedure(definition:unknown,input:unknown):SemanticR
  return execute(plan,values);
 }
 
+export const SemanticExpectedSchema=Schema.Union(
+ Schema.Struct({status:Schema.Literal('completed'),output:Schema.Record({key:Schema.String,value:scalarSchema})}),
+ Schema.Struct({status:Schema.Literal('abstained'),haltedStepId:identifier,code:Schema.Literal('precondition','explicit-stop','output-contract','postcondition')}),
+ Schema.Struct({status:Schema.Literal('invalid-input'),stage:Schema.Literal('input')}),
+);
 const exampleSchema=Schema.Struct({
  id:identifier,role:Schema.Literal('example','held-out','counterexample','exception'),
- input:Schema.Record({key:Schema.String,value:scalarSchema}),
- expected:Schema.Union(
-  Schema.Struct({status:Schema.Literal('completed'),output:Schema.Record({key:Schema.String,value:scalarSchema})}),
-  Schema.Struct({status:Schema.Literal('abstained'),haltedStepId:identifier,code:Schema.Literal('precondition','explicit-stop','output-contract','postcondition')}),
-  Schema.Struct({status:Schema.Literal('invalid-input'),stage:Schema.Literal('input')}),
- ),
+ input:Schema.Record({key:Schema.String,value:scalarSchema}),expected:SemanticExpectedSchema,
 });
 export type SemanticExample=typeof exampleSchema.Type;
 type ExampleCase={readonly id:string;readonly role:SemanticExample['role'];readonly passed:boolean;readonly actual:SemanticRunResult};

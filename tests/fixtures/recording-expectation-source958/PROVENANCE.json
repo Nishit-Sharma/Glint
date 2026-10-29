@@ -1,0 +1,9 @@
+{
+  "purpose": "Pinned baseline958 helper reader supporting original semantic-record-v1 but not later recorded-expectation extensions",
+  "sourceDigest": "98d8243813c12445530d4793194904fcea62d4acdd55a8a2695d5a0b4ae04a30",
+  "files": {
+    "tests/fixtures/recording-expectation-source958/src/learning/semantic-helper.ts": "1711bc7dc4f1fef83ae19b0a27d40660646922951c882e1bc2dd5d0df3fc4c78",
+    "tests/fixtures/recording-expectation-source958/src/learning/semantic-demonstration.ts": "07ca034bc813f04767f0fd848fbd026af215771550b517eca152b8c4e68ced87",
+    "tests/fixtures/recording-expectation-source958/src/learning/semantic-procedure.ts": "62f4c5fc5c6e78087e233dbef4071487b34f0c410a7f6ae65532f949790f9366"
+  }
+}

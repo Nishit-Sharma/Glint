@@ -3,7 +3,7 @@ import {parseModuleAnswer} from '../core/interactive-modules';
 import {helperStudio,type HelperDefinition} from '../learning/reusable-helper';
 import {pickingHelper} from '../learning/picking-helper';
 import {semanticHelper} from '../learning/semantic-helper';
-import type {SemanticRecord} from '../learning/semantic-procedure';
+import {runSemanticProcedure,type SemanticRecord} from '../learning/semantic-procedure';
 import {MODULE_MIME} from './module-contract';
 
 type HelperExample=Pick<HelperDefinition['tests'][number],'input'|'expected'>;
@@ -35,7 +35,7 @@ export function savedHelpers(tasks:readonly Task[]):SavedHelperEntry[]{
      if(matches[0].state.format==='semantic-record-v1'){
       const state=semanticHelper.parseState(module.data.id,matches[0].state),saved=state.versions.find(item=>item.version===state.activeVersion)??state.versions.at(-1);
       if(!saved)continue;
-      const procedure=saved.candidate.procedure,recording=saved.candidate.recordings.find(item=>item.result.status==='completed');
+      const procedure=saved.candidate.procedure,recording=saved.candidate.recordings.map(item=>({input:item.input,result:runSemanticProcedure(procedure,item.input)})).find(item=>item.result.status==='completed');
       const recordExample=recording?.result.status==='completed'?{input:recording.input,output:recording.result.output}:undefined;
       entries.push({taskId:task.id,taskTitle:task.title,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,helperId:module.data.id,stateRevision:state.revision,name:`${module.data.title} · ${procedure.input.name}`,description:procedure.intent,invocation:'Local record',version:saved.version,activeVersion:state.activeVersion,savedVersionCount:state.versions.length,example:undefined,scope:'record',...(recordExample?{recordExample}:{})});
       continue;
