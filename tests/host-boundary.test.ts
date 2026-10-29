@@ -1373,3 +1373,9 @@ it('allows a new inspection after the user keeps the app open during quit',async
  try{await started;await expect(f.command({type:'browser.inspect.cancel',...base})).resolves.toEqual({kind:'stopped'});expect((await outcome).message).toContain('Browser inspection stopped');}
  finally{release();await outcome;}
 });
+
+it('admits only an explicitly reviewed exact signal-assignment concept through the production host',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Owned signal explanation'}),sourceTask=await f.core.putSource(task.id,{kind:'text',label:'Owned VHDL text',content:'q <= d;',role:'fact'}),v=sourceTask.sources[0].versions[0],refs=[{sourceId:v.id,version:1,digest:v.digest}],saved=await f.core.saveArtifact(task.id,{title:'Linked source basis',content:'Review the linked line.',sourceRefs:refs}),command={type:'signal.review',taskId:task.id,basis:{artifactId:saved.artifactId,revision:1,digest:saved.revision.digest},expectedSourceRefs:refs,sourceId:v.id,start:0,end:7,quote:'q <= d;',confirmed:true};
+ for(const changed of [{...command,confirmed:false},{...command,quote:'q <= not d;'},{...command,execute:true},{...command,sourceId:'other'}])await expect(f.command(changed)).rejects.toThrow();expect((await f.core.getTask(task.id)).requests).toEqual([]);
+ const result=await f.command(command),again=await f.command(command);expect(again.artifactId).toBe(result.artifactId);const artifact=result.task.artifacts.find((a:any)=>a.id===result.artifactId).revisions[0];expect(artifact.sourceRefs).toEqual(refs);expect(artifact.content).toContain('hypothetical');expect(artifact.content).toContain('not a VHDL simulation');const {type,...input}=command;expect(await f.command({type:'signal.inspect',...input})).toMatchObject({kind:'completed',artifactId:result.artifactId});expect(f.calls.provider).toEqual([]);expect(f.calls.captures).toBe(0);expect(f.calls.confirmations).toEqual([]);
+});
