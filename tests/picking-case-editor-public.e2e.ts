@@ -1,0 +1,31 @@
+import {expect,test,type Locator,type Page} from '@playwright/test';
+import {createPublicPickingHelper,openPickingPublic,pickingScope} from './picking-public-app.fixture';
+import {pickingPublicFrame} from './picking-public-frame';
+
+const detail=(scope:Locator,label:string)=>scope.locator('summary').filter({hasText:new RegExp('^'+label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$')}).locator('..');
+async function expand(details:Locator){await expect(details).toHaveCount(1);if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();}
+const valueName=(column:number)=>`Case 1 row 1 value ${column}`;
+async function cellLayout(cell:Locator){
+ return cell.evaluate(element=>{const cell=element.getBoundingClientRect(),labels=[...element.querySelectorAll(':scope > div > label')].map(label=>{const r=label.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom};}),controls=[...element.querySelectorAll('input,select')].map(control=>{const r=control.getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,scrollWidth:control.scrollWidth,clientWidth:control.clientWidth};});return {cell:{left:cell.left,right:cell.right},labels,controls};});
+}
+async function readableCells(page:Page,editor:Locator,frames:Awaited<ReturnType<typeof pickingPublicFrame>>[],suffix:string){
+ const table=editor.getByRole('table',{name:'Declared table for case 1',exact:true}),cells=table.locator('tbody > tr').first().locator(':scope > td');await expect(table.getByRole('columnheader')).toHaveText(['sku (string)','name (string)','stock (integer)','private (boolean)','Remove']);await expect(cells).toHaveCount(5);
+ for(let column=1;column<=4;column++){
+  const type=editor.getByRole('combobox',{name:valueName(column)+' value type',exact:true});await type.focus();await expect(type).toBeFocused();const layout=await cellLayout(cells.nth(column-1));expect(layout.labels).toHaveLength(2);expect(layout.labels[0].bottom).toBeLessThanOrEqual(layout.labels[1].top);for(const label of layout.labels){expect(label.left).toBeGreaterThanOrEqual(layout.cell.left);expect(label.right).toBeLessThanOrEqual(layout.cell.right);}for(const control of layout.controls){expect(control.width).toBeGreaterThan(0);expect(control.left).toBeGreaterThanOrEqual(layout.cell.left);expect(control.right).toBeLessThanOrEqual(layout.cell.right);}
+ }
+ const first=editor.getByRole('combobox',{name:valueName(1)+' value type',exact:true}),key=editor.getByRole('textbox',{name:valueName(1),exact:true});await first.focus();frames.push(await pickingPublicFrame(page,cells.nth(0).locator(':scope > div'),'case-key-'+suffix,[{locator:first,kind:'value',expected:'string',name:'Visible key scalar type'},{locator:key,kind:'value',expected:'Fresh-K-17',name:'Complete declared key'}]));
+ const last=editor.getByRole('checkbox',{name:valueName(4),exact:true});await last.focus();await expect(last).toBeFocused();frames.push(await pickingPublicFrame(page,cells.nth(3).locator(':scope > div'),'case-boolean-'+suffix,[{locator:editor.getByRole('combobox',{name:valueName(4)+' value type',exact:true}),kind:'value',expected:'boolean',name:'Visible boolean scalar type'}]));
+ const remove=editor.getByRole('button',{name:'Remove case row 1',exact:true});await remove.focus();await expect(remove).toBeFocused();await expect(remove).toBeInViewport({ratio:1});
+ const preceding=editor.locator('..').getByRole('textbox',{name:'Case 1 expected handling',exact:true});await preceding.focus();await expect(preceding).toBeFocused();await page.keyboard.press('Tab');await expect(editor).toBeFocused();await expect.poll(()=>editor.evaluate(element=>element.matches(':focus-visible'))).toBe(true);await expect(editor).toHaveCSS('outline-style','solid');await expect(editor).toHaveCSS('outline-width','2px');frames.push(await pickingPublicFrame(page,editor,'case-region-keyboard-'+suffix));
+ const before=await editor.evaluate(element=>element.scrollLeft);expect(before).toBeGreaterThan(0);await page.keyboard.press('ArrowLeft');await expect.poll(()=>editor.evaluate(element=>element.scrollLeft)).toBeLessThan(before);
+ const documentOverflow=await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);expect(documentOverflow).toBeLessThanOrEqual(1);
+}
+
+test('public declared case editor keeps typed values separate and keyboard reachable at full and narrow widths',async({page})=>{
+ const entry=await openPickingPublic(page),frames:Awaited<ReturnType<typeof pickingPublicFrame>>[]=[];try{
+  await createPublicPickingHelper(page,entry);const cases=detail(pickingScope(page),'Declared cases and exact checks');await expand(cases);const fresh=detail(cases,'fresh · held-out');await expand(fresh);const editor=fresh.getByRole('region',{name:'Editable values for case 1',exact:true});await expect(editor).toHaveAttribute('tabindex','0');
+  const committed=structuredClone((await entry.snapshot()).state);await readableCells(page,editor,frames,'full');await page.setViewportSize({width:360,height:640});await readableCells(page,editor,frames,'narrow');
+  const type=editor.getByRole('combobox',{name:valueName(3)+' value type',exact:true});await type.selectOption('null');await expect(editor.getByRole('combobox',{name:valueName(3),exact:true})).toHaveValue('null');await type.selectOption('number');await editor.getByRole('textbox',{name:valueName(3),exact:true}).fill('11');await editor.getByRole('checkbox',{name:valueName(4),exact:true}).check();await editor.getByRole('textbox',{name:valueName(2),exact:true}).fill('New case label');
+  await expect.poll(async()=>JSON.parse((await entry.raw('cases'))!.value!.value).cases[0].table.rows[0].values).toEqual(['Fresh-K-17','New case label',11,true]);await fresh.getByRole('button',{name:'Add row to case 1',exact:true}).click();await expect(editor.getByRole('button',{name:'Remove case row 2',exact:true})).toBeVisible();await editor.getByRole('button',{name:'Remove case row 2',exact:true}).click();await expect(editor.locator('tbody > tr')).toHaveCount(1);await entry.fixture.flushDrafts();expect((await entry.snapshot()).state).toEqual(committed);entry.assertNoEffects();await entry.ledger('public-case-editor-layout',frames);
+ }finally{await entry.close();}
+});

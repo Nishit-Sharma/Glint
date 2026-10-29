@@ -131,3 +131,10 @@
 .picking-case-results th:first-child{width:40%}
 .picking-case-results th:last-child{width:52px}
 .picking-case-results td{white-space:normal;overflow-wrap:anywhere}
+
+.picking-case-editor th, .picking-case-editor td { min-width: 12rem; white-space: normal; }
+.picking-case-editor th:last-child, .picking-case-editor td:last-child { min-width: 9rem; }
+.picking-case-editor td > div { display: grid; gap: 10px; min-width: 0; }
+.picking-case-editor label { display: grid; gap: 5px; min-width: 0; }
+.picking-case-editor label:has(> input[type=checkbox]) { display: flex; align-items: center; }
+.picking-case-editor select { width: 100%; min-width: 0; }

@@ -19,3 +19,16 @@ test('real React markup keeps every visible predicate choice bound to its operat
  const equality=[{value:'eq',label:'equals'},{value:'ne',label:'does not equal'}],numeric=[...equality,{value:'gt',label:'is greater than'},{value:'gte',label:'is at least'},{value:'lt',label:'is less than'},{value:'lte',label:'is at most'}];
  expect(menus).toHaveLength(5);expect(menus.map(menu=>menu.map(({value,label})=>({value,label})))).toEqual([equality,equality,numeric,equality,equality]);expect(menus.map(menu=>menu.filter(option=>option.selected).map(option=>option.value))).toEqual([['eq'],['eq'],['gt'],['eq'],['eq']]);
 });
+
+test('declared case tables identify columns and expose a keyboard reachable editing region',()=>{
+ const state=pickingHelper.update(helperExample.id,pickingHelper.initial(helperExample.id),{kind:'picking-candidate',definition:pickingExampleDefinition(),reason:'Review declared table values.',expectedRevision:0});
+ const html=renderToStaticMarkup(createElement(ModuleView,{data:helperExample,state,onAction:()=>{}}));
+ const tables=[...html.matchAll(/<div class="learning-table picking-case-editor" role="region" aria-label="Editable values for case (\d+)" tabindex="0"><table><caption>Declared table for case \1<\/caption><thead>(.*?)<\/thead><tbody>(.*?)<\/tbody><\/table><\/div>/g)];
+ expect(tables.length).toBeGreaterThan(0);
+ for(const [,index,head,body] of tables){
+  expect([...head.matchAll(/<th[^>]*scope="col"[^>]*>(.*?)<\/th>/g)].map(match=>match[1])).toEqual(['sku (string)','name (string)','stock (integer)','private (boolean)','Remove']);
+  expect(body).toContain(`Case ${index} row 1 value 1 value type`);
+  expect(body).toContain(`Case ${index} row 1 value 1`);
+  expect(body).toContain('Remove case row 1');
+ }
+});
