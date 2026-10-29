@@ -12,8 +12,10 @@ export function browserInspectionStartUrl(run:BrowserRun,operationId:string):str
  try{origin=new URL(run.origin);}catch{return '';}
  if(origin.origin!==run.origin||origin.username||origin.password||!['https:','http:'].includes(origin.protocol)||(origin.protocol==='http:'&&origin.hostname!=='127.0.0.1'))return '';
  const action=run.operations[index],prior=run.operations.slice(0,index).reverse().flatMap(operation=>operation.result?[operation.result]:[]);
+ // A fresh inspection uses its own browser; only its owning action/task and site bind this suggestion.
+ const reviewed=action.status==='uncertain'&&action.reconciliation?.outcome==='uncertain'&&action.reconciliation.observation.taskId===run.initialObservation.taskId?action.reconciliation.observation:undefined;
  const observations=[...(action.result?[action.result]:[]),...prior,run.initialObservation].filter(observation=>observation.browserId===run.browserId&&observation.taskId===run.initialObservation.taskId);
- for(const value of [action.receipt?.url,...observations.map(observation=>observation.url),origin.href]){
+ for(const value of [reviewed?.url,action.receipt?.url,...observations.map(observation=>observation.url),origin.href]){
   if(!value)continue;
   try{const url=new URL(value);if(url.protocol===origin.protocol&&url.origin===origin.origin&&!url.username&&!url.password)return url.href;}catch{/* Try an earlier saved page. */}
  }
