@@ -8,7 +8,7 @@ import {taskTool} from './ui-tools';
 
 const workspace=(p:Page)=>p.locator('.workspace:visible');
 const doc=(p:Page)=>workspace(p).getByRole('dialog',{name:'Document',exact:true});
-const source='y <= a nand b;\ny <= a and b;';
+const source='y <= not a;\ny <= a and b;';
 const title='Owned Boolean source lesson';
 async function menu(p:Page){await workspace(p).getByRole('button',{name:'Task options',exact:true}).click();await workspace(p).getByRole('button',{name:'Files',exact:true}).click();}
 async function open(p:Page,id:string){await menu(p);await workspace(p).getByRole('dialog',{name:'Files',exact:true}).locator(`.artifact-row[data-view-focus="artifact:${id}"]`).click();await expect(doc(p)).toBeVisible();}

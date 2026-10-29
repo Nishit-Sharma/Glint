@@ -22,7 +22,7 @@ function admitted(task:Task,value:typeof inputSchema.Type){
  const context=prepareWorkflowSourceContext(task,value.basis),basisRevision=task.artifacts.find(a=>a.id===value.basis.artifactId)?.revisions.at(-1);if(!basisRevision?.mimeType.startsWith('text/')||basisRevision.encoding==='base64')throw Error('Review a saved text document.');
  if(JSON.stringify(value.expectedSourceRefs)!==JSON.stringify(context.sourceRefs))throw Error('Linked sources changed. Review their current versions.');
  const prepared=prepareWorkflowPassages(context.sources.map(s=>({sourceId:s.ref.sourceId,text:s.version.content})));if(prepared.issues.length)throw Error(prepared.issues.join(' '));
- const passage=prepared.passages.find(p=>p.sourceId===value.sourceId&&p.start===value.start&&p.end===value.end&&p.quote===value.quote),rule=passage&&parseBinaryAssignment(passage.quote);if(!rule)throw Error('Choose a complete supported two-input AND, OR or XOR assignment from a linked source.');
+ const passage=prepared.passages.find(p=>p.sourceId===value.sourceId&&p.start===value.start&&p.end===value.end&&p.quote===value.quote),rule=passage&&parseBinaryAssignment(passage.quote);if(!rule)throw Error('Choose a complete supported two-input AND, OR, XOR, NAND, NOR or XNOR assignment from a linked source.');
  // Request output references are authoritative task-source order, while the reviewed
  // document may intentionally order the same exact references differently.
  const sourceRefs=task.sources.flatMap(source=>{const found=context.sourceRefs.find(ref=>ref.sourceId===source.id);return found?[found]:[];});

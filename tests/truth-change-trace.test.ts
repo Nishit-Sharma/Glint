@@ -12,7 +12,7 @@ it.each([
 });
 it('requires a supported complete reviewed line and a known saved pair',()=>{
  expect(truthChangeTrace('y <= a and b;',undefined)).toBeNull();
- expect(()=>truthChangeTrace('y <= a nand b;','pair-11')).toThrow('supported');
+ expect(()=>truthChangeTrace('y <= not a;','pair-11')).toThrow('supported');
  expect(()=>truthChangeTrace('y <= a and b;','pair-22')).toThrow('saved input pair');
  expect(()=>truthChangeTrace('y <= a and b;','predict-1')).toThrow('saved input pair');
 });
