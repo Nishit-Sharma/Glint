@@ -27,6 +27,7 @@ export class BrowserFixture {
   preferences!:CharacterPreferences;
   preferenceSaveError?:string;
   losePreferenceAcknowledgement=false;
+  loseBranchAcknowledgement=false;
   readonly commands: Command[] = [];
   readonly pending = new Map<string, ModelControl>();
   readonly externalRequests: string[] = [];
@@ -154,6 +155,7 @@ export class BrowserFixture {
       case 'presentation.show':if(command.entranceId!==this.entranceId)throw Error('No matching fixture entrance.');this.entranceId=undefined;return null;
       case 'tasks.list': if(this.taskListBarrier)await this.taskListBarrier;return (await this.core.listTasks()).map(task=>this.exportOutcomes(task));
       case 'tasks.get': return this.exportOutcomes(await this.core.getTask(command.taskId));
+      case 'tasks.branch':{const {type,...input}=command,saved=await this.core.branchFromResponse(input,'fixture-bot');await this.changed(saved.task.id);if(this.loseBranchAcknowledgement){this.loseBranchAcknowledgement=false;throw Error('Branch acknowledgement was lost.');}return saved;}
       case 'tasks.create': { const task = await this.core.createTask(command); await this.changed(task.id); return task; }
       case 'tasks.update': { const task = await this.core.updateTask(command.taskId, {title:command.title,goal:command.goal}); await this.changed(task.id); return task; }
       case 'tasks.pause': return this.mutation(command.taskId, () => this.core.pause(command.taskId));

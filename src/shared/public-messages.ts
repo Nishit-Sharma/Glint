@@ -1,9 +1,10 @@
+export const RESPONSE_BRANCH_IMAGE_LIMIT = 'This conversation includes embedded image data. Choose an earlier response, or start a new task with selected readable text without image data. Your original task is unchanged.';
 export const BROWSER_LAUNCH_UNAVAILABLE = 'Companion could not open its browser. Your task is kept.';
 import {MODULE_EXPORT_RECOVERY,MODULE_REVISION_RECOVERY} from './module-contract';
 /** Presentation only. Raw failures stay in the local task record for recovery. */
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
- if(publicMessages.has(text)||text===MODULE_EXPORT_RECOVERY||text===MODULE_REVISION_RECOVERY)return text;
+ if(text===RESPONSE_BRANCH_IMAGE_LIMIT||publicMessages.has(text)||text===MODULE_EXPORT_RECOVERY||text===MODULE_REVISION_RECOVERY)return text;
  if(text==='Browser inspection stopped.'||text==='Stopped checking. The earlier action still needs review.')return 'Stopped checking. The earlier action still needs review.';
  if(/native source targeting is unavailable/i.test(text))return 'Drag attachment is unavailable on this device. Press Down Arrow to choose a window.';
  if(/capture setup could not be opened/i.test(text))return 'Capture settings could not be opened. Your saved setup is kept.';

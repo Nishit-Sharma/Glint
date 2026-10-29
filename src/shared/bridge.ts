@@ -1,4 +1,5 @@
 import type {LearningDraftOwner,LearningDraftValue} from './learning-drafts'
+import type {ResponseBranchInput} from '../core/response-branch'
 import type {LocalTaskStartInput} from './local-task-start'
 import type {WorkflowReview} from '../learning/workflow-review'
 import type {BotCommand} from './bot-catalog'
@@ -19,6 +20,7 @@ export type Command =
   | {type:'preferences.get'} | {type:'preferences.update';expectedRevision:number;profile:CharacterProfile}
   | {type:'tasks.list'} | {type:'tasks.create';title:string;goal?:string}
   | ({type:'tasks.start-local'} & LocalTaskStartInput)
+  | ({type:'tasks.branch'} & ResponseBranchInput)
   | {type:'tasks.update';taskId:string;title:string;goal?:string}
   | {type:'tasks.get';taskId:string} | {type:'tasks.delete';taskId:string}
   | {type:'tasks.pause'|'tasks.resume';taskId:string}

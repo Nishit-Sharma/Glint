@@ -7,6 +7,7 @@ import { parseModelDraft } from './model-drafts';
 import {sourceResumeContext} from './source-resume';
 import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
 import { projectTaskDialogue } from './task-dialogue';
+import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {parseModuleAnswer} from './interactive-modules';
 import {assertRawModuleOperationAllowed} from '../shared/module-contract';
 import {readLocalTaskStart,type LocalTaskStartResult} from '../shared/local-task-start';
@@ -297,7 +298,7 @@ export class Companion {
     }));
   }
   /** Atomically creates ordinary local data once. Replays cannot gain provider or action authority. */
-  async startLocalTask(input:unknown,assignedBotId:string,assertCurrent:()=>void=()=>{}):Promise<LocalTaskStartResult>{
+  async startLocalTask(input:unknown,assignedBotId:string,assertCurrent:()=>void=()=>{},assertNewTask:()=>void=()=>{}):Promise<LocalTaskStartResult>{
     const value=readLocalTaskStart(input),{intentId,...payload}=value,payloadDigest=hash(JSON.stringify({operation:'local-task-start',...payload})),intentHash=hash(intentId);
     text(assignedBotId,'Companion ID',200);
     const result=(task:Task,receipt:LocalStartReceipt):LocalTaskStartResult=>receipt.kind==='text'?{task,kind:'text',sourceId:receipt.targetId}:{task,kind:'draft',artifactId:receipt.targetId};
@@ -314,7 +315,7 @@ export class Companion {
         return clone(result(task,receipt));
       }
       return this.commit(state=>{
-        assertCurrent();this.claimRequest(state,intentId);
+        assertCurrent();assertNewTask();this.claimRequest(state,intentId);
         const time=this.time(),task:Task={id:randomUUID(),title:value.title,goal:'',assignedBotId,status:'active',createdAt:time,updatedAt:time,sources:[],artifacts:[],requests:[],procedures:[],checkpoints:[],actions:[],memory:{enabled:false}};
         let targetId:string;
         if(value.kind==='text'){
@@ -330,6 +331,15 @@ export class Companion {
         state.usedRequestIds.push(encodeLocalStartReceipt(nextReceipt));
         state.tasks.push(task);return result(task,nextReceipt);
       });
+    });
+  }
+  /** Existing branches remain independent when their original task is later deleted. */
+  async branchFromResponse(input:unknown,assignedBotId:string,assertCurrent:()=>void=()=>{}):Promise<LocalTaskStartResult>{
+    const value=clone(readResponseBranchInput(input)),title=value.title.trim();if(!title)reject('invalid','Name the new task.');
+    const intentId='response-branch-v1:'+hash(JSON.stringify({taskId:value.taskId,requestId:value.requestId,answer:{artifactId:value.answer.artifactId,revision:value.answer.revision,digest:value.answer.digest},title,expectedSnapshot:value.expectedSnapshot}));
+    return this.startLocalTask({intentId,kind:'text',title,content:value.expectedSnapshot},assignedBotId,assertCurrent,()=>{
+      const snapshot=responseBranchSnapshot(this.task(this.state,value.taskId),value);
+      if(snapshot.content!==value.expectedSnapshot)reject('conflict','The copied conversation changed. Close this review and open it again before creating a task.');
     });
   }
   async deleteTask(taskId: string): Promise<void> {
