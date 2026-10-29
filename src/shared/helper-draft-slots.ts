@@ -1,5 +1,5 @@
 /** Only raw fields owned by an installed helper form may use these slots. */
-const textSlots=new Set(['details','demonstration','operation','exception','check','version','run']);
+const textSlots=new Set(['details','demonstration','operation','exception','check','version','run','examples']);
 const recordSlots=new Set(['steps','record','checks','correction','run','typedsteps','typedrecord','typedcase','typedreason','typedversion','typedrun','typedexpectation','typedbatch']);
 const tableSlots=new Set(['candidate','context','recording','cases','correction','run']);
 export function helperDraftMode(slot:string):'text'|'semantic'|'table'|undefined{

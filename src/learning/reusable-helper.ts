@@ -10,6 +10,8 @@ export const HelperOperationSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('replace-literal'),find:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(80)),replacement:Schema.String.pipe(Schema.maxLength(80))}),
 );
 export type HelperOperation=typeof HelperOperationSchema.Type;
+const textExamples=Schema.Array(Schema.Struct({before:Schema.String.pipe(Schema.maxLength(1000)),after:Schema.String.pipe(Schema.maxLength(1000))})).pipe(Schema.minItems(2),Schema.maxItems(2));
+export type TextExampleProposal={id:string;operations:HelperOperation[];outputs:string[]};
 const exception=Schema.Struct({id,contains:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(80)),behavior:Schema.Literal('preserve','abstain'),reason:short});
 const expected=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),text:output}),Schema.Struct({kind:Schema.Literal('abstain')}));
 const step=Schema.Struct({operation:HelperOperationSchema,before:output,after:output});
@@ -23,6 +25,7 @@ export type HelperData=typeof HelperDataSchema.Type;
 export const HelperStateSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),helperId:id,revision:rev,draft:definition,versions:Schema.Array(version).pipe(Schema.maxItems(20)),activeVersion:Schema.NullOr(Schema.Int.pipe(Schema.between(1,20))),recording:Schema.NullOr(Schema.Struct({input,current:output,steps:Schema.Array(step).pipe(Schema.maxItems(8))})),lastRun:Schema.optional(Schema.NullOr(Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),input,result:runResult})))});
 export type HelperState=typeof HelperStateSchema.Type;
 export const HelperActionSchema=Schema.Union(
+ Schema.Struct({kind:Schema.Literal('apply-example-proposal'),examples:textExamples,proposalId:id,expectedRevision:rev}),
  Schema.Struct({kind:Schema.Literal('start-demonstration'),input,expectedRevision:rev}),
  Schema.Struct({kind:Schema.Literal('demonstrate-step'),operation:HelperOperationSchema,expectedRevision:rev}),
  Schema.Struct({kind:Schema.Literal('finish-demonstration','cancel-demonstration','clear-operations'),expectedRevision:rev}),
@@ -50,6 +53,19 @@ function operation(value:string,op:HelperOperation):string {
  }
  if(result.length>16_000)throw Error('The output exceeds the local text limit.');
  return result;
+}
+/** Pasted pairs constrain a closed formatting family; they are not observations. */
+export function proposeHelperFromExamples(value:unknown):TextExampleProposal[]{
+ const examples=decode(textExamples,value);
+ if(examples[0].before===examples[1].before)throw Error(examples[0].after===examples[1].after?'Use two different inputs.':'The same input has conflicting expected outputs.');
+ if(examples.every(example=>example.before===example.after))throw Error('Show at least one changed output before proposing steps.');
+ const proposals:TextExampleProposal[]=[];
+ for(const trim of [false,true])for(const collapse of [false,true])for(const casing of [null,'lowercase','uppercase'] as const){
+  const operations:HelperOperation[]=[];if(trim)operations.push({kind:'trim'});if(collapse)operations.push({kind:'collapse-spaces'});if(casing)operations.push({kind:casing});if(!operations.length)continue;
+  const outputs=examples.map(example=>operations.reduce((text,step)=>operation(text,step),example.before));
+  if(outputs.every((text,index)=>text===examples[index].after))proposals.push({id:operations.map(step=>step.kind).join('-'),operations,outputs});
+ }
+ return proposals;
 }
 function execute(data:HelperDefinition,value:string){
  const special=data.exceptions.find(rule=>value.includes(rule.contains));
@@ -120,6 +136,12 @@ function update(dataValue:unknown,stateValue:unknown,actionValue:unknown):Helper
  else {
   if(state.recording)throw Error('Finish or cancel the demonstration before changing this helper.');
   switch(action.kind){
+   case 'apply-example-proposal':{
+    const proposed=proposeHelperFromExamples(action.examples).find(proposal=>proposal.id===action.proposalId);
+    if(!proposed)throw Error('Choose a matching proposal for these exact examples.');
+    if(state.draft.tests.length+2>20)throw Error('Make room for two declared checks before applying this proposal.');
+    next={...next,draft:{...state.draft,operations:proposed.operations,tests:[...state.draft.tests,...action.examples.map((example,index)=>({id:`declared-${next.revision}-${index+1}`,label:`Pasted before/after example ${index+1}`,role:'example' as const,input:example.before,expected:{kind:'output' as const,text:example.after}}))]}};break;
+   }
    case 'append-operation':next={...next,draft:{...state.draft,operations:[...state.draft.operations,action.operation]}};break;
    case 'clear-operations':next={...next,draft:{...state.draft,operations:[]}};break;
    case 'set-details':next={...next,draft:{...state.draft,name:action.name,description:action.description,invocation:action.invocation}};break;

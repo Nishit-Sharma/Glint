@@ -1,12 +1,12 @@
 import {useEffect,useRef,useState} from 'react';
-import {checkHelper,discoverHelper,helperStudio,type HelperAction,type HelperData,type HelperOperation,type HelperState} from '../../../learning/reusable-helper';
+import {checkHelper,discoverHelper,helperStudio,proposeHelperFromExamples,type HelperAction,type HelperData,type HelperOperation,type HelperState} from '../../../learning/reusable-helper';
 import {useGuardedAction,useNavigationForm,formSubmission} from '../draft-navigation';
 import {legacyHelperDraftBasis} from '../legacy-helper-draft-basis';
 import {ReadyArtifact} from './ReadyArtifact';
 import './learning-tools.css';
 
 const operationNames={'trim':'Trim edges','collapse-spaces':'Collapse spaces','lowercase':'Lowercase','uppercase':'Uppercase','replace-literal':'Replace exact text'};
-type FormGroup='details'|'demonstration'|'operation'|'exception'|'check'|'version'|'run';
+type FormGroup='details'|'demonstration'|'operation'|'exception'|'check'|'version'|'run'|'examples';
 function operationFrom(kind:string,find:string,replacement:string):HelperOperation{
  if(kind==='replace-literal')return {kind,find,replacement};
  if(kind==='trim'||kind==='collapse-spaces'||kind==='lowercase'||kind==='uppercase')return {kind};
@@ -15,6 +15,7 @@ function operationFrom(kind:string,find:string,replacement:string):HelperOperati
 export function HelperStudio({data,state,pending=false,onAction,motion,onBeginRecord,onBeginPicking}:{data:HelperData;state:HelperState;pending?:boolean;onAction:(action:HelperAction)=>void|Promise<boolean>;motion?:{identity:string;arrivalIdentity:string};onBeginRecord?:()=>void;onBeginPicking?:()=>void}){
  const identity=(family:FormGroup)=>({slot:`helper:text:${family}`,basisMode:'explicit' as const,basis:legacyHelperDraftBasis(state,family)});
  const details=useNavigationForm({name:state.draft.name,invocation:state.draft.invocation},state,undefined,undefined,identity('details'));
+ const examples=useNavigationForm({firstBefore:'  River   DOCK  ',firstAfter:'river dock',secondBefore:'  NORTH   Desk  ',secondAfter:'north desk',proposalId:''},state,undefined,undefined,identity('examples'));
  const demonstration=useNavigationForm({input:state.recording?.input??'  River   Dock  '},state,undefined,undefined,identity('demonstration'));
  const operations=useNavigationForm({op:'trim',find:'',replacement:''},state,undefined,undefined,identity('operation'));
  const exceptions=useNavigationForm<{exceptionText:string;exceptionReason:string;behavior:'preserve'|'abstain'}>({exceptionText:'KEEP:',exceptionReason:'Protected labels need their original spacing',behavior:'preserve'},state,undefined,undefined,identity('exception'));
@@ -34,16 +35,19 @@ export function HelperStudio({data,state,pending=false,onAction,motion,onBeginRe
  const suite=checkHelper(state.draft),catalog=discoverHelper(data,state);
  useEffect(()=>{
   const sent=submission.current;if(!sent||state.revision<sent.revision)return;submission.current=null;if(JSON.stringify(state)!==sent.state)return;
-  if(sent.action==='finish-demonstration')setChecksOpen(true);
+  if(sent.action==='finish-demonstration'||sent.action==='apply-example-proposal')setChecksOpen(true);
   if(sent.action==='save-version')setVersionsOpen(true);
   if(sent.action==='activate-version'){setTeachingOpen(false);setChecksOpen(false);}
   if(sent.action==='restore-version'){setTeachingOpen(true);setChecksOpen(true);}
  },[state]);
- const forms={details,demonstration,operation:operations,exception:exceptions,check:checkForm,version:versionForm,run:runForm};
+ const forms={details,examples,demonstration,operation:operations,exception:exceptions,check:checkForm,version:versionForm,run:runForm};
  const send=(action:HelperAction,groups:FormGroup[]=[])=>{
   if(pending)return;const dispatch=()=>{let expected:HelperState|undefined;try{expected=helperStudio.update(data,state,action);submission.current={state:JSON.stringify(expected),revision:expected.revision,action:action.kind};}catch{submission.current=null;}return formSubmission(expected,onAction(action));};
   const group=groups[0];if(group)forms[group].submit(dispatch);else dispatch();
  };
+ const pairs=[{before:examples.draft.firstBefore,after:examples.draft.firstAfter},{before:examples.draft.secondBefore,after:examples.draft.secondAfter}];
+ let proposals:ReturnType<typeof proposeHelperFromExamples>=[],proposalProblem='';try{proposals=proposeHelperFromExamples(pairs);}catch(error){proposalProblem=error instanceof Error?error.message:'Review the examples.';}
+ const selectedProposal=proposals.find(proposal=>proposal.id===examples.draft.proposalId);
  const lastRun=state.lastRun?.input===runInput?state.lastRun:null;
  const selectedTest=state.draft.tests.find(test=>test.id===editingTest),recordedInput=!!selectedTest?.demonstration,recordedInputChanged=recordedInput&&testInput!==selectedTest?.input;
  const operation=()=>operationFrom(op,find,replacement);
@@ -58,6 +62,7 @@ export function HelperStudio({data,state,pending=false,onAction,motion,onBeginRe
 
   </section>}
   <details className="helper-teaching" open={teachingOpen} onToggle={event=>setTeachingOpen(event.currentTarget.open)}><summary>Teach or change this helper</summary>
+  <section className="learning-section" aria-label="Teach from before and after"><details><summary>Propose steps from two text examples</summary><p>Paste two different inputs and the exact output you want, up to 1,000 characters per field. These are declared examples, not a recording of another app. The app considers trim, collapse spaces, then lowercase or uppercase, with at most three steps. Exact replacements remain available in the manual controls.</p><div className="helper-fields">{([['firstBefore','Example 1 before'],['firstAfter','Example 1 after'],['secondBefore','Example 2 before'],['secondAfter','Example 2 after']] as const).map(([field,label])=><label key={field}>{label}<textarea aria-label={label} maxLength={1000} disabled={examples.held||!!state.recording} value={examples.draft[field]} onChange={event=>{const value=event.currentTarget.value;examples.setDraft(current=>({...current,[field]:value,proposalId:''}));}}/></label>)}</div>{proposalProblem?<p role="status">{proposalProblem}</p>:!proposals.length?<p role="status">No supported formatting recipe matches both examples. Review the outputs or use the manual operations.</p>:<><p role="status">{proposals.length} supported proposal(s) fit these examples. Matching examples do not prove the rule for other input; review the steps and declare a different counterexample before saving.</p><label className="helper-fields">Choose a proposal<select aria-label="Text example proposal" value={selectedProposal?.id??''} disabled={examples.held||!!state.recording} onChange={event=>{const proposalId=event.currentTarget.value;examples.setDraft(current=>({...current,proposalId}));}}><option value="">Choose steps to inspect</option>{proposals.map(proposal=><option key={proposal.id} value={proposal.id}>{proposal.operations.map(step=>operationNames[step.kind]).join(' → ')}</option>)}</select></label>{selectedProposal&&<><h5>Proposed draft steps</h5><ol aria-label="Proposed text operations">{selectedProposal.operations.map((step,index)=><li key={index}>{operationNames[step.kind]}</li>)}</ol>{selectedProposal.outputs.map((text,index)=><output key={index} aria-label={`Proposed example ${index+1} result`}>{text}</output>)}</>}</>}{examples.feedback}<p>Using a proposal replaces draft operations and adds two declared checks. Earlier checks, exceptions and saved versions stay. Saving and activation are separate.</p><button type="button" disabled={pending||examples.held||!!state.recording||!selectedProposal||state.draft.tests.length>18} onClick={()=>send({kind:'apply-example-proposal',examples:pairs,proposalId:examples.draft.proposalId,expectedRevision:state.revision},['examples'])}>Use proposed draft steps</button></details></section>
   <section className="learning-section" aria-label="Demonstration"><ReadyArtifact identity={`${motion?.identity}:demonstration`} arrivalIdentity={motion?.arrivalIdentity} enabled={!!motion}><h4>1. Show a text change</h4><p>Choose from five text operations and inspect each result. Finishing replaces the draft steps and adds the recorded example as a check.</p>
    <label className="helper-fields">Demonstration input<textarea aria-label="Demonstration input" maxLength={4000} disabled={!!state.recording||pending||demonstration.held} value={input} onChange={event=>{setInput(event.target.value);}}/></label>
    </ReadyArtifact>{demonstration.feedback}<div className="learning-actions">{!state.recording?<button disabled={pending||demonstration.held} onClick={()=>send({kind:'start-demonstration',input,expectedRevision:state.revision},['demonstration'])}>Start demonstration</button>:<><button disabled={pending||state.recording.steps.length===0} onClick={()=>send({kind:'finish-demonstration',expectedRevision:state.revision})}>Stop and use demonstration</button><button disabled={pending||operations.held} onClick={()=>send({kind:'cancel-demonstration',expectedRevision:state.revision},['operation'])}>Cancel demonstration</button></>}</div>

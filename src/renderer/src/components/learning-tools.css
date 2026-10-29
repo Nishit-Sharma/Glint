@@ -112,6 +112,8 @@
 .grounded-review-table{min-width:0}.grounded-review-table .learning-table td{white-space:normal;min-width:155px;vertical-align:top}.grounded-review-table .helper-fields input:not([type=checkbox]){width:100%!important;min-width:130px}.grounded-review-table details summary{cursor:pointer;min-height:32px}.learning-tool li{overflow-wrap:anywhere}
 
 /* Exact helper checks must display repeated and trailing spaces faithfully. */
+.helper-studio [aria-label="Exact test results"] table { min-width: 60rem; }
+.helper-studio [aria-label="Exact test results"] td:is(:nth-child(2), :nth-child(3)) { min-width: 14rem; }
 .helper-studio [aria-label="Exact test results"] td:is(:nth-child(2), :nth-child(3)) { white-space: break-spaces; overflow-wrap: anywhere; }
 
 .learning-draft-fields{border:0;margin:0;padding:0;min-width:0}
