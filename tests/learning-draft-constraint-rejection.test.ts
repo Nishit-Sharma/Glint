@@ -1,0 +1,9 @@
+import {expect,test} from 'vitest';
+import {createLearningDrafts} from '../src/renderer/src/learning-drafts';
+import {learningDraftKey} from '../src/shared/learning-drafts';
+const owner={kind:'window-workflow-review' as const,taskId:'owned',artifactId:'brief',artifactRevision:1,artifactDigest:'digest'},slot='window-workflow:review:candidate',initial={text:'accepted'},basis='exact';
+test('a control constraint reports an exact-slot refusal without changing accepted bytes or generation',async()=>{
+ let calls=0;const cache=createLearningDrafts({read:async()=>({kind:'available',epoch:'initial',records:[]}),save:async(owner,slot,epoch,revision,value)=>{calls++;return {kind:'saved',epoch,record:{owner,slot,revision:revision+1,value}};}});await cache.load();cache.edit(owner,slot,initial,basis,()=>({text:'saved accepted value'}));await cache.flush();const before=cache.getSnapshot().entries[learningDraftKey(owner,slot)],token=cache.capture(owner,slot)!;
+ expect(cache.rejectEdit(owner,slot,initial,basis,'text-too-long')).toMatchObject({kind:'rejected',reason:'text-too-long'});expect(cache.getSnapshot().entries[learningDraftKey(owner,slot)]).toEqual(before);expect(cache.getEditRejection(owner,slot)?.reason).toBe('text-too-long');expect(cache.getEditRejection(owner,'other')).toBeUndefined();expect(calls).toBe(1);expect(cache.acknowledge(token)).toBe(true);await cache.flush();
+ const notice=cache.getEditRejection(owner,slot)!;cache.setFrozen(true);expect(cache.rejectEdit(owner,slot,initial,basis,'invalid-data')).toEqual({kind:'held',reason:'frozen'});expect(cache.getEditRejection(owner,slot)).toBe(notice);cache.setFrozen(false);expect(()=>cache.rejectEdit(owner,slot,initial,basis,'private raw value' as never)).toThrow('reason');expect(cache.getEditRejection(owner,slot)).toBe(notice);
+});

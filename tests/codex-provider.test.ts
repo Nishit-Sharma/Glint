@@ -63,6 +63,9 @@ describe('temporary Codex provider — protocol fixtures', () => {
     expect(await adapter.run({ prompt: 'Synthetic total', sources: [], signal: new AbortController().signal, onChunk })).toBe('Synthetic 42');
     const thread = f.calls.find(call => call.method === 'thread/start')!.params;
     expect(thread).toMatchObject({ model: 'gpt-6-luna', serviceTier: 'priority', allowProviderModelFallback: false, ephemeral: true, environments: [], dynamicTools: [], selectedCapabilityRoots: [], sandbox: 'read-only' });
+    expect(thread.baseInstructions).toContain('raw JSON without Markdown fences');
+    expect(thread.developerInstructions).toContain('editable Markdown for ordinary text');
+    expect(thread.baseInstructions).not.toContain('Return editable Markdown.');
     expect(thread.config).toMatchObject({ features: { shell_tool: false, apps: false, hooks: false, multi_agent: false, code_mode: { enabled: false } }, mcp_servers: {}, web_search: 'disabled' });
     const turn = f.calls.find(call => call.method === 'turn/start')!.params;
     expect(turn).toMatchObject({ model: 'gpt-6-luna', serviceTierForTurn: 'priority', effort: 'medium', environments: [], sandboxPolicy: { type: 'readOnly', networkAccess: false } });
@@ -131,4 +134,13 @@ describe('temporary Codex provider — protocol fixtures', () => {
     expect(parts[1]?.text).toContain('Untrusted reference body');
     expect(() => buildCodexInput({ prompt: 'Summarize', sources: [{ ...reference, kind: 'image', content: 'https://example.com/private.png' }] })).toThrow('inline bytes');
   });
+});
+
+describe('Codex final capture fence, no CLI or network',()=>{
+ it('does not send a turn after capture authority retires during thread preparation',async()=>{
+  const f=fixture(),original=f.connection.request;let current=true;
+  f.connection.request=async(method,params)=>{const result=await original(method,params);if(method==='thread/start')current=false;return result;};
+  await expect(f.create().run({prompt:'Synthetic only',sources:[],signal:new AbortController().signal,captureFence:{check:async()=>{if(!current)throw Error('Retired');},assertCurrent:()=>{if(!current)throw Error('Retired');}}})).rejects.toThrow();
+  expect(f.calls.some(call=>call.method==='thread/start')).toBe(true);expect(f.calls.some(call=>call.method==='turn/start')).toBe(false);
+ });
 });

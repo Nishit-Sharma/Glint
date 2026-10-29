@@ -4,6 +4,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { windowMetadataToken } from './window-metadata';
+import {createMacWindowTarget,createMacWindowProtection,type WindowPointTarget,type WindowProtection} from './mac-window-target';
+import {fileURLToPath} from 'node:url';
+import type {SourceDragPoint} from './source-attachment';
 
 export type Rect = { x: number; y: number; width: number; height: number };
 export type Size = { width: number; height: number };
@@ -22,6 +26,7 @@ export type NativeWindow = {
   scaleFactor: number;
   documentToken: string;
   requiresExplicitCapture: true;
+  knownProtected?: boolean;
 };
 export type CaptureTransform = {
   version: 1;
@@ -55,20 +60,25 @@ type WindowMetadata = {
 type DisplayMetadata = { id: number | string; bounds: Rect; scaleFactor: number };
 type CaptureSourceMetadata = { id: string; name: string };
 
+export type NativeCaptureFence={beforeCapture?:()=>Promise<void>;assertCurrent?:()=>void};
+
 // Injectable OS boundaries let tests prove policy without recording the user's desktop.
 export type NativeDependencies = {
   platform: string;
   permissionStatus(): PermissionStatus;
   openWindows(options: { accessibilityPermission: false; screenRecordingPermission: false }): Promise<WindowMetadata[]>;
   activeWindow?(options: { accessibilityPermission: false; screenRecordingPermission: false }): Promise<WindowMetadata|undefined>;
+  /** Topmost native rectangle, retaining occluders; host-owned exclusions are exact ID/PID pairs. */
+  windowAtPoint?:WindowPointTarget;
+  windowProtection?:WindowProtection;
   getSources(options: { types: ['window']; thumbnailSize: Size; fetchWindowIcons: false }): Promise<CaptureSourceMetadata[]>;
   getDisplayMatching(bounds: Rect): DisplayMetadata;
-  captureWindow(osId: number): Promise<Buffer>;
+  captureWindow(osId: number, fence?:NativeCaptureFence): Promise<Buffer>;
   resizePng(png: Buffer, size: Size): Buffer;
 };
 
 export class NativeSourceError extends Error {
-  constructor(public readonly code: 'PERMISSION_REQUIRED' | 'WINDOW_UNAVAILABLE' | 'SOURCE_CHANGED' | 'CAPTURE_UNSUPPORTED' | 'INVALID_IMAGE' | 'INVALID_ARGUMENT', message: string) {
+  constructor(public readonly code: 'PERMISSION_REQUIRED' | 'WINDOW_UNAVAILABLE' | 'SOURCE_CHANGED' | 'CAPTURE_UNSUPPORTED' | 'TARGET_UNSUPPORTED' | 'INVALID_IMAGE' | 'INVALID_ARGUMENT', message: string) {
     super(message);
     this.name = 'NativeSourceError';
   }
@@ -143,6 +153,8 @@ async function loadDefaultDependencies(): Promise<NativeDependencies> {
       }),
       openWindows: options => windows.openWindows(options),
       activeWindow: options => windows.activeWindow(options),
+      ...(process.platform==='darwin'?{windowAtPoint:createMacWindowTarget(fileURLToPath(new URL('../native/mac-window-at-point',import.meta.url)).replace(/app\.asar\//,'app.asar.unpacked/'))}:{}),
+      ...(process.platform==='darwin'?{windowProtection:createMacWindowProtection(fileURLToPath(new URL('../native/mac-window-at-point',import.meta.url)).replace(/app\.asar\//,'app.asar.unpacked/'))}:{}),
       getSources: options => electron.desktopCapturer.getSources(options),
       getDisplayMatching: bounds => electron.screen.getDisplayMatching(bounds),
       captureWindow: captureMacWindow,
@@ -152,16 +164,20 @@ async function loadDefaultDependencies(): Promise<NativeDependencies> {
   return defaultDependencies;
 }
 
-async function captureMacWindow(osId: number): Promise<Buffer> {
+async function captureMacWindow(osId: number, fence:NativeCaptureFence={}): Promise<Buffer> {
   if (!Number.isSafeInteger(osId) || osId <= 0) throw new NativeSourceError('INVALID_ARGUMENT', 'Invalid native window ID.');
   const directory = await mkdtemp(join(tmpdir(), 'window-companion-capture-'));
   const destination = join(directory, 'capture.png');
   try {
-    // Fixed binary and arguments: -l selects exactly one window; no interactive/display fallback.
-    await promisify(execFile)('/usr/sbin/screencapture', [`-l${osId}`, '-x', '-o', '-a', '-t', 'png', destination], { timeout: 15_000, maxBuffer: 64 * 1024 });
-    return await readFile(destination);
-  } catch {
-    throw new NativeSourceError('WINDOW_UNAVAILABLE', 'Selected window capture failed. Refresh the source and inspect the existing screen recording permission.');
+    await fence.beforeCapture?.();
+    fence.assertCurrent?.();
+    try {
+      // Fixed binary and arguments: -l selects exactly one window; no interactive/display fallback.
+      await promisify(execFile)('/usr/sbin/screencapture', [`-l${osId}`, '-x', '-o', '-a', '-t', 'png', destination], { timeout: 15_000, maxBuffer: 64 * 1024 });
+      return await readFile(destination);
+    } catch {
+      throw new NativeSourceError('WINDOW_UNAVAILABLE', 'Selected window capture failed. Refresh the source and inspect the existing screen recording permission.');
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -183,7 +199,7 @@ export class NativeSourceAdapter {
       const display = deps.getDisplayMatching(w.bounds);
       const title = sources.find(s => /^window:\d+:[01]$/.test(s.id) && Number(s.id.split(':')[1]) === w.id)?.name ?? w.title;
       const identity = { osId: w.id, title, owner: { name: w.owner.name, processId: w.owner.processId,...(w.owner.path?{path:w.owner.path}:{}),...(w.owner.bundleId?{bundleId:w.owner.bundleId}:{}) }, bounds: { x:w.bounds.x, y:w.bounds.y, width:w.bounds.width, height:w.bounds.height }, displayId: String(display.id), scaleFactor: display.scaleFactor };
-      return { id: `window:${w.id}`, ...identity, documentToken: sha256(JSON.stringify(identity)), requiresExplicitCapture: true };
+      return { id: `window:${w.id}`, ...identity, documentToken: windowMetadataToken(identity), requiresExplicitCapture: true };
     });
   }
 
@@ -202,7 +218,28 @@ export class NativeSourceAdapter {
     return (await this.listWindows()).find(window=>window.osId===active.id&&window.owner.processId===active.owner.processId);
   }
 
-  async capture(id: string, options: { expectedDocumentToken?: string; maxPixels?: number } = {}): Promise<NativeCapture> {
+  /** Metadata only. The caller supplies only exact host-owned anchor/preview IDs. */
+  async windowAtPoint(point:SourceDragPoint,ignoredWindowIds:readonly string[]=[]):Promise<NativeWindow|undefined>{
+    if(![point.x,point.y].every(Number.isFinite)||Math.abs(point.x)>1_000_000||Math.abs(point.y)>1_000_000||ignoredWindowIds.length>8||ignoredWindowIds.some(id=>!/^window:[1-9]\d*$/.test(id)))throw new NativeSourceError('INVALID_ARGUMENT','Invalid desktop drop point.');
+    const ignored=ignoredWindowIds.map(id=>({osId:windowId(id),processId:process.pid})),deps=await this.dependencies();
+    if(!deps.windowAtPoint)throw new NativeSourceError('TARGET_UNSUPPORTED','Native source targeting is unavailable on this platform. Choose a source explicitly.');
+    const hit=await deps.windowAtPoint({...point},ignored);if(!hit)return;
+    if(!Number.isSafeInteger(hit.osId)||hit.osId<=0||!Number.isSafeInteger(hit.processId)||hit.processId<=0||typeof hit.knownProtected!=='boolean'||ignored.some(window=>window.osId===hit.osId&&window.processId===hit.processId))throw new NativeSourceError('WINDOW_UNAVAILABLE','The drop target is unavailable.');
+    const source=(await this.listWindows()).find(window=>window.osId===hit.osId&&window.owner.processId===hit.processId);
+    if(!source)throw new NativeSourceError('WINDOW_UNAVAILABLE','The drop target changed or is not an attachable source window.');
+    return {...source,knownProtected:hit.knownProtected};
+  }
+
+  async inspectProtection(id:string,processId:number){
+    const osId=windowId(id),deps=await this.dependencies();
+    if(!Number.isSafeInteger(processId)||processId<=0)throw new NativeSourceError('INVALID_ARGUMENT','Invalid native window identity.');
+    if(!deps.windowProtection)throw new NativeSourceError('TARGET_UNSUPPORTED','Native source targeting is unavailable. Choose a source explicitly.');
+    const status=await deps.windowProtection(osId,processId);
+    if(!status||status.osId!==osId||status.processId!==processId||typeof status.knownProtected!=='boolean')throw new NativeSourceError('WINDOW_UNAVAILABLE','The selected window protection is unavailable.');
+    return status;
+  }
+
+  async capture(id: string, options: { expectedDocumentToken?: string; maxPixels?: number }&NativeCaptureFence = {}): Promise<NativeCapture> {
     windowId(id);
     const maxPixels = options.maxPixels ?? 4096;
     if (!Number.isInteger(maxPixels) || maxPixels < 64 || maxPixels > 8192) throw new NativeSourceError('INVALID_ARGUMENT', 'Capture maximum edge must be between 64 and 8192 pixels.');
@@ -213,12 +250,26 @@ export class NativeSourceAdapter {
     const source = await this.inspect(id);
     if (options.expectedDocumentToken && options.expectedDocumentToken !== source.documentToken) throw new NativeSourceError('SOURCE_CHANGED', 'Source title, owner, display, or bounds changed. Refresh and rebind the source.');
     if (deps.permissionStatus().screen !== 'granted') throw new NativeSourceError('PERMISSION_REQUIRED', 'Screen recording permission changed before capture.');
-    const original = await deps.captureWindow(source.osId);
+    const assertCurrent=()=>{
+      options.assertCurrent?.();
+      if(deps.permissionStatus().screen!=='granted')throw new NativeSourceError('PERMISSION_REQUIRED','Screen recording permission changed before capture.');
+    };
+    const beforeCapture=async()=>{
+      await options.beforeCapture?.();
+      const last=await this.inspect(id);
+      assertCurrent();
+      if(last.documentToken!==source.documentToken)throw new NativeSourceError('SOURCE_CHANGED','Source changed before capture.');
+    };
+    await beforeCapture();
+    assertCurrent();
+    const original = await deps.captureWindow(source.osId,{beforeCapture,assertCurrent});
+    assertCurrent();
     const nativePixelSize = pngPixelSize(original);
     const after = await this.inspect(id);
     if (after.documentToken !== source.documentToken) throw new NativeSourceError('SOURCE_CHANGED', 'Source changed during capture. The captured pixels were discarded.');
     const ratio = Math.min(1, maxPixels / Math.max(nativePixelSize.width, nativePixelSize.height));
     const png = ratio < 1 ? deps.resizePng(original, { width: Math.max(1, Math.round(nativePixelSize.width * ratio)), height: Math.max(1, Math.round(nativePixelSize.height * ratio)) }) : original;
+    assertCurrent();
     const capturePixelSize = pngPixelSize(png);
     const display = deps.getDisplayMatching(source.bounds);
     if (String(display.id) !== source.displayId || display.scaleFactor !== source.scaleFactor) throw new NativeSourceError('SOURCE_CHANGED', 'Display changed during capture. Refresh the source.');

@@ -5,13 +5,6 @@ export interface Run {
     <T=unknown>(cmd:OtherCommand,success?:string):Promise<T|undefined>;
 }
 export type RequestKind = 'explain'|'create'|'experiment'|'procedure';
-/** Original paired-window mark. Filled shapes remain legible at 23px. */
-export function CompanionMark({ active = false }: { active?: boolean }) {
-    return <svg viewBox="0 0 48 48" className={'character companion-mark' + (active ? ' working' : '')} aria-hidden="true" focusable="false">
-        <path d="M27 6H17C10.925 6 6 10.925 6 17v10a4 4 0 0 0 8 0v-9a4 4 0 0 1 4-4h9a4 4 0 0 0 0-8Z"/>
-        <path d="M21 42h10c6.075 0 11-4.925 11-11V21a4 4 0 0 0-8 0v9a4 4 0 0 1-4 4h-9a4 4 0 0 0 0 8Z"/>
-    </svg>;
-}
 export function Button({ children, onClick, disabled = false, kind = '', title, type = 'button', 'data-presentation-exit-control':exitControl }: {
     children: ReactNode;
     onClick?: () => void;

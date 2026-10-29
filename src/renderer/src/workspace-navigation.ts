@@ -3,11 +3,12 @@ import {createUpwardScrollDetector} from './vendor/t3code/timelineScrollTarget';
 
 /** View position belongs to task + page, independently of native presentation. */
 export function useWorkspaceNavigation(main:RefObject<HTMLElement|null>,key:string,visible:boolean,contentVersion:string){
- const records=useRef(new Map<string,{top:number;atEnd:boolean;focus?:string}>()),lastContent=useRef({key,contentVersion});
+ const records=useRef(new Map<string,{top:number;atEnd:boolean;bottom:number;focus?:string}>()),lastContent=useRef({key,contentVersion});
  useLayoutEffect(()=>{
   const node=main.current;if(!node||!visible)return;
-  const record=records.current.get(key)??{top:0,atEnd:true};records.current.set(key,record);
+  const record=records.current.get(key)??{top:0,atEnd:true,bottom:Math.max(0,node.scrollHeight-node.clientHeight)};records.current.set(key,record);
   node.scrollTop=record.top;
+  record.bottom=Math.max(0,node.scrollHeight-node.clientHeight);
   const target=record.focus?[...node.querySelectorAll<HTMLElement>('[data-view-focus]')].find(el=>el.dataset.viewFocus===record.focus):undefined;
   (target??node).focus({preventScroll:true});
   const upward=createUpwardScrollDetector({top:node.scrollTop,height:node.scrollHeight});
@@ -18,7 +19,13 @@ export function useWorkspaceNavigation(main:RefObject<HTMLElement|null>,key:stri
  },[main,key,visible]);
  useLayoutEffect(()=>{
   const previous=lastContent.current;lastContent.current={key,contentVersion};if(previous.key!==key||previous.contentVersion===contentVersion||!visible)return;
-  const node=main.current,record=records.current.get(key);if(!node||!record?.atEnd)return;
+  const node=main.current,record=records.current.get(key);if(!node||!record)return;
+  // A return-to-end scroll event can arrive after the next streamed render.
+  // Compare against the preceding content boundary before replacing it.
+  const returnedToEnd=node.scrollTop>=record.bottom-1;
+  record.bottom=Math.max(0,node.scrollHeight-node.clientHeight);
+  if(!record.atEnd&&!returnedToEnd)return;
+  record.atEnd=true;
   const frame=requestAnimationFrame(()=>{node.scrollTop=node.scrollHeight;record.top=node.scrollTop;});return()=>cancelAnimationFrame(frame);
  },[main,key,visible,contentVersion]);
  useEffect(()=>{

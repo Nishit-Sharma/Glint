@@ -1,0 +1,87 @@
+{
+  "sourceDigest": "1bb3f3c66f76e9a3e76869a98ac820b0dc9a0ffba4709e78884943fb7f217d54",
+  "manifestSha256": "bd4c69bfcb05723a2e1d2ba92d6d50d6d3f7463a367fe4123fe1ea56a02401ac",
+  "sourceRoot": "../../../workflow-reviewed-integration",
+  "manifestPath": "docs/integration/SOURCE.json",
+  "purpose": "Portable frozen historical Companion+Store execution closure. All593 original manifest inputs verified at preparation; test verifies compiled bytes before loading. No sibling candidate required.",
+  "compiledFixture": {
+    "path": "pinned-046-reader.mjs.txt",
+    "sha256": "b9505c4a4c0a872dc2c83ffd4be5c5c47bbc6badf9b4dfa538cc82261c39743b",
+    "format": "esm",
+    "esbuildVersion": "0.28.2",
+    "entry": "export {createCompanion} from './src/core/companion';\nexport {readState,writeState} from './src/core/store';\n",
+    "entrySha256": "ca71695ab5f74c02551452563b7e64a28470edda52b5be5b255549b5a4f57095",
+    "originInputsVerified": 593,
+    "compiledInputs": 17,
+    "inputs": [
+      {
+        "path": "src/core/companion.ts",
+        "sha256": "7735e42bfc8ae7966202aad4044b0d3db8f348b5a42b53f4506385bffc4b70e7"
+      },
+      {
+        "path": "src/core/composer-draft.ts",
+        "sha256": "8537cd97cff445925695fd92b6e52a2b8f600b5c184bfe3a72f14c950ecb82da"
+      },
+      {
+        "path": "src/core/experiments.ts",
+        "sha256": "f33047bceac5854d1796f31fa557919cc47ec0e39be88ed7f6684b9bd11653f9"
+      },
+      {
+        "path": "src/core/interactive-modules.ts",
+        "sha256": "4824e01d024357077b5ca9040ecdf343991bd896314dfa2ed2a158f568d6b4b8"
+      },
+      {
+        "path": "src/core/model-drafts.ts",
+        "sha256": "b60adcc72026302298dfe9399b96ebd97819dacff3f64fc13ea1123600b8119a"
+      },
+      {
+        "path": "src/core/module-registry.ts",
+        "sha256": "49725dcb5123ff7b406b784ac279388758039b50f664be7de6ce740d655c14b5"
+      },
+      {
+        "path": "src/core/source-resume.ts",
+        "sha256": "b9da5219e47439c2eb06e5ceb13ac02b60daad01a65ecaba528ef82fc7dae703"
+      },
+      {
+        "path": "src/core/store.ts",
+        "sha256": "f92762234f2937d69d113b06109d5867f42a02afd58d738f96017db2dfbce831"
+      },
+      {
+        "path": "src/core/task-dialogue.ts",
+        "sha256": "71eae44e6e5d67d2bf21a8a8fe915755da0429f4bc7f0b4ab0f9c65f937e9f9d"
+      },
+      {
+        "path": "src/core/task-session.ts",
+        "sha256": "8265fbaf5e59455c14036741c9b46b53e77c47fd51f159a9e88e6e9b5b18e57a"
+      },
+      {
+        "path": "src/learning/grounded-join.ts",
+        "sha256": "fd79af81f7c59c7226101f10d8417e731701e1e44d86c8196248952d58259278"
+      },
+      {
+        "path": "src/learning/join-lab.ts",
+        "sha256": "2d7a3aac574b83d05f912c90aadf05f5bc58bebf0a733ab54675e3e7e486ee28"
+      },
+      {
+        "path": "src/learning/reusable-helper.ts",
+        "sha256": "010a0908921ac9299727c514f9362445e52043d5a5d1d07a4432307a22f6c87d"
+      },
+      {
+        "path": "src/learning/workflow-grounding.ts",
+        "sha256": "08a834cdf125b0c7932028b8f2d02099cc2cf405b4fdba3d7e0785fcda2c8634"
+      },
+      {
+        "path": "src/learning/workflow-lab.ts",
+        "sha256": "37e8634aa9e67f8f3b756a96550682479115657a139e3ed84825730583fd9dee"
+      },
+      {
+        "path": "src/shared/document-source.ts",
+        "sha256": "f2dad9928418cc338d3d5ee1a727e6e43a3ed9c228b699c17362eccc552401b7"
+      },
+      {
+        "path": "src/shared/module-contract.ts",
+        "sha256": "e97e90b61bc3c5d0c9ec5b04da2901bd0d708eb5ab2b3596433dd397959761f6"
+      }
+    ]
+  }
+}

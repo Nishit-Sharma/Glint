@@ -8,13 +8,36 @@ test.use({viewport:{width:1080,height:760},reducedMotion:'reduce'});
 const alpha='  Keep this unsent plan — α 👋\nwith its exact spacing.  ';
 const beta='A separate unsent question for Beta.';
 
+test('offline drafts remain editable across tasks, modes and restart without submitting or opening setup',async({page})=>{
+ fixture=await BrowserFixture.open(page);fixture.configured=false;await page.reload();
+ const input=page.getByLabel('Ask about this task',{exact:true});
+ await expect(input).toBeEnabled({timeout:3000});await input.fill(alpha);
+ await expect(page.getByRole('button',{name:'Connect to ask',exact:true})).toBeDisabled();await input.press('Enter');
+ await expect(input).toHaveValue(alpha);await expect(page.getByLabel('AI connection',{exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Request options',exact:true}).click();await page.getByLabel('Request type',{exact:true}).selectOption('create');
+ await page.getByRole('button',{name:'Switch to compact companion',exact:true}).click();
+ await expect(page.getByLabel('Ask companion',{exact:true})).toHaveValue(alpha);await page.getByLabel('Ask companion',{exact:true}).press('Enter');
+ await expect(page.getByRole('button',{name:'Connect to ask',exact:true})).toBeDisabled();await page.getByRole('button',{name:'Open task workspace',exact:true}).click();
+ await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Beta',exact:true}).click();await input.fill(beta);
+ await expect.poll(async()=>(await fixture.core.getTask(fixture.taskA.id)).session?.draft).toBe(alpha);
+ await expect.poll(async()=>(await fixture.core.getTask(fixture.taskB.id)).session?.draft).toBe(beta);
+ await fixture.restartCore();await page.reload();await expect(page.locator('.workspace h1')).toHaveText('Task Beta');await expect(input).toHaveValue(beta);
+ await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Alpha',exact:true}).click();await expect(input).toHaveValue(alpha);
+ await page.getByRole('button',{name:'Request options',exact:true}).click();await expect(page.getByLabel('Request type',{exact:true})).toHaveValue('create');
+ expect(fixture.commands.filter(command=>['model.run','browser.run','connection.configure'].includes(command.type))).toEqual([]);
+ await page.getByRole('button',{name:'Set up Meta',exact:true}).click();await expect(page.getByLabel('AI connection',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Connect',exact:true})).toBeEnabled();
+ expect(fixture.commands.filter(command=>['model.run','browser.run','connection.configure'].includes(command.type))).toEqual([]);expect(fixture.externalRequests).toEqual([]);
+});
+
 test('per-task composer text and mode survive a fresh renderer without mixing drafts',async({page})=>{
  fixture=await BrowserFixture.open(page);await expect(page.locator('.workspace h1')).toHaveText('Task Alpha');
  await page.getByLabel('Ask about this task',{exact:true}).fill(alpha);
  await page.getByRole('button',{name:'Request options',exact:true}).click();await page.getByLabel('Request type',{exact:true}).selectOption('create');
  await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Beta',exact:true}).click();
  await page.getByLabel('Ask about this task',{exact:true}).fill(beta);
- await page.reload();await expect(page.locator('.workspace h1')).toHaveText('Task Alpha');
+ await page.reload();await expect(page.locator('.workspace h1')).toHaveText('Task Beta');
+ await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue(beta);
+ await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Alpha',exact:true}).click();
  await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue(alpha);
  await page.getByRole('button',{name:'Request options',exact:true}).click();await expect(page.getByLabel('Request type',{exact:true})).toHaveValue('create');
  await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Beta',exact:true}).click();await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue(beta);
@@ -36,8 +59,8 @@ test('late completion consumes only its own submitted intent and keeps another t
  await page.getByLabel('Ask about this task',{exact:true}).fill('The question sent from Alpha.');await page.getByRole('button',{name:'Ask',exact:true}).click();await expect.poll(()=>fixture.pending.size).toBe(1);
  await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Beta',exact:true}).click();
  fixture.complete('Alpha alone completed.');await expect.poll(async()=>(await fixture.core.getTask(fixture.taskA.id)).requests.at(-1)?.status).toBe('completed');await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue(beta);
- await fixture.restartCore();await page.reload();await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue('');
- await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Beta',exact:true}).click();await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue(beta);
+ await fixture.restartCore();await page.reload();await expect(page.locator('.workspace h1')).toHaveText('Task Beta');await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue(beta);
+ await page.getByRole('complementary',{name:'Task navigation'}).getByRole('button',{name:'Task Alpha',exact:true}).click();await expect(page.getByLabel('Ask about this task',{exact:true})).toHaveValue('');
 });
 
 test('Quit acknowledgement waits for nonselected task drafts and only its nonce can resume editing',async({page})=>{

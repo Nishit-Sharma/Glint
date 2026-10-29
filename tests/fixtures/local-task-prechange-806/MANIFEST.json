@@ -1,0 +1,15 @@
+{
+  "sourceDigest": "5a83faab49be6219f41b82ec5dd96fd881434d8b70ccf01c6fab845cf8a4b461",
+  "inputs": 806,
+  "scope": "Exact prechange strict sidecar source; test fixture only, no original store data",
+  "files": {
+    "shared.ts.txt": {
+      "source": "src/shared/learning-drafts.ts",
+      "sha256": "4474507ab780bf07d0b73d9f3e2b698b25d1d314384688e439538340afdb7b76"
+    },
+    "host.ts.txt": {
+      "source": "src/host/learning-drafts.ts",
+      "sha256": "f08082343bab0fd0edc766d1f2a95d7eaf9fdd54239dc38a81d99f053bd8b0ea"
+    }
+  }
+}

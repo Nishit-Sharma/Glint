@@ -28,7 +28,7 @@ it.each(['companion','browser-planner'] as const)('uses explicit Standard with d
   expect(calls.find(call => call.method === 'thread/start')?.params.serviceTier).toBe('default');
   expect(calls.find(call => call.method === 'turn/start')?.params.serviceTierForTurn).toBe('default');
   const start=calls.find(call=>call.method==='thread/start')!.params;
-  if(purpose==='browser-planner'){expect(start.baseInstructions).toContain('host-owned browser');expect(start.baseInstructions).toContain('JSON proposal');}else expect(start.baseInstructions).toContain('Return editable Markdown');
+  if(purpose==='browser-planner'){expect(start.baseInstructions).toContain('host-owned browser');expect(start.baseInstructions).toContain('JSON proposal');}else {expect(start.baseInstructions).toContain('raw JSON without Markdown fences for a structured JSON protocol');expect(start.baseInstructions).toContain('editable Markdown for ordinary text');}
   expect(start.dynamicTools).toEqual([]);expect(start.sandbox).toBe('read-only');
   expect(provider.lastRun?.acceptedTier).toBe('default');
   expect((await provider.status()).tier).toBe('Standard');

@@ -4,11 +4,20 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { Effect, Either,Schema } from 'effect';
 import { isCode, readState, StateValidationError, writeState, type State } from './store';
 import { parseModelDraft } from './model-drafts';
+import {sourceResumeContext} from './source-resume';
+import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
+import { projectTaskDialogue } from './task-dialogue';
+import {parseModuleAnswer} from './interactive-modules';
+import {assertRawModuleOperationAllowed} from '../shared/module-contract';
+import {readLocalTaskStart,type LocalTaskStartResult} from '../shared/local-task-start';
+import {encodeLocalStartReceipt,findLocalStartReceipt,type LocalStartReceipt} from './local-start-receipt';
+import {readSourceTextSave,readSourceTextSaveInspection,sourceTextSaveBindingText,SOURCE_TEXT_SAVE_BINDING_PREFIX,type SourceTextSaveConfirmed,type SourceTextSaveInspection,type SourceTextSaveInspectionInput} from '../shared/source-text-save';
+import {encodeSourceTextSaveReceipt,findSourceTextSaveReceipt,sourceTextSaveClaim,type SourceTextSaveReceipt} from './source-text-save-receipt';
 import { emptyTaskSession, recoverTaskSession,readComposerDraft,ComposerKindSchema,type ComposerDraft,type ComposerKind, type TaskSession } from './task-session';
 import type {
   ArtifactInput, ArtifactRevision, CompanionOptions, ExportAction, ExportEvidence,
   ProcedureInput, RequestContext, RequestInput, RequestOutput, RequestRecord, ResumeResult,
-  SourceInput, SourceRef, SourceVersion, Task,
+  SourceInput, SourceRef, SourceVersion, Source, Task, ArtifactRef, SessionCommitGuard,ModuleStateRef,
 } from './types';
 export { evaluateExperiment } from './experiments';
 export type * from './types';
@@ -169,6 +178,30 @@ export class Companion {
       if (!source || source.freshness !== 'fresh' || source.currentVersion !== ref.version || latest(source.versions).digest !== ref.digest) reject('stale', 'Source changed or requires an explicit refresh.');
     }
   }
+  private validArtifacts(task:Task,refs:ArtifactRef[]) {
+    if(!Array.isArray(refs)||refs.length>8||new Set(refs.map(ref=>ref?.artifactId)).size!==refs.length)reject('invalid','Choose at most eight unique basis artifacts.');
+    for(const ref of refs){
+      if(!ref||Object.keys(ref).sort().join(',')!=='artifactId,digest,revision')reject('invalid','Invalid basis artifact reference.');
+      text(ref.artifactId,'Basis artifact ID',200);text(ref.digest,'Basis artifact digest',128);
+      if(!Number.isSafeInteger(ref.revision)||ref.revision<1)reject('invalid','Invalid basis artifact revision.');
+      const artifact=task.artifacts.find(item=>item.id===ref.artifactId),current=artifact?.revisions.at(-1);
+      if(!current||current.revision!==ref.revision||current.digest!==ref.digest)reject('conflict','A cited artifact changed. Review the current source before continuing.');
+    }
+  }
+  private validModuleStates(task:Task,refs:ModuleStateRef[]){
+    if(!Array.isArray(refs)||refs.length>8||new Set(refs.map(ref=>`${ref?.artifactId}/${ref?.moduleId}`)).size!==refs.length)reject('invalid','Choose at most eight unique module observations.');
+    for(const ref of refs){
+      if(!ref||Object.keys(ref).sort().join(',')!=='artifactId,artifactRevision,moduleId,stateRevision')reject('invalid','Invalid module observation reference.');
+      text(ref.artifactId,'Module artifact ID',200);text(ref.moduleId,'Module ID',80);
+      if(!Number.isSafeInteger(ref.artifactRevision)||ref.artifactRevision<1||!Number.isSafeInteger(ref.stateRevision)||ref.stateRevision<0)reject('invalid','Invalid module observation revision.');
+      const artifact=task.artifacts.find(a=>a.id===ref.artifactId),current=artifact?.revisions.at(-1);
+      if(!current||current.revision!==ref.artifactRevision||current.mimeType!=='application/vnd.window-companion.modules+json')return reject('conflict','The observed interactive artifact changed.');
+      const answer=parseModuleAnswer(JSON.parse(current.content));
+      if(!answer.modules.some(m=>m.id===ref.moduleId))reject('conflict','The observed module is unavailable.');
+      const saved=task.session?.moduleStates.find(s=>s.artifactId===ref.artifactId&&s.artifactRevision===ref.artifactRevision&&(s.moduleId===ref.moduleId||(s.moduleId===undefined&&answer.modules.length===1)));
+      if((saved?.state.revision??0)!==ref.stateRevision)reject('conflict','The observed module state changed. Recompute the explanation.');
+    }
+  }
   private retire(task: Task, reason: string, sourceId?: string) {
     for (const action of task.actions) if ((action.status === 'proposed' || action.status === 'approved') && (!sourceId || action.proposal.sourceRefs.some(ref => ref.sourceId === sourceId))) {
       action.status = 'retired'; action.error = reason; action.approvalRetiredAt = this.time();
@@ -203,11 +236,13 @@ export class Companion {
     }));
   }
   /** Host-only CAS, not a renderer/model command. Uses the same atomic ledger as requests/exports. */
-  replaceSession(taskId: string, expectedRevision: number, next: TaskSession): Promise<TaskSession> {
+  replaceSession(taskId: string, expectedRevision: number, next: TaskSession, guard?:SessionCommitGuard): Promise<TaskSession> {
     next = clone(next);
+    guard=guard===undefined?undefined:clone(guard);
     return this.exclusive(() => this.commit(state => {
       const task = this.task(state, taskId), current = task.session ?? emptyTaskSession();
       if (!Number.isInteger(expectedRevision) || expectedRevision !== current.revision) reject('conflict', 'Task session changed. Reload before saving your state.');
+      if(guard){if(guard.requireActive===true&&task.status!=='active')reject('conflict','Resume the owning task before committing its local manifest.');this.validRefs(task,guard.sourceRefs);this.validArtifacts(task,guard.artifactRefs);}
       task.session = { ...next, revision: current.revision + 1 };
       task.updatedAt = this.time(); return task.session;
     }));
@@ -226,13 +261,76 @@ export class Companion {
       task.updatedAt=this.time();return task.session;
     }));
   }
-  createTask(input: { title: string; goal?: string }): Promise<Task> {
+  migrateBotAssignments(legacyBotId:string):Promise<void>{
+    text(legacyBotId,'Companion ID',200);
+    return this.exclusive(async()=>{if(this.state.tasks.some(task=>!task.assignedBotId))await this.commit(state=>{for(const task of state.tasks)task.assignedBotId??=legacyBotId;});});
+  }
+  assignBot(taskId:string,botId:string,expectedBotId:string):Promise<Task>{
+    text(botId,'Companion ID',200);text(expectedBotId,'Previous companion ID',200);
+    return this.exclusive(()=>this.commit(state=>{
+      const task=this.task(state,taskId);
+      if(task.assignedBotId!==expectedBotId)return reject('conflict','This task companion changed. Reload before choosing again.');
+      if(task.requests.some(request=>request.status==='running')||task.actions.some(action=>['proposed','approved','executing','uncertain'].includes(action.status))||task.session?.runs.some(run=>run.operations.some(operation=>['proposed','executing','uncertain'].includes(operation.status))))return reject('busy','Change after this response or execution decision finishes.');
+      task.assignedBotId=botId;return task;
+    }));
+  }
+  ensureLocalExample(botId:string):Promise<Task>{
+    text(botId,'Companion ID',200);
+    return this.exclusive(()=>{
+      const existing=this.state.tasks.find(task=>task.provenance==='local-example');if(existing)return clone(existing);
+      return this.commit(state=>{
+        const time=this.time(),task:Task={id:randomUUID(),title:'Observatory visit',goal:'Explore a bundled local example.',status:'active',assignedBotId:botId,provenance:'local-example',createdAt:time,updatedAt:time,sources:[],artifacts:[],requests:[],procedures:[],checkpoints:[],actions:[],memory:{enabled:false}};
+        const sourceId=randomUUID(),summary='Doors open at 18:00. Arrive by 17:50 for orientation. The guide does not confirm your group size.',content='Bundled local example. These are sample observatory facts, not facts about the current window.\n\n'+summary,digest=hash(content);
+        task.sources.push({id:sourceId,currentVersion:1,freshness:'fresh',versions:[{id:sourceId,version:1,digest,capturedAt:time,kind:'text',label:'Visit guide',role:'fact',content}]});
+        this.appendArtifact(task,{title:'Before your visit',mimeType:'application/vnd.window-companion.modules+json',sourceRefs:[{sourceId,version:1,digest}],content:JSON.stringify({schemaVersion:1,markdown:summary,modules:[{id:'visit-plan',version:1,provenance:[],data:{kind:'plan',schemaVersion:1,title:'Before your visit',purpose:'A local checklist you can change and save.',items:[{id:'arrival',title:'Arrive by 17:50',detail:'Orientation begins before doors open.'},{id:'group',title:'Confirm your group size',detail:'The guide does not confirm it.'}]}}]})});
+        state.tasks.push(task);return task;
+      });
+    });
+  }
+  createTask(input: { title: string; goal?: string; assignedBotId?:string }): Promise<Task> {
     return this.exclusive(() => this.commit(state => {
       text(input.title, 'Title', 200); if (input.goal) text(input.goal, 'Goal', 10_000);
       const time = this.time();
       const task: Task = { id: randomUUID(), title: input.title, goal: input.goal ?? '', status: 'active', createdAt: time, updatedAt: time, sources: [], artifacts: [], requests: [], procedures: [], checkpoints: [], actions: [], memory: { enabled: false } };
+      if(input.assignedBotId){text(input.assignedBotId,'Companion ID',200);task.assignedBotId=input.assignedBotId;}
       state.tasks.push(task); return task;
     }));
+  }
+  /** Atomically creates ordinary local data once. Replays cannot gain provider or action authority. */
+  async startLocalTask(input:unknown,assignedBotId:string,assertCurrent:()=>void=()=>{}):Promise<LocalTaskStartResult>{
+    const value=readLocalTaskStart(input),{intentId,...payload}=value,payloadDigest=hash(JSON.stringify({operation:'local-task-start',...payload})),intentHash=hash(intentId);
+    text(assignedBotId,'Companion ID',200);
+    const result=(task:Task,receipt:LocalStartReceipt):LocalTaskStartResult=>receipt.kind==='text'?{task,kind:'text',sourceId:receipt.targetId}:{task,kind:'draft',artifactId:receipt.targetId};
+    return this.exclusive(()=>{
+      assertCurrent();
+      const receipt=findLocalStartReceipt(this.state.usedRequestIds,intentHash);
+      if(receipt){
+        if(receipt.payloadDigest!==payloadDigest)return reject('conflict','This local save was already submitted with different text. Open the saved task or start a new local save.');
+        const task=this.state.tasks.find(item=>item.id===receipt.taskId);
+        const source=task?.sources.find(item=>item.id===receipt.targetId);
+        const artifact=task?.artifacts.find(item=>item.id===receipt.targetId);
+        const targetExists=receipt.kind==='text'?source?.versions.some(version=>version.version===source.currentVersion&&version.kind==='text'):artifact?.revisions.length;
+        if(!task||!targetExists)return reject('conflict','This local save was already used, but its saved task or text is no longer available. Start a new local save.');
+        return clone(result(task,receipt));
+      }
+      return this.commit(state=>{
+        assertCurrent();this.claimRequest(state,intentId);
+        const time=this.time(),task:Task={id:randomUUID(),title:value.title,goal:'',assignedBotId,status:'active',createdAt:time,updatedAt:time,sources:[],artifacts:[],requests:[],procedures:[],checkpoints:[],actions:[],memory:{enabled:false}};
+        let targetId:string;
+        if(value.kind==='text'){
+          targetId=randomUUID();const source:SourceInput={kind:'text',label:value.title,content:value.content,role:'fact'};
+          task.sources.push({id:targetId,currentVersion:1,freshness:'fresh',versions:[{...source,id:targetId,version:1,digest:hash(JSON.stringify(source)),capturedAt:time}]});
+          task.session={...emptyTaskSession(),revision:1,contextRevision:1};
+        }else{
+          targetId=this.appendArtifact(task,{title:value.title,content:value.content,mimeType:'text/markdown',sourceRefs:[]}).artifactId;
+        }
+        const nextReceipt:LocalStartReceipt={intentHash,payloadDigest,taskId:task.id,kind:value.kind,targetId};
+        // One commit owns both the ordinary claim and its opaque replay receipt.
+        // Preserve every ledger string through all ordinary writes, including old readers.
+        state.usedRequestIds.push(encodeLocalStartReceipt(nextReceipt));
+        state.tasks.push(task);return result(task,nextReceipt);
+      });
+    });
   }
   async deleteTask(taskId: string): Promise<void> {
     await this.exclusive(async () => {
@@ -268,28 +366,71 @@ export class Companion {
       return task;
     }));
   }
-  putSource(taskId: string, input: SourceInput, expectedTask?:Task): Promise<Task> {
-    const expected=expectedTask?clone(expectedTask):undefined;
+  private appendSource(task:Task,input:SourceInput):SourceRef {
+    text(input.label, 'Source label', 500); text(input.content, 'Source content', 12_000_000);
+    if (!['text', 'image', 'window'].includes(input.kind) || !['fact', 'style', 'inspiration'].includes(input.role)) reject('invalid', 'Invalid source kind or role.');
+    if (input.kind === 'window' && (!input.windowId || !input.documentToken)) reject('invalid', 'A window source requires a host window ID and explicit capture/document token.');
+    const id = input.id ?? randomUUID(), source = task.sources.find(item => item.id === id);
+    const version: SourceVersion = { ...clone(input), id, version: (source?.currentVersion ?? 0) + 1, digest: hash(JSON.stringify(input)), capturedAt: this.time() };
+    if (source) { source.versions.push(version); source.currentVersion = version.version; source.freshness = 'fresh'; delete source.staleReason; delete source.documentChange; }
+    else task.sources.push({ id, currentVersion: 1, versions: [version], freshness: 'fresh' });
+    const {browserContext:_browser,...session}=task.session??emptyTaskSession();task.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1};
+    this.retire(task, 'Source refreshed.', id); this.cancelRunning(task, 'Source refreshed during request.', id);
+    task.updatedAt = this.time(); return {sourceId:id,version:version.version,digest:version.digest};
+  }
+  private savedTextSource(input:SourceTextSaveInspectionInput,receipt:SourceTextSaveReceipt):SourceTextSaveConfirmed {
+    if(receipt.taskId!==input.taskId||receipt.sourceId!==input.sourceId||receipt.version!==input.expectedSource.version+1||receipt.payloadDigest!==input.binding.slice(SOURCE_TEXT_SAVE_BINDING_PREFIX.length))return reject('conflict','This source save identity belongs to different text or a different source.');
+    const task=this.task(this.state,input.taskId),source=task.sources.find(source=>source.id===input.sourceId);
+    const basis=source?.versions.filter(version=>version.version===input.expectedSource.version);
+    const versions=source?.versions.filter(version=>version.version===receipt.version);
+    if(!source||basis?.length!==1||basis[0].kind!=='text'||basis[0].id!==source.id||basis[0].digest!==input.expectedSource.digest||versions?.length!==1||versions[0].id!==source.id||versions[0].kind!=='text'||versions[0].digest!==receipt.digest)return reject('conflict','This source save was committed, but its saved source version is no longer available.');
+    return clone({kind:'confirmed',task,reference:{sourceId:receipt.sourceId,version:receipt.version,digest:receipt.digest},intentId:input.intentId,binding:input.binding});
+  }
+  async saveTextSource(input:unknown,assertCurrent:()=>void=()=>{}):Promise<SourceTextSaveConfirmed> {
+    const value=readSourceTextSave(input),payloadDigest=hash(sourceTextSaveBindingText(value));
+    if(value.binding!==SOURCE_TEXT_SAVE_BINDING_PREFIX+payloadDigest)return reject('invalid','The source save binding does not match its exact text and source version.');
+    const intentHash=hash(JSON.stringify({operation:'source-text-edit:v1',intentId:value.intentId}));
+    const inspection={taskId:value.taskId,sourceId:value.source.id,expectedSource:value.expectedSource,intentId:value.intentId,binding:value.binding};
+    return this.exclusive(async()=>{
+      assertCurrent();const receipt=findSourceTextSaveReceipt(this.state.usedRequestIds,intentHash);
+      if(receipt)return this.savedTextSource(inspection,receipt);
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),source=task.sources.find(source=>source.id===value.source.id),current=source?.versions.at(-1),expected=value.expectedSource;
+        if(!source||!current)return reject('not-found','The selected text source was not found.');
+        if(current.kind!=='text'||source.currentVersion!==expected.version||current.version!==expected.version||current.digest!==expected.digest||source.freshness!==expected.freshness)return reject('conflict','The selected source or its freshness changed while this edit was pending.');
+        if(source.currentVersion>=Number.MAX_SAFE_INTEGER)return reject('invalid','The source version limit was reached. Keep the edit for recovery.');
+        const reference=this.appendSource(task,value.source);
+        state.usedRequestIds.push(sourceTextSaveClaim(intentHash),encodeSourceTextSaveReceipt({intentHash,payloadDigest,taskId:task.id,...reference}));
+        return {kind:'confirmed' as const,task,reference,intentId:value.intentId,binding:value.binding};
+      });
+      this.abortCancelled(result.task);return result;
+    });
+  }
+  async inspectTextSourceSave(input:unknown):Promise<SourceTextSaveInspection> {
+    const value=readSourceTextSaveInspection(input),intentHash=hash(JSON.stringify({operation:'source-text-edit:v1',intentId:value.intentId}));
+    return this.exclusive(()=>{
+      const receipt=findSourceTextSaveReceipt(this.state.usedRequestIds,intentHash);
+      if(receipt)return this.savedTextSource(value,receipt);
+      const task=this.task(this.state,value.taskId),source=task.sources.find(source=>source.id===value.sourceId),current=source?.versions.at(-1),expected=value.expectedSource;
+      if(!source||!current)return reject('not-found','The selected text source was not found.');
+      return clone({kind:'uncommitted',task,expectedUnchanged:current.kind==='text'&&source.currentVersion===expected.version&&current.version===expected.version&&current.digest===expected.digest&&source.freshness===expected.freshness,intentId:value.intentId,binding:value.binding});
+    });
+  }
+  putSource(taskId: string, sourceInput: SourceInput, expectedTask?:Task, expectedSource?:SourceRef&{freshness?:Source['freshness']}, assertCurrent:()=>void=()=>{}): Promise<Task> {
+    const input=clone(sourceInput),expected=expectedTask?clone(expectedTask):undefined,expectedRef=expectedSource?clone(expectedSource):undefined;
     return this.exclusive(async () => {
       const task = await this.commit(state => {
-        const task = this.task(state, taskId);
+        assertCurrent();const task = this.task(state, taskId);
+        if(expectedRef){const source=task.sources.find(source=>source.id===expectedRef.sourceId),current=source?.versions.at(-1);if(input.id!==expectedRef.sourceId||source?.currentVersion!==expectedRef.version||current?.version!==expectedRef.version||current.digest!==expectedRef.digest||(expectedRef.freshness!==undefined&&source?.freshness!==expectedRef.freshness))return reject('conflict','The selected source or its freshness changed while the snapshot was pending.');}
         if(expected&&(expected.id!==taskId||JSON.stringify(task)!==JSON.stringify(expected)))return reject('conflict','This new task changed while the capture was pending. Capture the window again.');
-        text(input.label, 'Source label', 500); text(input.content, 'Source content', 12_000_000);
-        if (!['text', 'image', 'window'].includes(input.kind) || !['fact', 'style', 'inspiration'].includes(input.role)) reject('invalid', 'Invalid source kind or role.');
-        if (input.kind === 'window' && (!input.windowId || !input.documentToken)) reject('invalid', 'A window source requires a host window ID and explicit capture/document token.');
-        const id = input.id ?? randomUUID(), source = task.sources.find(item => item.id === id);
-        const version: SourceVersion = { ...clone(input), id, version: (source?.currentVersion ?? 0) + 1, digest: hash(JSON.stringify(input)), capturedAt: this.time() };
-        if (source) { source.versions.push(version); source.currentVersion = version.version; source.freshness = 'fresh'; delete source.staleReason; }
-        else task.sources.push({ id, currentVersion: 1, versions: [version], freshness: 'fresh' });
-        const {browserContext:_browser,...session}=task.session??emptyTaskSession();task.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1};
-        this.retire(task, 'Source refreshed.', id); this.cancelRunning(task, 'Source refreshed during request.', id);
-        task.updatedAt = this.time(); return task;
+        this.appendSource(task,input); return task;
       });
       this.abortCancelled(task); return task;
     });
   }
-  invalidateSource(taskId: string, sourceId: string, reason: string): Promise<Task> {
+  invalidateSource(taskId: string, sourceId: string, reason: string, expectedSource?:SourceRef): Promise<Task> {
     return this.exclusive(async () => {
+      if(expectedSource){const current=this.task(this.state,taskId).sources.find(source=>source.id===sourceId)?.versions.at(-1);if(expectedSource.sourceId!==sourceId||current?.version!==expectedSource.version||current.digest!==expectedSource.digest)return clone(this.task(this.state,taskId));}
       const task = await this.commit(state => {
         const task = this.task(state, taskId), source = task.sources.find(item => item.id === sourceId);
         if (!source) return reject('not-found', 'Source was not found.');
@@ -319,8 +460,39 @@ export class Companion {
       }); this.abortCancelled(task); return task;
     });
   }
+  reconcileDocumentSource(binding:DocumentBinding,observation:DocumentReconciliation,assertCurrent?:()=>void):Promise<{kind:'unchanged'|'invalidated'|'superseded';task:Task}>{
+    const guard=()=>{if(observation.kind==='edited-transition'&&!assertCurrent)reject('invalid','An edited transition requires its current host-session guard.');assertCurrent?.();};
+    return this.exclusive(async()=>{
+      guard();const before=this.task(this.state,binding.taskId),source=before.sources.find(source=>source.id===binding.ref.sourceId),version=source?.versions.at(-1);
+      if(!source||!version||version.kind!=='window'||version.version!==binding.ref.version||version.digest!==binding.ref.digest||version.windowId!==binding.windowId||version.windowProcessId!==binding.processId)return {kind:'superseded',task:clone(before)};
+      const editedTransition=observation.kind==='edited-transition';
+      if(editedTransition){
+        if(typeof observation.before.edited!=='boolean'||typeof observation.after.edited!=='boolean'||observation.before.edited===observation.after.edited||!version.documentStamp||version.documentStamp.digest!==observation.before.digest||version.documentStamp.digest!==observation.after.digest||observation.before.method!=='ax-document'||observation.after.method!=='ax-document'||observation.before.evidence!=='foreground-application-correlation'||observation.after.evidence!=='foreground-application-correlation')reject('invalid','The edited transition does not match the exact captured document.');
+      }
+      if(observation.kind==='inactive'||observation.kind==='document'&&version.documentStamp?.digest===observation.stamp.digest)return {kind:'unchanged',task:clone(before)};
+      const reason=editedTransition
+        ?'The focused application reports an edited-state transition at the same document address. The prior snapshot and its derived results are historical; capture the selected window again explicitly.'
+        :observation.kind==='document'
+          ?version.documentStamp?'The focused application reports a different document. The prior snapshot and its derived results are historical; review the new selected-window snapshot.':'This snapshot has no document observation to compare. Capture it again before using it as current evidence.'
+          :`Document following is frozen (${observation.reason}). The previous snapshot is historical; select this window again explicitly.`;
+      const observedDigest=editedTransition?observation.after.digest:observation.kind==='document'?observation.stamp.digest:undefined;
+      if(source.freshness==='refresh-required'&&source.documentChange?.reason===reason&&source.documentChange.observedDigest===observedDigest)return {kind:'unchanged',task:clone(before)};
+      const task=await this.commit(state=>{
+        guard();const task=this.task(state,binding.taskId),source=task.sources.find(source=>source.id===binding.ref.sourceId);
+        if(!source)return reject('conflict','The observed source was removed.');
+        source.freshness='refresh-required';source.staleReason=reason;
+        source.documentChange={kind:observation.kind==='document'||editedTransition?'changed':'unavailable',reason,observedAt:this.time(),...(observedDigest?{observedDigest}:{})};
+        this.retire(task,reason,source.id);this.cancelRunning(task,reason,source.id);
+        const {browserContext:_browser,...session}=task.session??emptyTaskSession();task.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1};
+        task.updatedAt=this.time();return task;
+      });
+      this.abortCancelled(task);return {kind:'invalidated',task};
+    });
+  }
   private appendArtifact(task: Task, input: ArtifactInput): { artifactId: string; revision: ArtifactRevision } {
     text(input.title, 'Artifact title', 500); text(input.content, 'Artifact content', 12_000_000);
+    if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
+    if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
     const sourceRefs = clone(input.sourceRefs ?? this.refs(task)); this.validRefs(task, sourceRefs);
     const artifact = input.artifactId ? task.artifacts.find(item => item.id === input.artifactId) : undefined;
     if (input.artifactId && !artifact) return reject('not-found', 'Artifact was not found.');
@@ -355,11 +527,11 @@ export class Companion {
         const revisions = artifact.revisions.filter(revision => { try { this.validRefs(task, revision.sourceRefs); return false; } catch { return true; } }).map(revision => revision.revision);
         return revisions.length ? [{ artifactId: artifact.id, revisions }] : [];
       });
-      return { task, staleSourceIds: task.sources.filter(source => source.freshness !== 'fresh').map(source => source.id), affectedArtifacts, interruptedRequestIds: task.requests.filter(request => request.status === 'interrupted').map(request => request.id) };
+      return { task, sourceContext:sourceResumeContext(task), staleSourceIds: task.sources.filter(source => source.freshness !== 'fresh').map(source => source.id), affectedArtifacts, interruptedRequestIds: task.requests.filter(request => request.status === 'interrupted').map(request => request.id) };
     }));
   }
 
-  async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>): Promise<RequestRecord> {
+  async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
     input = clone(input);
     if(input.submittedDraft!==undefined){try{input.submittedDraft=Schema.decodeUnknownSync(SubmittedComposerDraftSchema,{onExcessProperty:'error'})(input.submittedDraft);if(!Number.isSafeInteger(input.submittedDraft.revision))throw Error('Invalid revision.');}catch{return reject('invalid','Submitted composer draft is invalid.');}}
     let boundSubmittedDraft:ComposerDraft|undefined;
@@ -384,10 +556,12 @@ export class Companion {
           if (!artifact || latest(artifact.revisions).revision !== input.expectedRevision) reject('conflict', 'Artifact changed. Reload before revising.');
         }
         this.validRefs(task, sourceRefs);
+        if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
+        if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
         task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
-        return { task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        return { ...(['explain','create','revise'].includes(input.kind)?{taskHistory:projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
       return { context };
@@ -400,27 +574,36 @@ export class Companion {
       if (controller.signal.aborted) throw new Error('Request cancelled.');
       output = await Effect.runPromise(Effect.tryPromise({ try: () => runner({ ...context, signal: controller.signal }), catch: error => error }));
     } catch (error) { failure = error; }
-    finally { this.controllers.delete(input.requestId); }
-    return this.exclusive(() => this.commit(state => {
-      const task = this.task(state, input.taskId), request = task.requests.find(item => item.id === input.requestId);
-      if (!request) return reject('not-found', 'Request was removed.');
-      if (request.status !== 'running') return request;
-      request.finishedAt = this.time();
-      if (failure || !output || controller.signal.aborted) {
-        request.status = controller.signal.aborted ? 'cancelled' : 'failed';
-        request.error = failure instanceof Error ? failure.message : String(failure ?? 'Request returned no output.');
-      } else {
-        try {
-          const artifact = this.appendArtifact(task, { ...output, artifactId: input.artifactId, expectedRevision: input.expectedRevision, sourceRefs: request.sourceRefs });
-          request.status = 'completed'; request.artifactId = artifact.artifactId;
-          if(boundSubmittedDraft&&sameComposerDraft(readComposerDraft(task.session),boundSubmittedDraft)){
-            // Consumption leaves the user-edit epoch available to a newer save already queued against it.
-            const session=task.session??emptyTaskSession();task.session={...session,draft:'',draftKind:boundSubmittedDraft.kind,draftRevision:boundSubmittedDraft.revision,revision:session.revision+1};
-          }
-        } catch (error) { request.status = 'failed'; request.error = error instanceof Error ? error.message : String(error); }
-      }
-      return request;
-    }));
+    try {
+      return await this.exclusive(() => this.commit(state => {
+        const task = this.task(state, input.taskId), request = task.requests.find(item => item.id === input.requestId);
+        if (!request) return reject('not-found', 'Request was removed.');
+        if (request.status !== 'running') return request;
+        if(!failure&&output&&!controller.signal.aborted){
+          try{assertCurrent?.();}catch(error){failure=error;controller.abort(error);}
+        }
+        request.finishedAt = this.time();
+        if (failure || !output || controller.signal.aborted) {
+          request.status = controller.signal.aborted ? 'cancelled' : 'failed';
+          request.error = failure instanceof Error ? failure.message : String(failure ?? 'Request returned no output.');
+        } else {
+          try {
+            if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
+            if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
+            const artifact = this.appendArtifact(task, { ...output, artifactId: input.artifactId, expectedRevision: input.expectedRevision, sourceRefs: request.sourceRefs });
+            request.status = 'completed'; request.artifactId = artifact.artifactId;
+            const saved=artifact.revision;request.answer={artifactId:artifact.artifactId,revision:saved.revision,digest:saved.digest};
+            if(boundSubmittedDraft&&sameComposerDraft(readComposerDraft(task.session),boundSubmittedDraft)){
+              // Consumption leaves the user-edit epoch available to a newer save already queued against it.
+              const session=task.session??emptyTaskSession();task.session={...session,draft:'',draftKind:boundSubmittedDraft.kind,draftRevision:boundSubmittedDraft.revision,revision:session.revision+1};
+            }
+          } catch (error) { request.status = 'failed'; request.error = error instanceof Error ? error.message : String(error); }
+        }
+        return request;
+      }));
+    } finally {
+      this.controllers.delete(input.requestId);
+    }
   }
   cancelRequest(taskId: string, requestId: string): Promise<RequestRecord> {
     return this.exclusive(async () => {
@@ -494,6 +677,7 @@ export class Companion {
   proposeExport(taskId: string, input: { artifactId: string; revision: number; path: string }): Promise<ExportAction> {
     return this.exclusive(async () => {
       const task = this.task(this.state, taskId), revision = this.artifactRevision(task, input.artifactId, input.revision);
+      assertRawModuleOperationAllowed(revision.mimeType,'export');
       if (task.status !== 'active') reject('conflict', 'Resume the task before proposing an export.');
       this.validRefs(task, revision.sourceRefs);
       const destination = await this.destination(input.path);
@@ -510,6 +694,7 @@ export class Companion {
   approveExport(taskId: string, actionId: string, proposalDigest: string): Promise<ExportAction> {
     return this.exclusive(() => this.commit(state => {
       const task = this.task(state, taskId), action = this.action(task, actionId);
+      assertRawModuleOperationAllowed(this.artifactRevision(task,action.proposal.artifactId,action.proposal.revision).mimeType,'export');
       if (task.status !== 'active' || action.status !== 'proposed' || action.proposal.digest !== proposalDigest) reject('conflict', 'Proposal changed, retired, or was already approved.');
       this.validRefs(task, action.proposal.sourceRefs);
       action.approvalId = randomUUID(); action.status = 'approved'; return action;
@@ -518,10 +703,11 @@ export class Companion {
   executeExport(taskId: string, input: { actionId: string; approvalId: string; requestId: string }): Promise<ExportAction> {
     return this.exclusive(async () => {
       const task = this.task(this.state, taskId), action = this.action(task, input.actionId);
+      const revision = this.artifactRevision(task, action.proposal.artifactId, action.proposal.revision);
+      assertRawModuleOperationAllowed(revision.mimeType,'export');
       if (action.requestId === input.requestId && action.approvalId === input.approvalId) return clone(action);
       if (task.status !== 'active' || action.status !== 'approved' || action.approvalId !== input.approvalId || action.approvalRetiredAt) reject('conflict', 'A current one-use approval is required.');
       this.validRefs(task, action.proposal.sourceRefs);
-      const revision = this.artifactRevision(task, action.proposal.artifactId, action.proposal.revision);
       const bytes = artifactBytes(revision);
       if (hash(bytes) !== action.proposal.artifactDigest || bytes.length !== action.proposal.byteLength) reject('conflict', 'Artifact bytes differ from the approved proposal.');
       const destination = await this.destination(action.proposal.path);

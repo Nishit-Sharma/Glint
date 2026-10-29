@@ -1,0 +1,3 @@
+import {defineConfig} from '@playwright/test';
+process.env.WINDOW_COMPANION_TEST_PORT='4190';
+export default defineConfig({testDir:'tests',testMatch:'integration-continuity.e2e.ts',outputDir:'test-results/integration-continuity',workers:1,timeout:30000,expect:{timeout:6000},use:{headless:true,reducedMotion:'reduce',trace:'retain-on-failure',viewport:{width:1080,height:720}},reporter:[['list'],['json',{outputFile:'docs/integration/renderer-results.json'}]],webServer:{command:'./node_modules/.bin/vite src/renderer --host 127.0.0.1 --port 4190 --strictPort',url:'http://127.0.0.1:4190',reuseExistingServer:false,timeout:20000}});

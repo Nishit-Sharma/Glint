@@ -1,0 +1,187 @@
+import {createHash,randomUUID} from 'node:crypto';
+import {constants,type BigIntStats} from 'node:fs';
+import {mkdir,open,rename,rm,type FileHandle} from 'node:fs/promises';
+import {join} from 'node:path';
+import {readScreenBrief} from '../core/screen-brief';
+import {parseModuleAnswer} from '../core/interactive-modules';
+import type {Task} from '../core/types';
+import {MODULE_MIME} from '../shared/module-contract';
+import {helperDraftMode,isHelperDraftSlot} from '../shared/helper-draft-slots';
+import {helperStudio} from '../learning/reusable-helper';
+import {semanticHelper} from '../learning/semantic-helper';
+import {LEARNING_DRAFT_LIMITS,learningDraftKey,parseLearningDraftEpoch,parseLearningDraftFile,parseLearningDraftOwner,parseLearningDraftRecoveryToken,parseLearningDraftSlot,parseLearningDraftTaskId,parseLearningDraftValue,type LearningDraftCleanupResult,type LearningDraftFile,type LearningDraftOwner,type LearningDraftReadResult,type LearningDraftRecord,type LearningDraftRecoverResult,type LearningDraftSaveResult,type LearningDraftValue} from '../shared/learning-drafts';
+
+const unavailableMessage='Unfinished practice could not be read. Its saved bytes have been preserved.';
+const hasCode=(error:unknown,code:string)=>error instanceof Error&&'code' in error&&error.code===code;
+type Options={directory:string;lookupTask:(taskId:string)=>Promise<Task|undefined>};
+type Loaded={kind:'available';file:LearningDraftFile}|{kind:'unavailable';message:string;recoveryToken?:string};
+type DraftSource=Buffer|{recoveryToken:string};
+const digest=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
+const parseBytes=(bytes:Buffer)=>parseLearningDraftFile(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes)));
+const readFlags=constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK;
+const oversizedToken=(info:BigIntStats)=>createHash('sha256').update('learning-drafts:oversized:v1\0').update(JSON.stringify([info.dev,info.ino,info.size,info.mtimeNs,info.ctimeNs].map(value=>value.toString()))).digest('hex');
+const recoveryChanged=()=>Error('Unreadable practice has changed. Read its current status before trying recovery again.');
+
+/** A host-owned sidecar for raw local editing values, separate from committed task state. */
+export class LearningDraftStore{
+ private queue:Promise<unknown>=Promise.resolve();
+ private readonly path:string;
+ constructor(private readonly options:Options){this.path=join(options.directory,'learning-drafts.json');}
+ private serialize<T>(action:()=>Promise<T>):Promise<T>{const result=this.queue.then(action);this.queue=result.catch(()=>{});return result;}
+ private async readSource():Promise<DraftSource|null>{
+  let file;
+  try{file=await open(this.path,readFlags);}
+  catch(error){if(hasCode(error,'ENOENT'))return null;throw error;}
+  try{
+   const info=await file.stat({bigint:true});if(!info.isFile())throw Error('Draft file is invalid.');
+   if(info.size>BigInt(LEARNING_DRAFT_LIMITS.fileBytes))return {recoveryToken:oversizedToken(info)};
+   const buffer=Buffer.alloc(LEARNING_DRAFT_LIMITS.fileBytes+1);let bytesRead=0;
+   while(bytesRead<buffer.length){const next=await file.read(buffer,bytesRead,buffer.length-bytesRead,bytesRead);if(next.bytesRead===0)break;bytesRead+=next.bytesRead;}
+   if(bytesRead>LEARNING_DRAFT_LIMITS.fileBytes)throw Error('Draft file is too large.');
+   return buffer.subarray(0,bytesRead);
+  }finally{await file.close();}
+ }
+ private async load():Promise<Loaded>{
+  try{
+   const bytes=await this.readSource();if(bytes===null)return {kind:'available',file:{schemaVersion:2,epoch:'initial',records:[]}};
+   if(!Buffer.isBuffer(bytes))return {kind:'unavailable',message:unavailableMessage,recoveryToken:bytes.recoveryToken};
+   try{return {kind:'available',file:parseBytes(bytes)};}
+   catch{return {kind:'unavailable',message:unavailableMessage,recoveryToken:digest(bytes)};}
+  }catch{return {kind:'unavailable',message:unavailableMessage};}
+ }
+ private async invalidSource(token:string):Promise<DraftSource>{
+  const source=await this.readSource();
+  if(source!==null){
+   if(!Buffer.isBuffer(source)){if(source.recoveryToken===token)return source;}
+   else if(digest(source)===token){try{parseBytes(source);}catch{return source;}}
+  }
+  throw recoveryChanged();
+ }
+ private async copyOversized(token:string,backup:FileHandle):Promise<void>{
+  const source=await open(this.path,readFlags);
+  try{
+   const before=await source.stat({bigint:true});
+   if(!before.isFile()||before.size<=BigInt(LEARNING_DRAFT_LIMITS.fileBytes)||oversizedToken(before)!==token)throw recoveryChanged();
+   const buffer=Buffer.alloc(64*1024);let copied=0n;
+   while(true){
+    const {bytesRead}=await source.read(buffer,0,buffer.length,null);if(bytesRead===0)break;
+    copied+=BigInt(bytesRead);if(copied>before.size)throw recoveryChanged();
+    await backup.writeFile(buffer.subarray(0,bytesRead));
+   }
+   if(copied!==before.size||oversizedToken(await source.stat({bigint:true}))!==token)throw recoveryChanged();
+  }finally{await source.close();}
+ }
+ private async survivingRecords(records:readonly LearningDraftRecord[]):Promise<LearningDraftRecord[]>{
+  const tasks=new Map<string,boolean>(),retained:LearningDraftRecord[]=[];
+  for(const record of records){
+   const taskId=record.owner.taskId;
+   if(!tasks.has(taskId)){
+    const task=await this.options.lookupTask(taskId);
+    if(task!==undefined&&task.id!==taskId)throw Error('Task lookup returned another identity.');
+    tasks.set(taskId,task!==undefined);
+   }
+   if(tasks.get(taskId))retained.push(record);
+  }
+  return retained;
+ }
+ private async validTask(taskId:string):Promise<boolean>{return (await this.options.lookupTask(taskId))?.id===taskId;}
+ private async validOwner(owner:LearningDraftOwner,slot:string):Promise<boolean>{
+  const task=await this.options.lookupTask(owner.taskId);
+  if(!task||task.id!==owner.taskId)return false;
+  const artifact=task.artifacts.find(artifact=>artifact.id===owner.artifactId),revision=artifact?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);
+  if(!revision||revision.encoding==='base64')return false;
+  if('kind' in owner){
+   if(owner.kind==='workflow-source-review')return ['workflow-source:review','workflow-source:publication'].includes(slot)&&revision.mimeType.startsWith('text/');
+   return revision.mimeType==='application/json'&&readScreenBrief(revision.content,revision.sourceRefs)!==undefined;
+  }
+  if(revision.mimeType!==MODULE_MIME)return false;
+  try{
+   const answer=parseModuleAnswer(JSON.parse(revision.content)),module=answer.modules.find(item=>item.id===owner.moduleId&&item.version===owner.moduleVersion);if(!module)return false;
+   if(module.data.kind!=='helper-studio')return !isHelperDraftSlot(slot)&&['join-lab','grounded-join','workflow-lab'].includes(module.data.kind);
+   const mode=helperDraftMode(slot);if(!mode||artifact?.revisions.at(-1)!==revision)return false;
+   const matches=task.session?.moduleStates.filter(saved=>saved.artifactId===owner.artifactId&&saved.artifactRevision===owner.artifactRevision&&(saved.moduleId===owner.moduleId||(saved.moduleId===undefined&&answer.modules.length===1)))??[];
+   if(matches.length>1)return false;
+   // Slots are inert raw values. A write can have been admitted before another
+   // mirror changed modes, so keep both named families recoverable here. Only
+   // the matching renderer mode may present a slot as applicable.
+   if(!matches.length)return true;
+   const current=matches[0].state;
+   if(current.format==='semantic-record-v1')semanticHelper.parseState(module.data.id,current);
+   else helperStudio.parseState(module.data,current);
+   return true;
+  }catch{return false;}
+ }
+ private async write(file:LearningDraftFile,beforeReplace?:()=>Promise<void>):Promise<void>{
+  const bytes=Buffer.from(JSON.stringify(file));
+  if(bytes.length>LEARNING_DRAFT_LIMITS.fileBytes)throw Error('Unfinished practice storage is full.');
+  await mkdir(this.options.directory,{recursive:true,mode:0o700});
+  const temporary=join(this.options.directory,`.learning-drafts-${randomUUID()}.tmp`);
+  try{
+   const output=await open(temporary,'wx',0o600);
+   try{await output.writeFile(bytes);await output.sync();}finally{await output.close();}
+   await beforeReplace?.();
+   await rename(temporary,this.path);
+   await this.syncDirectory();
+  }finally{await rm(temporary,{force:true});}
+ }
+ private async syncDirectory():Promise<void>{const directory=await open(this.options.directory,'r');try{await directory.sync();}finally{await directory.close();}}
+ read():Promise<LearningDraftReadResult>{return this.serialize(async()=>{
+  const loaded=await this.load();if(loaded.kind==='unavailable')return loaded;
+  try{const records=await this.survivingRecords(loaded.file.records);return {kind:'available',epoch:loaded.file.epoch,records,...(records.length!==loaded.file.records.length?{cleanup:'needed' as const}:{})};}
+  catch{return {kind:'unavailable',message:unavailableMessage};}
+ });}
+ recover(tokenInput:string):Promise<LearningDraftRecoverResult>{
+  const token=parseLearningDraftRecoveryToken(tokenInput);
+  return this.serialize(async()=>{
+   const bytes=await this.invalidSource(token),backupBasename=`learning-drafts-recovery-${randomUUID()}.json`;
+   const backup=await open(join(this.options.directory,backupBasename),'wx',0o600);
+   try{if(Buffer.isBuffer(bytes))await backup.writeFile(bytes);else await this.copyOversized(token,backup);await backup.sync();}finally{await backup.close();}
+   await this.syncDirectory();
+   const epoch=randomUUID();
+   await this.write({schemaVersion:2,epoch,records:[]},async()=>{await this.invalidSource(token);});
+   return {kind:'recovered',epoch,backupBasename};
+  });
+ }
+ cleanup():Promise<LearningDraftCleanupResult>{return this.serialize(async()=>{
+  const loaded=await this.load();if(loaded.kind==='unavailable')throw Error(loaded.message);
+  const records=await this.survivingRecords(loaded.file.records),removed=loaded.file.records.length-records.length;
+  if(removed===0)return {kind:'cleaned',epoch:loaded.file.epoch,removed};
+  const retained=new Set(records.map(record=>record.owner.taskId)),absent=new Set(loaded.file.records.map(record=>record.owner.taskId).filter(taskId=>!retained.has(taskId)));
+  const epoch=randomUUID();
+  await this.write({schemaVersion:2,epoch,records},async()=>{
+   for(const taskId of absent)if(await this.options.lookupTask(taskId)!==undefined)throw Error('Deleted task cleanup changed. Read its current status and try again.');
+  });
+  return {kind:'cleaned',epoch,removed};
+ });}
+ save(ownerInput:LearningDraftOwner,slotInput:string,expectedEpochInput:string,expectedRevision:number,valueInput:LearningDraftValue|null):Promise<LearningDraftSaveResult>{
+  // Parse and detach before queueing so caller mutation cannot change a pending write.
+  const owner=structuredClone(parseLearningDraftOwner(ownerInput)),slot=parseLearningDraftSlot(slotInput),expectedEpoch=parseLearningDraftEpoch(expectedEpochInput),value=structuredClone(parseLearningDraftValue(valueInput,owner,slot));
+  return this.serialize(async()=>{
+   if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0||expectedRevision===Number.MAX_SAFE_INTEGER)throw Error('Draft revision is invalid.');
+   const loaded=await this.load();if(loaded.kind==='unavailable')throw Error(loaded.message);
+   if(loaded.file.epoch!==expectedEpoch)return {kind:'stale-epoch',epoch:loaded.file.epoch};
+   const key=learningDraftKey(owner,slot),current=loaded.file.records.find(record=>learningDraftKey(record.owner,record.slot)===key)??null;
+   const allowed=()=>value===null?this.validTask(owner.taskId):this.validOwner(owner,slot);
+   if((value===null&&!current)||!await allowed())throw Error('The practice answer is no longer available.');
+   if((current?.revision??0)!==expectedRevision)return {kind:'conflict',epoch:loaded.file.epoch,current};
+   const record:LearningDraftRecord={owner,slot,revision:expectedRevision+1,value};
+   const records=loaded.file.records.filter(item=>learningDraftKey(item.owner,item.slot)!==key);records.push(record);
+   const file:LearningDraftFile={schemaVersion:2,epoch:loaded.file.epoch,records};
+   const beforeReplace=async()=>{if(!await allowed())throw Error('The practice answer is no longer available.');};
+   if(records.length>LEARNING_DRAFT_LIMITS.entries||Buffer.byteLength(JSON.stringify(file))>LEARNING_DRAFT_LIMITS.fileBytes){
+    const retained=loaded.file.records.filter(item=>item.value!==null);
+    if(retained.length===loaded.file.records.length)throw Error('Unfinished practice storage is full.');
+    // Dropped tombstones require a fresh namespace so delayed revision-zero writes remain stale.
+    const epoch=randomUUID();await this.write({schemaVersion:2,epoch,records:retained},beforeReplace);
+    return {kind:'stale-epoch',epoch};
+   }
+   await this.write(file,beforeReplace);return {kind:'saved',epoch:file.epoch,record};
+  });
+ }
+ purgeTask(taskId:string):Promise<void>{return this.serialize(async()=>{
+  parseLearningDraftTaskId(taskId);
+  const loaded=await this.load();if(loaded.kind==='unavailable')throw Error(loaded.message);
+  const records=loaded.file.records.filter(record=>record.owner.taskId!==taskId);
+  if(records.length!==loaded.file.records.length)await this.write({...loaded.file,records});
+ });}
+}

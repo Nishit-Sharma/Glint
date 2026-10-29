@@ -1,3 +1,4 @@
+import {seedReturningProfile} from './native-profile';
 import {test,expect,_electron as electron,type ElectronApplication,type Page} from '@playwright/test';
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {tmpdir,platform,arch} from 'node:os';
@@ -6,7 +7,7 @@ import type {Command,Task} from '../src/shared/bridge';
 const invoke=<T=unknown>(page:Page,command:Command)=>page.evaluate(async(c):Promise<unknown>=>{switch(c.type){case 'export.propose':case 'export.approve':case 'export.inspect':return window.companion.invoke(c);default:return window.companion.invoke<unknown>(c);}},command) as Promise<T>;
 
 test('actual native compact bounds follow settled content, freeze during icon entrance and keep the source untouched',async()=>{
- test.setTimeout(65000);const dir=await mkdtemp(join(tmpdir(),'companion-native-fit-')),app=await electron.launch({args:[resolve('.')],env:{...process.env,WINDOW_COMPANION_DATA_DIR:dir}});let sourceApp:ElectronApplication|undefined;
+ test.setTimeout(65000);const dir=await mkdtemp(join(tmpdir(),'companion-native-fit-'));await seedReturningProfile(dir);const app=await electron.launch({args:[resolve('.')],env:{...process.env,WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1',WINDOW_COMPANION_DATA_DIR:dir}});let sourceApp:ElectronApplication|undefined;
  try{
   const page=await app.firstWindow();await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal',/^(settled|cancelled)$/);
   const task=await invoke<Task>(page,{type:'tasks.create',title:'Visit planning'});await page.locator('.workspace .chrome').getByRole('button',{name:'Choose task',exact:true}).click();await page.getByRole('dialog',{name:'Tasks',exact:true}).getByRole('button',{name:/^Visit planning/}).click();

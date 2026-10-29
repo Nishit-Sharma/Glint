@@ -14,9 +14,10 @@ export function FrozenSourcePreview({taskId,source,reference}:{taskId:string;sou
  const ref:SourceRef=reference??{sourceId:source.id,version:version!.version,digest:version!.digest};
  const [preview,setPreview]=useState<{dataUrl:string;capturedAt:string;reference:SourceRef;taskId:string}|null>(),[error,setError]=useState('');
  useEffect(()=>{let current=true;setPreview(undefined);setError('');
-  if(!version||version.digest!==ref.digest||source.currentVersion!==ref.version){setPreview(null);return;}
+  const unsubscribe=window.companion.subscribe(event=>{if(event.type==='capture.retired'){current=false;setPreview(null);setError('');}});
+  if(!version||version.digest!==ref.digest||source.currentVersion!==ref.version){setPreview(null);return unsubscribe;}
   window.companion.invoke<{dataUrl:string;capturedAt:string;reference:SourceRef}|null>({type:'source.preview',taskId,sourceId:source.id,reference:ref}).then(result=>{if(current)setPreview(result&&result.reference&&same(result.reference,ref)?{...result,taskId}:null);}).catch(e=>{if(current)setError(publicErrorMessage(e));});
-  return()=>{current=false;};
+  return()=>{current=false;unsubscribe();};
  },[taskId,source.id,source.currentVersion,source.freshness,ref.version,ref.digest]);
  const exact=preview&&preview.taskId===taskId&&same(preview.reference,ref)&&source.currentVersion===ref.version&&source.freshness==='fresh';
  return <div>{exact?<><img className="source-image" src={preview.dataUrl} alt={'Window snapshot: '+version?.label}/><p className="tiny">Captured {date(preview.capturedAt)}. Capture again before a new question.</p></>:<p className="tiny">{error||(preview===undefined?'Loading snapshot…':'These window pixels are no longer available. The source and capture time are kept with this version.')}</p>}</div>;

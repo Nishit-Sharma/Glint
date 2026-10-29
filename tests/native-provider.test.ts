@@ -54,6 +54,9 @@ describe('Meta Standard adapter — local protocol fixtures only', () => {
     expect(body.tools).toBeUndefined();
     expect(body.messages[0].role).toBe('system');
     expect(body.messages[0].content).toContain('untrusted data');
+    expect(body.messages[0].content).toContain('raw JSON without Markdown fences');
+    expect(body.messages[0].content).toContain('editable Markdown for ordinary text');
+    expect(body.messages[0].content).not.toContain('Produce useful editable Markdown.');
     expect(JSON.stringify(body.messages)).toContain('source-synthetic');
     expect(body.messages.at(-1).content).toBe('User task: Explain the change');
   });
@@ -144,4 +147,12 @@ describe('Meta Standard adapter — local protocol fixtures only', () => {
     expect(await rejected).toMatchObject({ code: 'CANCELLED' });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('Meta final capture fence, no network',()=>{
+ it('runs the host fence after asynchronous credential preparation and before transport',async()=>{
+  const transport=vi.fn(async()=>complete());let release!:()=>void,entered!:()=>void,current=true;const waiting=new Promise<void>(resolve=>release=resolve),started=new Promise<void>(resolve=>entered=resolve);
+  const adapter=provider(transport,{getKey:async()=>{entered();await waiting;return 'synthetic-only';}});
+  const pending=adapter.run({prompt:'Synthetic only',sources:[],signal:signal(),captureFence:{check:async()=>{if(!current)throw Error('Retired');},assertCurrent:()=>{if(!current)throw Error('Retired');}}});const rejected=expect(pending).rejects.toThrow();await started;current=false;release();await rejected;expect(transport).not.toHaveBeenCalled();
+ });
 });

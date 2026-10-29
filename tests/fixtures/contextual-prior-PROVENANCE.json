@@ -1,0 +1,10 @@
+{
+  "source": "e93fba2ed1170e8c3186c39c0096b452e560809166b50bad26cdadc22b3a21da",
+  "kind": "Exact four authored TypeScript file copies for old-reader and unchanged legacy command comparison; transpiled in disposable directory, not an older packaged binary. Other current imports are byte-identical baseline dependencies.",
+  "files": {
+    "learning-drafts": "11946db2fb965ec9ae6341e06c2aa02bdbfb0729c912cf29ae24be44215ca28d",
+    "host-learning-drafts": "237cc602c23336b33c2ab25d252945918beaa63696275f126444a502ac297ffe",
+    "workflow-review-host": "e59648295c69f75b5a1c9c73e08bd6d172c1ad446292fde6766139be6f2c9ea1",
+    "workflow-lab-host": "3d2fc6b008dc8fc756da2a9e4105963e9c5d578e772fdc36729a4771ce64a114"
+  }
+}

@@ -7,25 +7,31 @@ import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {FrozenSourcePreview} from './SourceSnapshotReview';
 import {DeveloperDetails} from './DeveloperDetails';
 import {TaskMenu} from './TaskMenu';
+import {SavedTextSourceEditor,type SavedTextSourceStart} from './SavedTextSourceEditor';
+import type {SourceTextSaveInput,SourceTextSaveInspectionInput} from '../../../shared/source-text-save';
+import type {createLearningDrafts} from '../learning-drafts';
 
 const latest=<T,>(items:T[])=>items[items.length-1];
 const time=(value:string)=>new Date(value).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 type Mode='list'|'source'|'text'|'image'|'crop';
-interface Props{task:Task;busy:boolean;run:Run;reference?:SourceRef;intake?:'text'|'image';onWindow:()=>void;renderImageEditor:(source:Source)=>ReactNode}
+interface Props{task:Task;busy:boolean;run:Run;cache:ReturnType<typeof createLearningDrafts>;saveSourceText?:(input:SourceTextSaveInput)=>Promise<unknown>;inspectSourceSave?:(input:SourceTextSaveInspectionInput)=>Promise<unknown>;isCurrent?:()=>boolean;reference?:SourceRef;intake?:'text'|'image';onWindow:()=>void;renderImageEditor:(source:Source)=>ReactNode}
 
-export function ContextInspector({task,busy,run,reference,intake,onWindow,renderImageEditor}:Props){
+export function ContextInspector({task,busy,run,cache,saveSourceText,inspectSourceSave,isCurrent,reference,intake,onWindow,renderImageEditor}:Props){
  const [selection,setSelection]=useState<SourceRef|undefined>(reference),[mode,setMode]=useState<Mode>(intake??(reference?'source':'list'));
  const [editId,setEditId]=useState<string>(),[label,setLabel]=useState(''),[content,setContent]=useState(''),[role,setRole]=useState<SourceInput['role']>('fact');
  const [baseline,setBaseline]=useState({label:'',content:'',role:'fact' as SourceInput['role']});
+ const [savedTextStart,setSavedTextStart]=useState<SavedTextSourceStart>();
  const editEpoch=useRef(0),list=useRef<HTMLDivElement>(null),heading=useRef<HTMLHeadingElement>(null),lastSource=useRef<string|undefined>(undefined),listScroll=useRef(0);
  useLayoutEffect(()=>{if(mode==='source'){heading.current?.scrollIntoView({block:'start'});heading.current?.focus({preventScroll:true});}if(mode==='list'&&list.current&&lastSource.current){const owner=list.current.closest<HTMLElement>('.inspector-content');if(owner)owner.scrollTop=listScroll.current;const button=[...list.current.querySelectorAll<HTMLButtonElement>('[data-source-id]')].find(b=>b.dataset.sourceId===lastSource.current);button?.focus({preventScroll:true});if(button&&owner){const b=button.getBoundingClientRect(),r=owner.getBoundingClientRect();if(b.top<r.top||b.bottom>r.bottom)button.scrollIntoView({block:'nearest'});}}},[mode,selection?.sourceId,selection?.version]);
+ const routeKey=JSON.stringify([reference,intake]),liveEditor=useRef({taskId:task.id,mode,sourceId:savedTextStart?.reference.sourceId,routeKey});liveEditor.current={taskId:task.id,mode,sourceId:savedTextStart?.reference.sourceId,routeKey};
+ useLayoutEffect(()=>()=>{editEpoch.current++;},[]);
  const dirty=label!==baseline.label||content!==baseline.content||role!==baseline.role;
  const clearDraft=useNavigationDraft(dirty),guard=useGuardedAction(),draftRef=useRef({label,content,role,editId});draftRef.current={label,content,role,editId};
  const source=task.sources.find(s=>s.id===selection?.sourceId),version=source?.versions.find(v=>v.version===selection?.version&&v.digest===selection?.digest),historical=source&&selection?.version!==source.currentVersion;
- function reset(){editEpoch.current++;setLabel('');setContent('');setRole('fact');setEditId(undefined);setBaseline({label:'',content:'',role:'fact'});}
+ function reset(){editEpoch.current++;setLabel('');setContent('');setRole('fact');setEditId(undefined);setSavedTextStart(undefined);setBaseline({label:'',content:'',role:'fact'});}
  function navigate(action:()=>void){guard(()=>{reset();action();});}
  function choose(source:Source){navigate(()=>{lastSource.current=source.id;listScroll.current=list.current?.closest<HTMLElement>('.inspector-content')?.scrollTop??0;const v=latest(source.versions);setSelection({sourceId:source.id,version:v.version,digest:v.digest});setMode('source');});}
- useEffect(()=>{if(reference){setSelection(reference);setMode('source');}else if(intake)setMode(intake);},[reference?.sourceId,reference?.version,reference?.digest,intake]);
+ useEffect(()=>{reset();if(reference){setSelection(reference);setMode('source');}else if(intake)setMode(intake);},[reference?.sourceId,reference?.version,reference?.digest,intake]);
  async function saveText(event:FormEvent){
   event.preventDefault();const submitted=draftRef.current,epoch=editEpoch.current;if(!submitted.content.trim())return;
   const result=await run<Task>({type:'source.text',taskId:task.id,source:{kind:'text',...(submitted.editId?{id:submitted.editId}:{}),label:submitted.label.trim()||submitted.content.trim().split('\n')[0].slice(0,80),content:submitted.content,role:submitted.role}},submitted.editId?'Source refreshed':'Source added');
@@ -35,8 +41,9 @@ export function ContextInspector({task,busy,run,reference,intake,onWindow,render
   else if(draftRef.current.editId===submitted.editId){setBaseline({label:v.label,content:v.content,role:v.role});setEditId(saved.id);if(draftRef.current.label===submitted.label)setLabel(v.label);}
  }
 
- function edit(){if(!source||!version)return;const next={label:version.label,content:version.content,role:version.role};setEditId(source.id);setLabel(next.label);setContent(next.content);setRole(next.role);setBaseline(next);setMode('text');}
+ function edit(){if(!source||!version)return;editEpoch.current++;setSavedTextStart({reference:{sourceId:source.id,version:version.version,digest:version.digest},freshness:source.freshness,fields:{label:version.label,content:version.content,role:version.role}});setMode('text');}
  const roleField=<Field label="Use as"><select disabled={busy} value={role} onChange={event=>setRole(event.target.value as SourceInput['role'])}><option value="fact">Source material</option><option value="style">Style reference</option><option value="inspiration">Inspiration</option></select></Field>;
+ if(mode==='text'&&savedTextStart){const epoch=editEpoch.current,sourceId=savedTextStart.reference.sourceId,ownerTaskId=task.id;return <SavedTextSourceEditor key={ownerTaskId+':'+sourceId+':'+epoch} task={task} start={savedTextStart} cache={cache} busy={busy} run={run} saveSourceText={saveSourceText} inspect={inspectSourceSave} isCurrent={()=>editEpoch.current===epoch&&liveEditor.current.taskId===ownerTaskId&&liveEditor.current.mode==='text'&&liveEditor.current.routeKey===routeKey&&liveEditor.current.sourceId===sourceId&&(isCurrent?.()??true)} onDone={reference=>{if(editEpoch.current!==epoch||!(isCurrent?.()??true))return;reset();setSelection(reference);setMode('source');}}/>;}
  if(mode==='text')return <section className="source-intake-editor"><h2>{editId?'Edit source':'Paste text'}</h2><form onSubmit={saveText}><Field label="Source text"><textarea autoFocus rows={9} required value={content} onChange={event=>setContent(event.target.value)} placeholder="Paste the text to use…"/></Field><div className="two-fields"><Field label="Source name (optional)"><input maxLength={200} value={label} onChange={event=>setLabel(event.target.value)} placeholder="Named from your text"/></Field>{roleField}</div><div className="row"><Button kind="primary" type="submit" disabled={busy||!content.trim()}>{editId?'Save new version':'Add text'}</Button><Button onClick={()=>navigate(()=>setMode(selection?'source':'list'))}>Cancel</Button></div></form></section>;
  if(mode==='image')return <section className="source-intake-editor"><h2>Add an image</h2>{roleField}<div className="row"><Button kind="primary" disabled={busy} onClick={async()=>{const result=await run<Task>({type:'source.image',taskId:task.id,role});if(result&&result.sources.length>task.sources.length){clearDraft();reset();const saved=latest(result.sources),v=latest(saved.versions);setSelection({sourceId:saved.id,version:v.version,digest:v.digest});setMode('source');}}}><ImageIcon size={16}/>Choose image…</Button><Button onClick={()=>navigate(()=>setMode('list'))}>Cancel</Button></div></section>;
  if(mode==='crop'&&source)return <section className="source-crop-editor"><header className="source-object-heading"><Button kind="icon" title="Back to source" onClick={()=>navigate(()=>setMode('source'))}><ArrowLeft size={16}/></Button><h2>{version?.label}</h2></header>{renderImageEditor(source)}</section>;

@@ -1,0 +1,4 @@
+import {workflowImageCitationText} from '../../../learning/workflow-image-citation';
+import type {WorkflowData} from '../../../learning/workflow-lab';
+import type {SourceRef} from '../../../core/types';
+export function WorkflowSourceCitations({citations,sourceName}:{citations:WorkflowData['citations'];sourceName:(ref:SourceRef)=>string}){return <>{citations.length>0&&<><h4>Frozen source citations</h4><ul>{citations.map((citation,index)=><li key={citation.id}>Citation {index+1} · {sourceName(citation.sourceRef)}, version {citation.sourceRef.version}, {citation.location.kind==='text-range'?<>characters {citation.location.start}–{citation.location.end}: <q>{citation.location.quote}</q></>:'original' in citation?<span className="workflow-image-citation">{workflowImageCitationText(citation)}</span>:null}</li>)}</ul></>}</>;}

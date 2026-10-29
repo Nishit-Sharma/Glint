@@ -1,3 +1,4 @@
+import {seedReturningProfile} from './native-profile';
 import {test,expect,_electron as electron,type ElectronApplication,type Page} from '@playwright/test'
 import {mkdtemp,readFile,writeFile,stat,mkdir,copyFile,realpath} from 'node:fs/promises'
 import {tmpdir,platform,arch,totalmem,cpus} from 'node:os'
@@ -8,7 +9,8 @@ import {taskTool} from './ui-tools'
 
 const root=resolve('.')
 async function launch(dir:string,env:Record<string,string>={}){
- const app=await electron.launch({args:[root],env:{...process.env,...env,WINDOW_COMPANION_DATA_DIR:dir}})
+ await seedReturningProfile(dir);
+ const app=await electron.launch({args:[root],env:{...process.env,...env,WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1',WINDOW_COMPANION_DATA_DIR:dir}})
  try{const page=await app.firstWindow();await page.getByRole('heading',{name:'Bring a window into this task.',exact:true}).waitFor();return {app,page};}catch(error){await app.close().catch(()=>{});throw error;}
 }
 const cmd=<T=unknown>(page:Page,command:Command)=>page.evaluate(async(c):Promise<unknown>=>{switch(c.type){case 'export.propose':case 'export.approve':case 'export.inspect':return window.companion.invoke(c);default:return window.companion.invoke<unknown>(c);}},command) as Promise<T>
@@ -86,7 +88,7 @@ test('local task, revisions, denied/verified export, checkpoint and actual resta
   expect((await cmd<Task>(page,{type:'tasks.get',taskId:task.id})).artifacts[0].revisions).toHaveLength(2)
   await cmd(page,{type:'surface.expand'})
   await app.close()
-  app=await electron.launch({args:[root],env:{...process.env,WINDOW_COMPANION_DATA_DIR:dir}});page=await app.firstWindow()
+  app=await electron.launch({args:[root],env:{...process.env,WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1',WINDOW_COMPANION_DATA_DIR:dir}});page=await app.firstWindow()
   await page.getByRole('heading',{name:'Synthetic observatory brief'}).waitFor()
   const reopened=await cmd<Task>(page,{type:'tasks.get',taskId:task.id})
   expect(reopened.checkpoints).toHaveLength(1);expect(reopened.artifacts[0].revisions).toHaveLength(2);expect(reopened.actions[0].status).toBe('verified')
@@ -212,7 +214,7 @@ test('forged inputs stay inert, environment disconnect persists, and all-process
   const after=[]
   for(let i=0;i<6;i++){after.push(await app.evaluate(({app})=>app.getAppMetrics()));await new Promise(r=>setTimeout(r,1000))}
   await writeFile('evidence/resources.json',JSON.stringify({utc:new Date().toISOString(),hardware:{platform:platform(),arch:arch(),cpu:cpus()[0]?.model,logicalCpus:cpus().length,ramBytes:totalmem()},scope:'Actual Electron app.getAppMetrics all Electron processes under Playwright: six 1s warmed-idle samples, ten synthetic task/source/artifact/checkpoint/pause/resume/delete cycles, six 1s post-cycle samples. CPU percent and summed workingSetSize KiB include shared pages; Codex subprocesses excluded. No Windows claim.',samples,repeated,after},null,2))
-  await app.close();app=await electron.launch({args:[root],env:{...process.env,MODEL_API_KEY:'synthetic-fixture-never-sent',WINDOW_COMPANION_DATA_DIR:dir}});page=await app.firstWindow()
+  await app.close();app=await electron.launch({args:[root],env:{...process.env,MODEL_API_KEY:'synthetic-fixture-never-sent',WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1',WINDOW_COMPANION_DATA_DIR:dir}});page=await app.firstWindow()
   await page.getByRole('heading',{name:'Policy probe'}).waitFor()
   expect((await cmd<any>(page,{type:'connection.status'})).connection.configured).toBe(false)
   expect((await cmd<Task>(page,{type:'tasks.get',taskId:task.id})).sources).toHaveLength(1)
@@ -222,7 +224,7 @@ test('forged inputs stay inert, environment disconnect persists, and all-process
 
 
 test('native startup draws once; ordinary inspectors are plain and actual quit uses only its own snapshot',async()=>{
- test.setTimeout(30000);const dir=await mkdtemp(join(tmpdir(),'companion-native-presentation-'));await mkdir('evidence/native-presentation-video',{recursive:true});const app=await electron.launch({args:[root],recordVideo:{dir:'evidence/native-presentation-video',size:{width:430,height:760},fps:30},env:{...process.env,WINDOW_COMPANION_DATA_DIR:dir}});const page=await app.firstWindow(),video=page.video(),events:any[]=[],states:any[]=[];
+ test.setTimeout(30000);const dir=await mkdtemp(join(tmpdir(),'companion-native-presentation-'));await seedReturningProfile(dir);await mkdir('evidence/native-presentation-video',{recursive:true});const app=await electron.launch({args:[root],recordVideo:{dir:'evidence/native-presentation-video',size:{width:430,height:760},fps:30},env:{...process.env,WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1',WINDOW_COMPANION_DATA_DIR:dir}});const page=await app.firstWindow(),video=page.video(),events:any[]=[],states:any[]=[];
  try{
   await page.exposeFunction('__nativePresentationEvent',(event:any)=>events.push(event));await page.exposeFunction('__nativeExitState',(state:any)=>states.push(state));
   await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal','settled');await taskTool(page,'New task');await expect(page.getByRole('heading',{name:'Bring a window into this task.',exact:true})).toBeVisible();await expect(page.locator('.t-gen')).toHaveCount(0);

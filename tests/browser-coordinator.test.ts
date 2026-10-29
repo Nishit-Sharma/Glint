@@ -102,8 +102,10 @@ it('keeps a successful website write uncertain when the host stops before acknow
     expect(restored.requests.at(-1)?.status).toBe('interrupted');
     expect(restored.session?.runs[0]?.operations[0]?.status).toBe('uncertain');
     expect(commits).toBe(1);
-    const retry = await new BrowserCoordinator(core, planner).run({ taskId: task.id, requestId: 'new-write', goal: 'Submit again', origin, url: origin, transmissionApproved: true, approveAction: async () => ({ approved: true, write: { method: 'POST', url: `${origin}/commit`, body: '' } }) });
+    let retryApprovals = 0;
+    const retry = await new BrowserCoordinator(core, planner).run({ taskId: task.id, requestId: 'new-write', goal: 'Submit again', origin, url: origin, transmissionApproved: true, approveAction: async () => { retryApprovals++; return { approved: true, write: { method: 'POST', url: `${origin}/commit`, body: '' } }; } });
     expect(retry.status).toBe('failed'); expect(retry.error).toContain('uncertain outcome');
+    expect(retryApprovals).toBe(0);
     expect(commits).toBe(1);
     const review = new BrowserReconciliation(core), operation = restored.session?.runs[0]?.operations[0];
     if (!operation) throw Error('Missing durable action');

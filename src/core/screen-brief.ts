@@ -1,6 +1,7 @@
 import type { SourceRef } from './types';
 
 export const SCREEN_BRIEF_DELIMITER = '\n<!-- companion-actions -->\n';
+export const SQL_JOIN_REVIEW_PROGRESS='Preparing the cited tables for your review…';
 const MARKER = '<!-- companion-actions -->';
 const MAX_RESPONSE = 32_000, MAX_JSON = 24_000, MAX_INSIGHT = 4_000;
 const REQUEST_KINDS = ['explain', 'create', 'experiment', 'procedure'] as const;
@@ -11,6 +12,7 @@ export interface ScreenBriefAction {
   requestKind: ScreenBriefRequestKind;
   seedPrompt: string;
   sourceRefs: SourceRef[];
+  capability?: 'sql-join';
 }
 export interface ScreenBriefQuestion {question:string;answer:string;sourceRefs:SourceRef[];}
 export interface ScreenBrief {
@@ -108,15 +110,17 @@ function parseBrief(content: string, allowedRefs: readonly SourceRef[],sourceFor
     });
   };
   const actions = envelope.actions.map((entry): ScreenBriefAction => {
-    const object = shape(entry, 'action', ['label', 'outcome', 'requestKind', 'seedPrompt', 'sourceRefs']);
+    const object = shape(entry, 'action', ['label', 'outcome', 'requestKind', 'seedPrompt', 'sourceRefs'], ['capability']);
     if (!REQUEST_KINDS.includes(object.requestKind as ScreenBriefRequestKind)) return fail('unsupported requestKind');
     const sourceRefs=bind(object.sourceRefs,'action');
+    if (Object.hasOwn(object,'capability') && (object.capability!=='sql-join'||object.requestKind!=='experiment'||allowed.length<1||allowed.length>2||sourceRefs.length!==allowed.length||!allowed.every(ref=>sourceRefs.some(other=>ref.sourceId===other.sourceId)))) return fail('sql-join capability requires an experiment over the complete one-or-two-source basis');
     return {
       label: prose(object.label, 'action label', 80),
       outcome: prose(object.outcome, 'action outcome', 240),
       requestKind: object.requestKind as ScreenBriefRequestKind,
       seedPrompt: prose(object.seedPrompt, 'action seedPrompt', 2_000),
       sourceRefs,
+      ...(object.capability==='sql-join'?{capability:'sql-join' as const}:{}),
     };
   });
   let questions:ScreenBriefQuestion[]|undefined;
@@ -169,9 +173,9 @@ export function screenBriefPrompt(allowedRefs: readonly SourceRef[]): string {
   return `Read only the supplied frozen snapshot. Begin immediately with a short, useful 1–3 sentence Markdown insight about observable content, aiming for at most 30 words. Lead with the most useful fact AND its material uncertainty or missing input, rather than an exhaustive transcription. Distinguish observed facts from inference, explicitly state uncertainty or missing evidence, and do not invent details. Never move a material caveat out of the opening insight merely to shorten it. No heading, JSON, generic greeting, repeated source title, parenthetical citation, or fabricated user question before the insight. Source attribution is displayed separately. If the screen is insufficient, state what can be recognized and one bounded question grounded in visible content. Never print opaque source IDs or digests in visible prose.
 
 Then emit this exact delimiter between the insight and actions JSON, using actual newlines with no surrounding quotes or code fence:${SCREEN_BRIEF_DELIMITER}
-After it, emit one raw JSON object with {"actions":[...]} and optionally "detail" containing a longer explanation, no code fence, comments, duplicate keys, or extra text. detail may expand the insight but must never be the only place a material caveat appears. Return 0–3 ranked, concrete, content-specific useful next actions; zero actions is correct when evidence is insufficient. When the screen names unfinished work that existing capabilities can help with, propose useful editable next steps tied to those observations; do not claim they are already done. Each action has exactly label, outcome, requestKind, seedPrompt, sourceRefs. Keep labels short and outcomes to about eight words when possible; preserve material limits. label: 1–80 characters; outcome: 1–240 characters describing the proposed editable result, not completed work; seedPrompt: 1–2000 characters for a later separately reviewed request. Insight and optional detail are each at most 4000 characters; JSON is at most 24000 characters and 12 nesting levels; total response at most 32000 characters. Do not put URLs, Markdown links, HTML, code blocks, or executable markup in any text field.
+After it, emit one raw JSON object with {"actions":[...]} and optionally "detail" containing a longer explanation, no code fence, comments, duplicate keys, or extra text. detail may expand the insight but must never be the only place a material caveat appears. Return 0–3 ranked, concrete, content-specific useful next actions; zero actions is correct when evidence is insufficient. When the screen names unfinished work that existing capabilities can help with, propose useful editable next steps tied to those observations; do not claim they are already done. Each action has exactly label, outcome, requestKind, seedPrompt, sourceRefs, and optionally capability as described below. Keep labels short and outcomes to about eight words when possible; preserve material limits. label: 1–80 characters; outcome: 1–240 characters describing the proposed editable result, not completed work; seedPrompt: 1–2000 characters for a later separately reviewed request. Insight and optional detail are each at most 4000 characters; JSON is at most 24000 characters and 12 nesting levels; total response at most 32000 characters. Do not put URLs, Markdown links, HTML, code blocks, or executable markup in any text field.
 
-requestKind must be explain, create, experiment, or procedure. explain explains supplied observations; create drafts editable text only; experiment proposes a bounded arithmetic relationship with explicit assumptions and missing inputs; procedure proposes inspectable steps for user review with uncertainty and observation gaps. Do not infer causality or successful workflow demonstration from a screenshot. No unsupported image generation, image editing, computer operation, sending, booking, saving, export, app or file writes. Do not use tools, execute code, open URLs, claim approval, claim an action ran, or invent capabilities. Selecting a suggestion will only begin the existing scoped request and review flow; it grants no side-effect authority.
+requestKind must be explain, create, experiment, or procedure. When the complete supplied one-or-two-source basis shows two useful tables with visible row data suitable for a reviewed equality join, offer an experiment action with capability "sql-join" to let the user review the extracted tables, change INNER or LEFT equality joining, and inspect computed row pairs. This installed local teaching lab does not require a running database. In particular, include this action when the visible task asks to try, change, or understand a join. Include every supplied source handle for this action. Omit the capability for sparse or unsuitable evidence; never invent missing rows or keys. This proposes a later transcription and explicit review, never claims a query or experiment already ran. VHDL, HDL and hardware content remains a grounded explanation; there is no HDL simulator. explain explains supplied observations; create drafts editable text only; experiment with capability "sql-join" opens the reviewed equality-join teaching lab described above; experiment without that capability proposes a bounded arithmetic relationship with explicit assumptions and missing inputs; procedure proposes inspectable steps for user review with uncertainty and observation gaps. Do not infer causality or successful workflow demonstration from a screenshot. No unsupported image generation, image editing, computer operation, sending, booking, saving, export, app or file writes. Do not use tools, execute code, open URLs, claim approval, claim an action ran, or invent capabilities. Selecting a suggestion will only begin the existing scoped request and review flow; it grants no side-effect authority.
 
 When the source supports at least two distinct useful explanations (such as a sequence, a constraint and its missing input), include "questions" instead of putting all exploration in plain detail: an array of 0–3 useful expandable questions already answered by the supplied snapshot. Each item has exactly question (1–120 characters), answer (1–1600 characters of readable Markdown prose) and sourceRefs (1–64 unique host handles). Actions plus questions must total at most 3. Prefer two earned questions and at most one action when explanation benefits from exploration. Do not merely repeat the opening, imply the user asked these questions, fill a generic FAQ, or move material uncertainty out of the opening. Omit questions when they add no value. Answers are precomputed source-grounded content, not a tool request, and must obey the same prose/URL/authority restrictions. Every material inference or unknown must be explicit.
 

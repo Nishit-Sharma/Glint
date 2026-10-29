@@ -228,8 +228,6 @@ test('360 pixel reduced-motion views fit without horizontal overflow and keep th
   await page.getByRole('button',{name:'Back to task',exact:true}).click();
   await page.getByRole('dialog',{name:'Keep your unsaved edits?',exact:true}).getByRole('button',{name:'Leave and discard edits',exact:true}).click();
   await startRequest(page);
-  // The quiet roster removed its logo; reduced motion still suppresses visible stream and generation effects.
-  expect(await page.locator('.companion-mark').first().evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   await expect(page.locator('.t-gen,.t-tig,.workspace [data-sd-animate]')).toHaveCount(0);
   await checkWidth();
   fixture.fail('End reduced-motion fixture');

@@ -1,3 +1,4 @@
+import {seedReturningProfile} from './native-profile';
 import {test,expect,_electron as electron} from '@playwright/test';
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
@@ -7,6 +8,7 @@ import {execFile} from 'node:child_process';
 test('normal launch is capture-free and own window protection preserves internal presentation snapshots',async()=>{
  test.setTimeout(30000);
  const dataDir=await mkdtemp(join(tmpdir(),'companion-native-privacy-'));
+ await seedReturningProfile(dataDir);
  const app=await electron.launch({args:[resolve('.')],env:{...process.env,WINDOW_COMPANION_DATA_DIR:dataDir,WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1'}});
  try{
   const page=await app.firstWindow();await expect(page.getByRole('heading',{name:'Bring a window into this task.',exact:true})).toBeVisible();
@@ -36,6 +38,7 @@ test('macOS selected-window recorder probe measures an owned harmless window wit
  test.skip(process.platform!=='darwin','This recorder probe uses the macOS selected-window screencapture binary.');
  test.setTimeout(40000);
  const dataDir=await mkdtemp(join(tmpdir(),'companion-recorder-probe-'));
+ await seedReturningProfile(dataDir);
  const app=await electron.launch({args:[resolve('.')],env:{...process.env,WINDOW_COMPANION_DATA_DIR:dataDir,WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT:'1'}});
  try{
   await app.firstWindow();

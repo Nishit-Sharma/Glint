@@ -50,7 +50,7 @@ describe('native adapter policy — injected OS fixtures', () => {
     const { adapter, deps, bounds } = fixture();
     const source = await adapter.inspect('window:42');
     const capture = await adapter.capture(source.id, { expectedDocumentToken: source.documentToken });
-    expect(deps.captureWindow).toHaveBeenCalledExactlyOnceWith(42);
+    expect(deps.captureWindow).toHaveBeenCalledExactlyOnceWith(42,expect.objectContaining({beforeCapture:expect.any(Function)}));
     expect(capture.transform).toMatchObject({ version: 1, windowBoundsDip: bounds, nativePixelSize: { width: 1600, height: 1200 }, capturePixelSize: { width: 1600, height: 1200 }, pixelsPerDip: { x: 2, y: 2 } });
     expect(capture.freshness).toBe('frozen-explicit-capture');
     expect(capture.imageSha256).toHaveLength(64);
@@ -164,4 +164,16 @@ describe('companion placement — pure geometry, no window movement', () => {
     expect(placement.mode).toBe('attached');
     expect(() => placeCompanion(workArea, workArea, { width: -1, height: 4 })).toThrow();
   });
+});
+
+describe('Native capture host fence fixtures',()=>{
+ it('does not start OS pixels after authority retires during native preparation',async()=>{
+  const {adapter,deps}=fixture();let current=true;const source=await adapter.inspect('window:42');
+  await expect(adapter.capture(source.id,{expectedDocumentToken:source.documentToken,beforeCapture:async()=>{current=false;},assertCurrent:()=>{if(!current)throw Error('Retired host authority');}})).rejects.toThrow('Retired host authority');
+  expect(deps.captureWindow).not.toHaveBeenCalled();
+ });
+ it('reinspects identity after the asynchronous host preflight',async()=>{
+  const {adapter,deps,state}=fixture();const source=await adapter.inspect('window:42');
+  await expect(adapter.capture(source.id,{expectedDocumentToken:source.documentToken,beforeCapture:async()=>{state.title='A changed synthetic target';}})).rejects.toMatchObject({code:'SOURCE_CHANGED'});expect(deps.captureWindow).not.toHaveBeenCalled();
+ });
 });

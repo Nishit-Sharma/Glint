@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chromium, type Browser, type BrowserContext, type ElementHandle, type Page } from 'playwright-core';
 import { Schema } from 'effect';
+import { BROWSER_LAUNCH_UNAVAILABLE } from '../../shared/public-messages';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const Intent = Schema.Union(
@@ -57,7 +58,12 @@ export class LocalBrowser {
     const initial=new URL(options.url);
     if(initial.username||initial.password)throw Error('The initial page address must not contain sign-in details.');
     if (initial.origin !== origin.origin) throw Error('Initial URL is outside the authorized origin.');
-    const browser = await chromium.launch({ headless: options.headless ?? true, chromiumSandbox:true });
+    let browser: Browser;
+    try { browser = await chromium.launch({ headless: options.headless ?? true, chromiumSandbox:true }); }
+    catch (error) {
+      if (options.signal?.aborted) throw Error('Browser request was stopped before launch.', { cause: error });
+      throw Error(BROWSER_LAUNCH_UNAVAILABLE, { cause: error });
+    }
     let releaseOwner=()=>{};
     let releaseStop=()=>{};
     let opened:LocalBrowser|undefined;

@@ -1,3 +1,4 @@
+import {LearningDraftStore} from '../src/host/learning-drafts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,7 +6,9 @@ import type { Page } from '@playwright/test';
 import { createCompanion, evaluateExperiment, type Companion } from '../src/core/companion';
 import type { CompactFit, Command, CompanionBridge, CompanionEvent, ConnectionStatus, HostStatus, Task } from '../src/shared/bridge';
 import {isExportCommand,readExportReply,type ExportHandlers} from '../src/shared/export-contract';
+import {CharacterPreferences} from '../src/host/character-preferences';
 import {screenBriefInsight} from '../src/core/screen-brief';
+import {TaskViewPreferences} from '../src/host/task-view-preferences';
 
 declare global {
   interface Window {
@@ -19,9 +22,15 @@ type ModelControl = { command: ModelCommand; resolve: (value: { title: string; c
 /** Browser-only host fixture. Durable task behavior uses the real core and a disposable directory.
  * Native capabilities and provider transport are explicit substitutes; this proves neither route. */
 export class BrowserFixture {
+  viewPreferences!:TaskViewPreferences;
+  learningDrafts!:LearningDraftStore;
+  preferences!:CharacterPreferences;
+  preferenceSaveError?:string;
+  losePreferenceAcknowledgement=false;
   readonly commands: Command[] = [];
   readonly pending = new Map<string, ModelControl>();
   readonly externalRequests: string[] = [];
+  configured=true;
   checkBarrier?:Promise<void>;
   browserError?:string;
   browserCompletion?:Promise<void>;
@@ -30,6 +39,7 @@ export class BrowserFixture {
   draftSaveError?:string;
   calculationBarrier?:Promise<void>;
   exitBarrier?:Promise<void>;
+  captureExitSnapshot?:()=>Promise<string>;
   taskListBarrier?:Promise<void>;
   exportProposalBarrier?:Promise<void>;
   cancelExport=false;
@@ -38,13 +48,14 @@ export class BrowserFixture {
   uncertainExport=false;
   private readonly uncertainExports=new Set<string>();
   private collapseExit?:string;
+  private exitCapture?:{id:string;purpose:'quit'|'collapse';started:boolean;dataUrl?:string};
   private entranceId?:string;
   private activation?:{activationId:string;tucked:boolean};
   private surface:'workspace'|'companion'|'anchor'='workspace';
   private lastSurface:'workspace'|'companion'='workspace';
   private constructor(readonly page: Page, readonly directory: string, public core: Companion, readonly taskA: Task, readonly taskB: Task) {}
 
-  static async open(page: Page, mode?:'companion'|'anchor') {
+  static async open(page: Page, mode?:'companion'|'anchor',port=Number(process.env.WINDOW_COMPANION_TEST_PORT??4173)) {
     const directory = await mkdtemp(join(tmpdir(), 'window-companion-browser-'));
     const core = await createCompanion({ dataDir: join(directory, 'store') });
     let taskA = await core.createTask({ title: 'Task Alpha', goal: 'Keep Alpha sources and results separate.' });
@@ -54,6 +65,10 @@ export class BrowserFixture {
     taskB = await core.putSource(taskB.id, { kind: 'text', label: 'Beta brief', role: 'fact', content: 'Beta event is on November 5.' });
     await core.saveArtifact(taskB.id, { title: 'Beta draft', content: 'Beta revision one.' });
     const fixture = new BrowserFixture(page, directory, core, await core.getTask(taskA.id), await core.getTask(taskB.id));
+    fixture.learningDrafts=new LearningDraftStore({directory:join(directory,'store'),lookupTask:async id=>(await fixture.core.listTasks()).find(task=>task.id===id)});
+    fixture.preferences=await CharacterPreferences.open(join(directory,'store'));
+    fixture.viewPreferences=new TaskViewPreferences(join(directory,'store'),async id=>(await fixture.core.listTasks()).some(task=>task.id===id));
+    await fixture.viewPreferences.select(taskA.id);
     if(mode==='companion')fixture.lastSurface='companion';if(mode)fixture.surface=mode;
     await page.exposeFunction('__browserFixtureInvoke',async(command:Command)=>{const result=await fixture.invoke(command);return isExportCommand(command)?readExportReply(command,result):result;});
     await page.addInitScript(() => {
@@ -63,11 +78,11 @@ export class BrowserFixture {
     });
     await page.route('**/*', route => {
       const url = new URL(route.request().url());
-      if (url.hostname === '127.0.0.1' && url.port === '4173') return route.continue();
+      if (url.hostname === '127.0.0.1' && url.port === String(port)) return route.continue();
       fixture.externalRequests.push(url.href);
       return route.abort('blockedbyclient');
     });
-    try { await page.goto('http://127.0.0.1:4173'+(mode?'?mode='+mode:'')); }
+    try { await page.goto('http://127.0.0.1:'+port+(mode?'?mode='+mode:'')); }
     catch (error) { await fixture.close(); throw error; }
     return fixture;
   }
@@ -76,6 +91,7 @@ export class BrowserFixture {
   async changed(taskId?: string) { await this.emit({ type: 'changed', taskId }); }
   async restartCore(){await this.core.close();this.core=await createCompanion({dataDir:join(this.directory,'store')});await this.changed();}
   async enter(mode:'workspace'|'companion',compactFit?:CompactFit){this.entranceId=crypto.randomUUID();await this.emit({type:'presentation.enter',entranceId:this.entranceId,mode});await this.emit({type:'surface',mode,...(compactFit?{compactFit}:{})});return this.entranceId;}
+  async prepareExit(exitId:string,dataUrl?:string,purpose:'quit'|'collapse'='quit'){if(!this.exitCapture)this.exitCapture={id:exitId,purpose,started:false,dataUrl};await this.emit({type:'presentation.prepare',exitId,purpose});}
   async stream(text: string, requestId = [...this.pending.keys()].at(-1)) {
     const control = requestId ? this.pending.get(requestId) : undefined;
     if (!control) throw new Error('No pending browser fixture request.');
@@ -122,8 +138,17 @@ export class BrowserFixture {
   private async invoke(command: Command): Promise<unknown> {
     this.commands.push(structuredClone(command));
     switch (command.type) {
-      case 'presentation.finish': if(this.exitBarrier)await this.exitBarrier;if(command.exitId===this.collapseExit){await this.emit({type:'surface',mode:'anchor'});return {purpose:'collapse',mode:'anchor'};}return null;
-      case 'presentation.reveal':if(command.exitId!==this.collapseExit)throw Error('No matching fixture presentation.');this.collapseExit=undefined;return null;
+      case 'bots.get':return undefined;
+      case 'preferences.get':return this.preferences.read();
+      case 'preferences.update':{if(this.preferenceSaveError)throw Error(this.preferenceSaveError);const result=await this.preferences.update({expectedRevision:command.expectedRevision,profile:command.profile});if(this.losePreferenceAcknowledgement){this.losePreferenceAcknowledgement=false;throw Error('Fixture lost acknowledgement after commit.');}return result;}
+
+      case 'presentation.capture':{
+        const pending=this.exitCapture;if(!pending||pending.id!==command.exitId)throw Error('No matching fixture capture.');if(pending.started)return null;pending.started=true;
+        const dataUrl=pending.dataUrl??(this.captureExitSnapshot?await this.captureExitSnapshot():await this.page.evaluate(()=>{const c=document.createElement('canvas');c.width=360;c.height=440;const context=c.getContext('2d')!;context.fillStyle='#202428';context.fillRect(0,0,360,440);context.fillStyle='#eee';context.font='24px system-ui';context.fillText('Synthetic collapse snapshot',20,70);return c.toDataURL('image/png');}));
+        if(this.exitCapture===pending)await this.emit({type:'presentation.exit',exitId:pending.id,purpose:pending.purpose,dataUrl});return null;
+      }
+      case 'presentation.finish': if(this.exitBarrier)await this.exitBarrier;if(command.exitId===this.collapseExit){await this.emit({type:'surface',mode:'anchor'});return {purpose:'collapse',mode:'anchor'};}if(command.exitId===this.exitCapture?.id)this.exitCapture=undefined;return null;
+      case 'presentation.reveal':if(command.exitId!==this.collapseExit)throw Error('No matching fixture presentation.');this.collapseExit=undefined;this.exitCapture=undefined;return null;
       case 'presentation.show':if(command.entranceId!==this.entranceId)throw Error('No matching fixture entrance.');this.entranceId=undefined;return null;
       case 'tasks.list': if(this.taskListBarrier)await this.taskListBarrier;return (await this.core.listTasks()).map(task=>this.exportOutcomes(task));
       case 'tasks.get': return this.exportOutcomes(await this.core.getTask(command.taskId));
@@ -134,8 +159,13 @@ export class BrowserFixture {
       case 'tasks.checkpoint': return this.mutation(command.taskId, () => this.core.checkpoint(command.taskId, command.note));
       case 'draft.save':if(this.draftSaveBarrier)await this.draftSaveBarrier;if(this.draftSaveError)throw Error(this.draftSaveError);return this.core.saveComposerDraft(command.taskId,command.expectedRevision,command.draft);
       case 'draft.flushed':return null;
-      case 'tasks.delete': await this.core.deleteTask(command.taskId); await this.changed(); return null;
-      case 'source.text': return this.mutation(command.taskId, () => this.core.putSource(command.taskId, command.source));
+      case 'learning-drafts.read':return this.learningDrafts.read();
+      case 'learning-drafts.save':return this.learningDrafts.save(command.owner,command.slot,command.expectedEpoch,command.expectedRevision,command.value);
+      case 'learning-drafts.recover':return this.learningDrafts.recover(command.recoveryToken);
+      case 'learning-drafts.cleanup':return this.learningDrafts.cleanup();
+      case 'tasks.delete': await this.core.deleteTask(command.taskId);let draftCleanup:'removed'|'unconfirmed'='removed';try{await this.learningDrafts.purgeTask(command.taskId);}catch{draftCleanup='unconfirmed';}await this.changed();return draftCleanup==='removed'?null:{kind:'deleted',draftCleanup};
+      case 'source.text.inspect':{const {type,...input}=command;return this.core.inspectTextSourceSave(input);}
+      case 'source.text': {if(command.edit){const result=await this.core.saveTextSource({taskId:command.taskId,source:command.source,expectedSource:command.expectedSource,...command.edit});await this.emit({type:'changed',taskId:command.taskId});return {...result,task:await this.core.getTask(command.taskId)};}return this.mutation(command.taskId, () => this.core.putSource(command.taskId, command.source,undefined,command.expectedSource));}
       case 'source.invalidate': return this.mutation(command.taskId, () => this.core.invalidateSource(command.taskId, command.sourceId, 'Changed in browser fixture'));
       case 'source.preview': return null;
       case 'browser.detach': return this.mutation(command.taskId,()=>this.core.clearBrowserContext(command.taskId));
@@ -146,7 +176,9 @@ export class BrowserFixture {
         await this.changed(command.taskId);if(request.status!=='completed')throw Error(request.error);return this.core.getTask(command.taskId);
       }
       case 'context.start':{const activation={activationId:crypto.randomUUID(),tucked:this.surface==='anchor',...(command.newTask?{newTask:true}:{}),...(command.source?{analyze:true,source:command.source,ownerTaskId:command.source.taskId}:command.ownerTaskId?{ownerTaskId:command.ownerTaskId}:{}),...(command.requestId?{requestId:command.requestId}:{}),target:{id:'window:99',title:'Visitor guide',owner:{name:'Document viewer'},bounds:{x:20,y:20,width:600,height:500}},choices:[]};this.activation=activation;await this.emit({type:'context.activate',activation});return null;}
-      case 'context.view':return null;
+      case 'task-view.get':return this.viewPreferences.read();
+      case 'context.pending':return this.activation?{kind:'ready',activation:this.activation}:{kind:'none'};
+      case 'context.view':return this.viewPreferences.select(command.taskId??null);
       case 'context.cancel':if(this.activation?.activationId===command.activationId)this.activation=undefined;return null;
       case 'context.capture':{
         const activation=this.activation;if(!activation||activation.activationId!==command.activationId)throw Error('Screen selection expired.');this.activation=undefined;
@@ -171,16 +203,16 @@ export class BrowserFixture {
       case 'export.approve':return this.exportHandlers['export.approve'](command);
       case 'export.inspect':return this.exportHandlers['export.inspect'](command);
       case 'connection.status': {
-        const connection: ConnectionStatus = { provider: 'Meta', configured: true, endpoint: 'fixture://local', model: 'browser-transport-fixture', state: 'ready', detail: 'Browser fixture only; no provider connection.', specialized: { sam: 'Unavailable in browser fixture', computer: 'Unavailable in browser fixture' } };
+        const connection: ConnectionStatus = { provider: 'Meta', configured: this.configured, endpoint: 'fixture://local', model: 'browser-transport-fixture', state: this.configured?'ready':'unconfigured', detail: 'Browser fixture only; no provider connection.', specialized: { sam: 'Unavailable in browser fixture', computer: 'Unavailable in browser fixture' } };
         const host: HostStatus = { platform: 'browser-fixture', screenPermission: 'not exercised', accessibilityPermission: 'not exercised', shortcut: 'Both Option keys', captureMode: 'explicit-frozen', memoryEnabled: false, dataDir: this.directory };
         return { connection, host };
       }
       case 'surface.collapse': {
         if(this.entranceId){const exitId=this.entranceId;this.entranceId=undefined;await this.emit({type:'presentation.cancel',exitId});await this.emit({type:'surface',mode:'anchor'});return null;}
-        if(this.collapseExit)return null;this.collapseExit=crypto.randomUUID();const dataUrl=await this.page.evaluate(()=>{const c=document.createElement('canvas');c.width=360;c.height=440;const context=c.getContext('2d')!;context.fillStyle='#202428';context.fillRect(0,0,360,440);context.fillStyle='#eee';context.font='24px system-ui';context.fillText('Synthetic collapse snapshot',20,70);return c.toDataURL('image/png');});await this.emit({type:'presentation.exit',exitId:this.collapseExit,dataUrl,purpose:'collapse'});return null;
+        if(this.collapseExit)return null;this.collapseExit=crypto.randomUUID();await this.prepareExit(this.collapseExit,undefined,'collapse');return null;
       }
       case 'surface.expand': case 'surface.workspace': case 'surface.standalone': case 'surface.companion': {
-        if(this.collapseExit){const exitId=this.collapseExit;this.collapseExit=undefined;await this.emit({type:'presentation.cancel',exitId});}
+        if(this.collapseExit){const exitId=this.collapseExit;this.collapseExit=undefined;this.exitCapture=undefined;await this.emit({type:'presentation.cancel',exitId});}
         const mode=command.type==='surface.expand'?this.lastSurface:command.type==='surface.companion'?'companion':'workspace';if(this.surface==='anchor'){this.entranceId=crypto.randomUUID();await this.emit({type:'presentation.enter',entranceId:this.entranceId,mode});}
         await this.emit({type:'surface',mode});return null;
       }

@@ -1,0 +1,25 @@
+{
+  "classification": "Pinned pre-capacity default-basis SQL raw fixture, synthetic owned data; no authority",
+  "source": {
+    "componentSha256": "be690a8b674ae4f6bd1cf4949c9b061b412c108034a3da4beed52d0b9c9a7329",
+    "basisSha256": "b60c7398b33c79813b88933e8eabac31f99352347a37e76831a5ddd8ff555378",
+    "sourceManifest": "fe440582b06894144be0c9e43ee27233126dd80991281b849fa38cb53e100836"
+  },
+  "record": {
+    "owner": {
+      "taskId": "owned-task",
+      "artifactId": "owned-module",
+      "artifactRevision": 1,
+      "artifactDigest": "digest",
+      "moduleId": "join",
+      "moduleVersion": 1
+    },
+    "slot": "join:row:left:owned-row",
+    "revision": 3,
+    "value": {
+      "initial": "{\"cells\":[{\"isNull\":false,\"text\":\"1\"},{\"isNull\":false,\"text\":\"0\"},{\"isNull\":false,\"text\":\"0\"},{\"isNull\":false,\"text\":\"0\"}]}",
+      "value": "{\"cells\":[{\"isNull\":false,\"text\":\"000\"},{\"isNull\":false,\"text\":\"0\"},{\"isNull\":false,\"text\":\"0\"},{\"isNull\":false,\"text\":\"0\"}]}",
+      "basis": "{\"basis\":\"\",\"initial\":{\"cells\":[{\"isNull\":false,\"text\":\"1\"},{\"isNull\":false,\"text\":\"0\"},{\"isNull\":false,\"text\":\"0\"},{\"isNull\":false,\"text\":\"0\"}]},\"variableArrays\":[]}"
+    }
+  }
+}

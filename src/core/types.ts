@@ -1,3 +1,4 @@
+import type {DocumentStamp,DocumentChange} from '../shared/document-source';
 import type { TaskSession,ComposerDraft } from './task-session';
 /** Local task data. Source and provider text is inert content, never instructions to tools. */
 export interface SourceInput {
@@ -8,6 +9,8 @@ export interface SourceInput {
   role: 'fact' | 'style' | 'inspiration';
   windowId?: string;
   documentToken?: string;
+  windowProcessId?: number;
+  documentStamp?: DocumentStamp;
   title?: string;
   boundsToken?: string;
 }
@@ -18,6 +21,7 @@ export interface SourceVersion extends SourceInput {
 export interface Source {
   id: string; currentVersion: number; versions: SourceVersion[];
   freshness: 'fresh' | 'refresh-required'; staleReason?: string;
+  documentChange?: DocumentChange;
 }
 export interface ArtifactRevision {
   revision: number; title: string; content: string; mimeType: string;
@@ -25,10 +29,15 @@ export interface ArtifactRevision {
   sourceRefs: SourceRef[]; digest: string; createdAt: string;
 }
 export interface Artifact { id: string; revisions: ArtifactRevision[] }
+export interface ArtifactRef { artifactId: string; revision: number; digest: string }
+export interface ModuleStateRef { artifactId: string; artifactRevision: number; moduleId: string; stateRevision: number }
+/** Host-owned read dependencies, checked inside the atomic session commit. */
+export interface SessionCommitGuard { sourceRefs: SourceRef[]; artifactRefs: ArtifactRef[]; requireActive?:boolean }
 export type RequestStatus = 'running' | 'completed' | 'cancelled' | 'interrupted' | 'failed';
 export interface RequestRecord {
   id: string; kind: string; prompt: string; digest: string; status: RequestStatus;
   sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
+  answer?: { artifactId: string; revision: number; digest: string };
   artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
 }
 export interface ProcedurePrecondition { key: string; equals: string }
@@ -62,6 +71,8 @@ export interface ExportAction {
 }
 export interface Task {
   id: string; title: string; goal: string; status: 'active' | 'paused';
+  assignedBotId?: string;
+  provenance?: 'local-example';
   createdAt: string; updatedAt: string;
   sources: Source[]; artifacts: Artifact[]; requests: RequestRecord[];
   procedures: Procedure[]; checkpoints: Checkpoint[]; actions: ExportAction[];
@@ -71,6 +82,8 @@ export interface Task {
 export interface ArtifactInput {
   artifactId?: string; expectedRevision?: number; title: string; content: string;
   mimeType?: string; encoding?: 'utf8' | 'base64'; sourceRefs?: SourceRef[];
+  /** Optional host-owned snapshot dependencies, checked atomically before saving. */
+  expectedArtifacts?:ArtifactRef[];expectedModuleStates?:ModuleStateRef[];
 }
 export interface ProcedureInput {
   id?: string; expectedRevision?: number; title: string; project?: string;
@@ -78,7 +91,7 @@ export interface ProcedureInput {
   originArtifact?: { artifactId: string; revision: number };
 }
 /** The detached task's sources contain only the request's selected current versions. */
-export interface RequestContext { task: Task; sourceRefs: SourceRef[]; signal: AbortSignal }
+export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; signal: AbortSignal }
 export interface RequestInput {
   taskId: string; requestId: string; kind: string; prompt: string;
   submittedDraft?:ComposerDraft;
@@ -87,12 +100,17 @@ export interface RequestInput {
   /** Omit to use all sources; [] explicitly requests prompt-only. At most 64 unique existing IDs. */
   sourceIds?: string[];
   expectedSourceRefs?: SourceRef[];
+  /** Host-only basis artifacts; source and artifact guards are rechecked at commit. */
+  expectedArtifacts?: ArtifactRef[];
+  /** Host-only exact module observations for follow-up explanations. */
+  expectedModuleStates?: ModuleStateRef[];
   artifactId?: string; expectedRevision?: number;
 }
 export interface RequestOutput { title: string; content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }
 export interface ResumeResult {
   task: Task; staleSourceIds: string[]; affectedArtifacts: { artifactId: string; revisions: number[] }[];
   interruptedRequestIds: string[];
+  sourceContext: ReturnType<typeof import('./source-resume').sourceResumeContext>;
 }
 export interface CompanionOptions { dataDir: string; now?: () => Date }
 export type Expression =

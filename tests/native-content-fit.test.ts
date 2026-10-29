@@ -133,6 +133,8 @@ describe('Bounded native compact content fitting',()=>{
     await f.command({type:'surface.collapse'});await Promise.resolve();const drawing=f.bounds()
     release(await inspect('window:1'));expect(await pending).toBeNull();expect(f.bounds()).toEqual(drawing)
     expect(drawing.height).toBe(295)
+    const prepared=f.calls.events.find((e):e is Extract<CompanionEvent,{type:'presentation.prepare'}>=>e.type==='presentation.prepare')!
+    expect(prepared.purpose).toBe('collapse');await f.command({type:'presentation.capture',exitId:prepared.exitId});await Promise.resolve()
     const exit=f.calls.events.find((e):e is Extract<CompanionEvent,{type:'presentation.exit'}>=>e.type==='presentation.exit')!
     await f.command({type:'presentation.finish',exitId:exit.exitId});const anchor=f.bounds()
     expect(anchor.width).toBeLessThan(100);expect(await f.command(fitCommand(token.id,900))).toBeNull();expect(f.bounds()).toEqual(anchor)

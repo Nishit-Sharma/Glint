@@ -5,8 +5,8 @@ import type { SourceVersion } from '../src/core/types';
 
 // Explicit opt-in only. These requests contain synthetic values, never user windows or files.
 describe.skipIf(process.env.RUN_CODEX_LIVE !== '1')('Codex existing connection â€” live synthetic proof', () => {
-  it('generates, revises and stops a streamed synthetic answer using Luna Fast', async () => {
-    const adapter = new CodexProvider({ allowUserInstructionFile: true });
+  it('generates, revises and stops a streamed synthetic answer using Luna Standard', async () => {
+    const adapter = new CodexProvider({ allowUserInstructionFile: true, serviceTier: 'default' });
     const evidence: Record<string, unknown> = { checkedAt: new Date().toISOString(), evidenceClass: 'live-synthetic-existing-codex-connection', authenticationFilesRead: false, credentialsCopied: false, permissionsChanged: false, probes: [] };
     const probes = evidence.probes as Record<string, unknown>[];
     try {
@@ -20,7 +20,7 @@ describe.skipIf(process.env.RUN_CODEX_LIVE !== '1')('Codex existing connection â
       expect(answer).toContain('42');
       expect(chunks.length).toBeGreaterThan(0);
       expect(adapter.lastRun?.resolvedModel).toBe('gpt-6-luna');
-      expect(adapter.lastRun?.acceptedTier).toBe('priority');
+      expect(adapter.lastRun?.acceptedTier).toBe('default');
       expect(adapter.lastRun?.toolsObserved).toBe(0);
       const revision = await adapter.run({ prompt: 'Revise the summary to use the updated blue count. State the new total and preserve the red count. One sentence only.', sources: [{ ...source, version: 2, digest: 'synthetic-probe-v2', content: 'Red cubes: 17. Blue cubes: 30. All values are synthetic.' }, { ...source, id: 'synthetic-draft', kind: 'text', label: 'Prior draft', content: answer }], signal: new AbortController().signal });
       probes.push({ kind: 'revision', response: revision, execution: adapter.lastRun });

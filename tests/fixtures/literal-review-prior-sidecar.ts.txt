@@ -1,0 +1,92 @@
+import {Schema} from 'effect';
+
+/** Raw form text only. These records confer no execution or source authority. */
+export const LEARNING_DRAFT_LIMITS=Object.freeze({entries:256,fileBytes:8*1024*1024,jsonBytes:128*1024,stringLength:32*1024,basisLength:16*1024,depth:16,nodes:8192,arrayItems:1024,objectKeys:256});
+const safeText=(maximum:number)=>Schema.String.pipe(Schema.minLength(1),Schema.maxLength(maximum),Schema.filter(value=>!value.includes('\0')));
+const positive=Schema.Int.pipe(Schema.between(1,Number.MAX_SAFE_INTEGER));
+const ModuleOwner=Schema.Struct({taskId:safeText(200),artifactId:safeText(200),artifactRevision:positive,artifactDigest:safeText(200),moduleId:safeText(80),moduleVersion:positive});
+const ReviewOwner=Schema.Struct({kind:Schema.Literal('window-workflow-review'),taskId:safeText(200),artifactId:safeText(200),artifactRevision:positive,artifactDigest:safeText(200)});
+const Owner=Schema.Union(ModuleOwner,ReviewOwner);
+const Value=Schema.Struct({initial:Schema.String,value:Schema.String,basis:safeText(LEARNING_DRAFT_LIMITS.basisLength)});
+const RecordSchema=Schema.Struct({owner:Owner,slot:safeText(512),revision:positive,value:Schema.NullOr(Value)});
+const Epoch=Schema.String.pipe(Schema.filter(value=>value==='initial'||/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)));
+const RecoveryToken=Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/));
+const FileSchema=Schema.Struct({schemaVersion:Schema.Literal(2),epoch:Epoch,records:Schema.Array(RecordSchema).pipe(Schema.maxItems(LEARNING_DRAFT_LIMITS.entries))});
+export type LearningDraftOwner=typeof Owner.Type;
+export type LearningDraftValue=typeof Value.Type;
+export type LearningDraftRecord=typeof RecordSchema.Type;
+export type LearningDraftFile=typeof FileSchema.Type;
+export type LearningDraftReadResult={kind:'available';epoch:string;records:LearningDraftRecord[];cleanup?:'needed'}|{kind:'unavailable';message:string;recoveryToken?:string};
+export type LearningDraftSaveResult={kind:'saved';epoch:string;record:LearningDraftRecord}|{kind:'conflict';epoch:string;current:LearningDraftRecord|null}|{kind:'stale-epoch';epoch:string};
+export type LearningDraftRecoverResult={kind:'recovered';epoch:string;backupBasename:string};
+export type LearningDraftCleanupResult={kind:'cleaned';epoch:string;removed:number};
+export type LearningDraftJson=null|boolean|number|string|LearningDraftJson[]|{[key:string]:LearningDraftJson};
+const unsafeKeys=new Set(['__proto__','prototype','constructor']);
+
+/** Validate before serialization: JSON.stringify would silently drop executable values. */
+function canonicalJson(input:unknown,stringLimit:number=LEARNING_DRAFT_LIMITS.stringLength):LearningDraftJson{
+ const ancestors=new WeakSet<object>();let nodes=0;
+ function visit(value:unknown,depth:number):LearningDraftJson{
+  if(++nodes>LEARNING_DRAFT_LIMITS.nodes||depth>LEARNING_DRAFT_LIMITS.depth)throw Error('Draft JSON is too complex.');
+  if(value===null||typeof value==='boolean')return value;
+  if(typeof value==='number'){if(!Number.isFinite(value))throw Error('Draft JSON numbers must be finite.');return value;}
+  if(typeof value==='string'){if(value.length>stringLimit)throw Error('Draft text is too long.');return value;}
+  if(typeof value!=='object'||ancestors.has(value))throw Error('Drafts require plain JSON data.');
+  ancestors.add(value);
+  try{
+   if(Array.isArray(value)){
+    if(Object.getPrototypeOf(value)!==Array.prototype||value.length>LEARNING_DRAFT_LIMITS.arrayItems||Object.keys(value).length!==value.length||Reflect.ownKeys(value).length!==value.length+1)throw Error('Draft JSON array is invalid.');
+    return Array.from({length:value.length},(_,index)=>{const descriptor=Object.getOwnPropertyDescriptor(value,String(index));if(!descriptor||!('value' in descriptor))throw Error('Draft JSON accessors are invalid.');return visit(descriptor.value,depth+1);});
+   }
+   const prototype:unknown=Object.getPrototypeOf(value);
+   if(prototype!==Object.prototype&&prototype!==null)throw Error('Draft JSON objects must be plain.');
+   const keys=Reflect.ownKeys(value);
+   if(keys.length>LEARNING_DRAFT_LIMITS.objectKeys)throw Error('Draft JSON has too many fields.');
+   const entries:[string,LearningDraftJson][]=[];
+   for(const key of keys){
+    if(typeof key!=='string'||unsafeKeys.has(key)||key.includes('\0')||key.length>200)throw Error('Draft JSON contains an unsafe field.');
+    const descriptor=Object.getOwnPropertyDescriptor(value,key);
+    if(!descriptor||!descriptor.enumerable||!('value' in descriptor))throw Error('Draft JSON accessors are invalid.');
+    entries.push([key,visit(descriptor.value,depth+1)]);
+   }
+   return Object.fromEntries(entries.sort(([a],[b])=>a<b?-1:a>b?1:0));
+  }finally{ancestors.delete(value);}
+ }
+ return visit(input,0);
+}
+const byteLength=(text:string)=>new TextEncoder().encode(text).byteLength;
+export function serializeLearningDraftJson(value:unknown):string{
+ const text=JSON.stringify(canonicalJson(value));
+ if(byteLength(text)>LEARNING_DRAFT_LIMITS.jsonBytes)throw Error('Draft JSON is too large.');
+ return text;
+}
+export function parseLearningDraftJson(text:string):LearningDraftJson{
+ if(typeof text!=='string'||byteLength(text)>LEARNING_DRAFT_LIMITS.jsonBytes)throw Error('Draft JSON is too large.');
+ const value=canonicalJson(JSON.parse(text));
+ if(JSON.stringify(value)!==text)throw Error('Draft JSON must use canonical serialization.');
+ return value;
+}
+const decode=<A,I>(schema:Schema.Schema<A,I>,value:unknown):A=>Schema.decodeUnknownSync(schema,{onExcessProperty:'error'})(value);
+export function parseLearningDraftEpoch(value:unknown):string{return decode(Epoch,value);}
+export function parseLearningDraftRecoveryToken(value:unknown):string{return decode(RecoveryToken,value);}
+export function parseLearningDraftOwner(value:unknown):LearningDraftOwner{canonicalJson(value);return decode(Owner,value);}
+export function parseLearningDraftTaskId(value:unknown):string{return decode(ModuleOwner.fields.taskId,value);}
+export function parseLearningDraftSlot(value:unknown):string{return decode(safeText(512),value);}
+export function parseLearningDraftValue(value:unknown):LearningDraftValue|null{
+ if(value===null)return null;
+ canonicalJson(value,LEARNING_DRAFT_LIMITS.jsonBytes);const parsed=decode(Value,value);
+ parseLearningDraftJson(parsed.initial);parseLearningDraftJson(parsed.value);return parsed;
+}
+export function parseLearningDraftRecord(value:unknown):LearningDraftRecord{
+ canonicalJson(value,LEARNING_DRAFT_LIMITS.jsonBytes);const parsed=decode(RecordSchema,value);parseLearningDraftValue(parsed.value);return parsed;
+}
+export function learningDraftKey(owner:LearningDraftOwner,slot:string):string{
+ return 'kind' in owner?JSON.stringify([owner.kind,owner.taskId,owner.artifactId,owner.artifactRevision,owner.artifactDigest,slot]):JSON.stringify([owner.taskId,owner.artifactId,owner.artifactRevision,owner.artifactDigest,owner.moduleId,owner.moduleVersion,slot]);
+}
+export function parseLearningDraftFile(value:unknown):LearningDraftFile{
+ const plain=canonicalJson(value,LEARNING_DRAFT_LIMITS.jsonBytes);
+ if(byteLength(JSON.stringify(plain))>LEARNING_DRAFT_LIMITS.fileBytes)throw Error('Draft file is too large.');
+ const parsed=decode(FileSchema,plain),keys=new Set<string>();
+ for(const record of parsed.records){parseLearningDraftRecord(record);const key=learningDraftKey(record.owner,record.slot);if(keys.has(key))throw Error('Duplicate draft identity.');keys.add(key);}
+ return parsed;
+}

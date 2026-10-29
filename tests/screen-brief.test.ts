@@ -217,3 +217,22 @@ describe('short opening and optional full explanation',()=>{
   const insight='A longer observation. '.repeat(30)+'The group size remains unknown.';expect(parseScreenBriefModel(insight+SCREEN_BRIEF_DELIMITER+'{"actions":[]}',[visitor]).insight).toBe(insight);
  });
 });
+
+describe('SQL join suggestion hint',()=>{
+ it('binds and preserves only an experiment SQL capability over the complete one-or-two-source basis',()=>{
+  const suggested={...action(),requestKind:'experiment',capability:'sql-join',sourceRefs:['S1','S2']};
+  const brief=parseScreenBriefModel(response([suggested]),[visitor,map]);
+  expect(brief.actions[0]).toMatchObject({capability:'sql-join',sourceRefs:[visitor,map]});
+  expect(readScreenBrief(JSON.stringify(brief),[visitor,map])).toEqual(brief);
+  for(const invalid of [{...suggested,requestKind:'create'},{...suggested,capability:'hdl'},{...suggested,sourceRefs:['S1']}])expect(()=>parseScreenBriefModel(response([invalid]),[visitor,map])).toThrow('Invalid screen brief');
+ });
+});
+
+it('rejects SQL hints over excessive scope or duplicate capability keys without adding model host fields',()=>{
+ const third={sourceId:'third',version:1,digest:'c'.repeat(64)},sql={...action(),requestKind:'experiment',capability:'sql-join',sourceRefs:['S1','S2','S3']};
+ expect(()=>parseScreenBriefModel(response([sql]),[visitor,map,third])).toThrow('complete one-or-two-source basis');
+ const raw=response([{...sql,sourceRefs:['S1']}]).replace('"capability":"sql-join"','"capability":"sql-join","capability":"sql-join"');
+ expect(()=>parseScreenBriefModel(raw,[visitor])).toThrow('duplicate JSON key');
+ expect(screenBriefPrompt([visitor])).toContain('two useful tables with visible row data');
+ expect(screenBriefPrompt([visitor])).toContain('there is no HDL simulator');
+});

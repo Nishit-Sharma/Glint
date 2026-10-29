@@ -1,2 +1,2 @@
 import { defineConfig } from 'vitest/config'
-export default defineConfig({test:{include:['tests/**/*.test.ts'], testTimeout:15000,maxWorkers:2}})
+export default defineConfig({test:{include:['tests/**/*.test.ts','src/learning/**/*.test.ts'], testTimeout:15000,maxWorkers:2}})

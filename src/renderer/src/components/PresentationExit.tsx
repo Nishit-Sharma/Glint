@@ -8,17 +8,18 @@ export function PresentationExit(){
  useEffect(()=>{let current:{id:string;controller:AbortController;done:Promise<void>}|undefined;
   const unsubscribe=window.companion?.subscribe(event=>{
    if(event.type==='presentation.cancel'){if(event.exitId===current?.id)current.controller.abort();return;}
-   if(event.type!=='presentation.exit'||current&&!current.controller.signal.aborted)return;
+   if(event.type!=='presentation.prepare'||current&&!current.controller.signal.aborted)return;
    const previous=current,item={id:event.exitId,controller:new AbortController(),done:Promise.resolve()};current=item;
    item.done=(async()=>{await previous?.done;if(item.controller.signal.aborted)return;await transition(event,item.controller);if(current===item)current=undefined;})();
   });
-  async function transition(event:Extract<CompanionEvent,{type:'presentation.exit'}>,controller:AbortController){
-   const terminal=event.purpose!=='collapse';session.beginExit(terminal);const root=document.getElementById('root');if(root)root.dataset.presentationOwner=event.exitId;const cleanup=await exitPresentation(event.dataUrl,controller.signal);let restored=false;
+  async function transition(event:Extract<CompanionEvent,{type:'presentation.prepare'}>,controller:AbortController){
+   const terminal=event.purpose==='quit';session.beginExit(terminal);const root=document.getElementById('root');if(root)root.dataset.presentationOwner=event.exitId;const cleanup=await exitPresentation(event.exitId,controller.signal);let restored=false;
+   const ownsRoot=()=>!root||root.dataset.presentationOwner===event.exitId,authorized=()=>!controller.signal.aborted&&ownsRoot();
    try{
-    if(controller.signal.aborted)return;
+    if(!authorized())return;
     await window.companion.invoke({type:'presentation.finish',exitId:event.exitId});
-    if(!terminal&&!controller.signal.aborted){await anchorCommitted(controller.signal);if(controller.signal.aborted)return;cleanup(true);restored=true;session.endPresentationExit();await window.companion.invoke({type:'presentation.reveal',exitId:event.exitId});}
-   }catch{}finally{if(!restored)cleanup(!terminal);if(!terminal)session.endPresentationExit();}
+    if(!terminal&&authorized()){await anchorCommitted(controller.signal);if(!authorized())return;cleanup(true);restored=true;session.endPresentationExit();await window.companion.invoke({type:'presentation.reveal',exitId:event.exitId});}
+   }catch{}finally{if(!restored)cleanup(!terminal);if(!terminal&&ownsRoot())session.endPresentationExit();}
   }
   return()=>{current?.controller.abort();unsubscribe?.();};
  },[session]);return null;

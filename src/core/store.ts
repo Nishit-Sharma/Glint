@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Effect, Schema } from 'effect';
+import {DocumentStampSchema,DocumentChangeSchema} from '../shared/document-source';
 import type { Task } from './types';
 import { TaskSessionSchema } from './task-session';
 
@@ -10,14 +11,14 @@ const optionalText = Schema.optional(Schema.String);
 const sourceFields = {
   id: Schema.String, kind: Schema.Literal('text', 'image', 'window'), label: Schema.String,
   content: Schema.String, role: Schema.Literal('fact', 'style', 'inspiration'),
-  windowId: optionalText, documentToken: optionalText, title: optionalText, boundsToken: optionalText,
+  windowId: optionalText, documentToken: optionalText, windowProcessId: Schema.optional(Schema.Int.pipe(Schema.positive())), documentStamp:Schema.optional(DocumentStampSchema), title: optionalText, boundsToken: optionalText,
 };
 const Ref = Schema.Struct({ sourceId: Schema.String, version: Schema.Int, digest: Schema.String });
 const SourceVersion = Schema.Struct({ ...sourceFields, version: Schema.Int, digest: Schema.String, capturedAt: Schema.String });
-const Source = Schema.Struct({ id: Schema.String, currentVersion: Schema.Int, versions: list(SourceVersion), freshness: Schema.Literal('fresh', 'refresh-required'), staleReason: optionalText });
+const Source = Schema.Struct({ id: Schema.String, currentVersion: Schema.Int, versions: list(SourceVersion), freshness: Schema.Literal('fresh', 'refresh-required'), staleReason: optionalText, documentChange:Schema.optional(DocumentChangeSchema) });
 const ArtifactRevision = Schema.Struct({ revision: Schema.Int, title: Schema.String, content: Schema.String, mimeType: Schema.String, encoding: Schema.optional(Schema.Literal('utf8', 'base64')), sourceRefs: list(Ref), digest: Schema.String, createdAt: Schema.String });
 const Artifact = Schema.Struct({ id: Schema.String, revisions: list(ArtifactRevision) });
-const Request = Schema.Struct({ id: Schema.String, kind: Schema.String, prompt: Schema.String, digest: Schema.String, status: Schema.Literal('running', 'completed', 'cancelled', 'interrupted', 'failed'), sourceRefs: list(Ref), startedAt: Schema.String, finishedAt: optionalText, artifactId: optionalText, targetArtifactId: optionalText, expectedRevision: Schema.optional(Schema.Int), error: optionalText });
+const Request = Schema.Struct({ id: Schema.String, kind: Schema.String, prompt: Schema.String, digest: Schema.String, status: Schema.Literal('running', 'completed', 'cancelled', 'interrupted', 'failed'), sourceRefs: list(Ref), startedAt: Schema.String, finishedAt: optionalText, artifactId: optionalText, answer: Schema.optional(Schema.Struct({ artifactId: Schema.String, revision: Schema.Int, digest: Schema.String })), targetArtifactId: optionalText, expectedRevision: Schema.optional(Schema.Int), error: optionalText });
 const Step = Schema.Struct({ intent: Schema.String, target: Schema.String, preconditions: list(Schema.Struct({ key: Schema.String, equals: Schema.String })), expectedResult: Schema.String });
 const Observation = Schema.Struct({ artifactId: Schema.String, revision: Schema.Int, digest: Schema.String, summary: Schema.String, limitations: list(Schema.String) });
 const Procedure = Schema.Struct({ id: Schema.String, revisions: list(Schema.Struct({ revision: Schema.Int, title: Schema.String, scope: Schema.Struct({ taskId: Schema.String, project: optionalText }), steps: list(Step), sourceRefs: list(Ref), createdAt: Schema.String, observation: Schema.optional(Observation) })) });
@@ -27,7 +28,7 @@ const Evidence = Schema.Struct({ path: Schema.String, byteLength: Schema.Int, di
 const Action = Schema.Struct({ proposal: Proposal, status: Schema.Literal('proposed', 'approved', 'executing', 'verified', 'failed', 'uncertain', 'retired'), approvalId: optionalText, approvalRetiredAt: optionalText, requestId: optionalText, evidence: Schema.optional(Evidence), error: optionalText });
 const taskFields = { id: Schema.String, title: Schema.String, goal: Schema.String, status: Schema.Literal('active', 'paused'), createdAt: Schema.String, updatedAt: Schema.String, sources: list(Source), artifacts: list(Artifact), requests: list(Request), procedures: list(Procedure), checkpoints: list(Checkpoint), actions: list(Action), memory: Schema.Struct({ enabled: Schema.Literal(false) }) };
 const LegacyStateSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), tasks: list(Schema.Struct(taskFields)), usedRequestIds: list(Schema.String) });
-const TaskSchema = Schema.Struct({ ...taskFields, session: Schema.optional(TaskSessionSchema) });
+const TaskSchema = Schema.Struct({ ...taskFields, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema) });
 const StateSchema = Schema.Struct({ schemaVersion: Schema.Literal(2), tasks: list(TaskSchema), usedRequestIds: list(Schema.String) });
 export interface State { schemaVersion: 2; tasks: Task[]; usedRequestIds: string[] }
 export class StateValidationError extends Error {

@@ -8,6 +8,7 @@ import {ReadableText} from './ReadableText';
 import {StreamingText} from './StreamingText';
 import {ReadyArtifact} from './ReadyArtifact';
 import {MODULE_MIME} from '../../../shared/module-contract';
+import {WINDOW_WORKFLOW_MIME} from '../../../shared/window-workflow-artifact';
 import {BrowserActivity} from './BrowserTask';
 import {browserRequestOutcome,requestArtifact} from '../browser-outcome';
 
@@ -20,7 +21,7 @@ export function Conversation({task,pendingId,pendingKind,pendingPrompt,stream,ac
   if(revision.mimeType===MODULE_MIME)return renderBrief(exact);
   if(revision.mimeType==='application/json'&&readModelDraft(revision))return <ReadyArtifact identity={identity}><button className="conversation-artifact" data-view-focus={'artifact:'+item.id} onClick={()=>onArtifact(item)}><span><strong>{revision.title}</strong><small>{readModelDraft(revision)?.kind==='experiment'?'Explore inputs and calculate':'Review the procedure'}</small></span><ArrowUpRight size={16}/></button></ReadyArtifact>;
   if(revision.mimeType==='image/png'&&revision.encoding==='base64')return <ReadyArtifact identity={identity} variant="image"><button className="conversation-image" data-view-focus={'artifact:'+item.id} aria-label={'Open '+revision.title} onClick={()=>onArtifact(item)}><img src={'data:image/png;base64,'+revision.content} alt={revision.title}/></button></ReadyArtifact>;
-  return <><ReadableText text={revision.mimeType==='application/json'?'This saved file is available in your work.':revision.content}/><button className="conversation-open" data-view-focus={'artifact:'+item.id} onClick={()=>onArtifact(item)}>Open {revision.title}<ArrowUpRight size={14}/></button></>;
+  return <><ReadableText text={revision.mimeType===WINDOW_WORKFLOW_MIME?'Image transcription and state transitions are ready for correction.':revision.mimeType==='application/json'?'This saved file is available in your work.':revision.content}/><button className="conversation-open" data-view-focus={'artifact:'+item.id} onClick={()=>onArtifact(item)}>Open {revision.title}<ArrowUpRight size={14}/></button></>;
  }
  return <div className="conversation" aria-label="Task conversation">{task.requests.map(request=>{
   const saved=requestArtifact(task,request),item=saved?.artifact,revision=saved?.revision,outcome=browserRequestOutcome(task,request);

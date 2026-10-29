@@ -1,13 +1,13 @@
 {
   "name": "window-companion",
-  "version": "0.1.0",
+  "version": "0.4.10-dev.20261026",
   "private": true,
   "description": "Local window-aware desktop companion",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "tsc --noEmit && electron-vite build",
+    "build": "node scripts/build-document-source.mjs && tsc --noEmit && electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -72,7 +72,9 @@
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
     "asarUnpack": [
-      "**/*.node"
+      "**/*.node",
+      "out/native/document-source",
+      "out/native/mac-window-at-point"
     ]
   },
   "overrides": {

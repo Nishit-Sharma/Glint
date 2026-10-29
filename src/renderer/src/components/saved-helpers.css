@@ -1,0 +1,8 @@
+.saved-helpers { min-width: 0; }
+.saved-helpers > p { margin-block: 0 12px; line-height: 1.6; }
+.saved-helper { margin-block-start: 24px; padding-block-start: 20px; border-block-start: 1px solid var(--line); overflow-wrap: anywhere; }
+.saved-helper h3 { margin: 0 0 8px; font-size: 16px; font-weight: 550; }
+.saved-helper p { margin: 8px 0; line-height: 1.6; }
+.saved-helper details { margin-block: 14px; }
+.saved-helper pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--soft); border-radius: 6px; font: 13px/1.6 ui-monospace, monospace; }
+.saved-helper > button { margin-block-start: 8px; }

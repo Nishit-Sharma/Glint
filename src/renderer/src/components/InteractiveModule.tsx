@@ -1,10 +1,26 @@
+import type {LearningDraftOwner} from '../../../shared/learning-drafts';
+import {LearningDraftScope} from '../learning-draft-context';
 import { useId, type ReactNode } from 'react';
-import { comparisonModule, planModule, moduleRegistry, type ModuleAction, type ModuleDraft, type ModuleState } from '../../../core/interactive-modules';
+import { comparisonModule, planModule, joinModule, helperModule,groundedJoinModule,workflowModule, moduleRegistry, type ModuleAction, type ModuleDraft, type ModuleState } from '../../../core/interactive-modules';
+import type {Task} from '../../../core/types';
+import {groundedJoin,groundedJoinStatus} from '../../../learning/grounded-join';
+import {workflowLab} from '../../../learning/workflow-lab';
+import {WorkflowLab} from './WorkflowLab';
+import {GroundedJoin} from './GroundedJoin';
+import { joinLab } from '../../../learning/join-lab';
+import { JoinLab } from './JoinLab';
+import { HelperStudio } from './HelperStudio';
+import { SemanticHelperStudio } from './SemanticHelperStudio';
+import {PickingHelperStudio} from './PickingHelperStudio';
+import {pickingHelper} from '../../../learning/picking-helper';
+import { helperStudio } from '../../../learning/reusable-helper';
+import {semanticHelper} from '../../../learning/semantic-helper';
 import {ReadyArtifact} from './ReadyArtifact';
+import {DraftNavigationScope} from '../draft-navigation';
 import './interactive-module.css';
 
 type ModuleMotion = {identity:string;arrivalIdentity:string};
-type Interaction = { pending: boolean; onAction: (action: ModuleAction) => void; motion?:ModuleMotion };
+type Interaction = { pending: boolean; onAction: (action: ModuleAction) => void|Promise<boolean>; motion?:ModuleMotion;task?:Task };
 function Part({motion,id,children}:{motion?:ModuleMotion;id:string;children:ReactNode}){
  return motion?<ReadyArtifact identity={motion.identity+':'+id} arrivalIdentity={motion.arrivalIdentity}>{children}</ReadyArtifact>:children;
 }
@@ -23,9 +39,16 @@ type RenderDefinition = { render(data: unknown, state: unknown, interaction: Int
 export const moduleViews = {
   comparison: { definition: comparisonModule, render(data, state, interaction) { return <Comparison data={comparisonModule.parse(data)} state={comparisonModule.parseState(state)} {...interaction}/>; } },
   plan: { definition: planModule, render(data, state, interaction) { return <Plan data={planModule.parse(data)} state={planModule.parseState(state)} {...interaction}/>; } },
+  'join-lab': { definition: joinModule, render(data, state, interaction) { return <JoinLab data={joinModule.parse(data)} state={joinLab.parseState(data,state)} {...interaction}/>; } },
+  'helper-studio': { definition: helperModule, render(data,state,interaction) { const parsed=helperModule.parse(data);if(state&&typeof state==='object'&&'format' in state&&state.format==='semantic-table-v2')return <PickingHelperStudio data={parsed} state={pickingHelper.parseState(parsed.id,state)} {...interaction}/>;if(state&&typeof state==='object'&&'format' in state&&state.format==='semantic-record-v1')return <SemanticHelperStudio data={parsed} state={semanticHelper.parseState(parsed.id,state)} {...interaction}/>;const old=helperStudio.parseState(data,state);return <HelperStudio data={parsed} state={old} {...interaction} onBeginRecord={()=>interaction.onAction({kind:'begin-semantic-helper',expectedRevision:old.revision})} onBeginPicking={()=>interaction.onAction({kind:'begin-table-helper',expectedRevision:old.revision})}/>; } },
+  'grounded-join':{definition:groundedJoinModule,render(value,state,interaction){const data=groundedJoin.parse(value);return <GroundedJoin data={data} state={groundedJoin.parseState(data,state)} status={interaction.task?groundedJoinStatus(data,interaction.task):data.basis.kind==='local-demo'?{kind:'current'}:{kind:'unverified',reason:'Live source status is unavailable.'}} {...interaction}/>;}},
+  'workflow-lab':{definition:workflowModule,render(value,state,interaction){const data=workflowLab.parse(value);return <WorkflowLab data={data} state={workflowLab.parseState(data,state)} {...interaction}/>;}},
 } satisfies { [K in keyof typeof moduleRegistry]: RenderDefinition & { definition: typeof moduleRegistry[K] } };
 
-export function ModuleView({ data, state, pending = false, onAction,motion }: { data: ModuleDraft; state: ModuleState; pending?: boolean; onAction: (action: ModuleAction) => void;motion?:ModuleMotion }) {
+export function ModuleView({ data, state, pending = false, onAction,motion,task,draftOwner }: { data: ModuleDraft; state: ModuleState; pending?: boolean; onAction: (action: ModuleAction) => void|Promise<boolean>;motion?:ModuleMotion;task?:Task;draftOwner?:LearningDraftOwner }) {
   if (data.kind !== state.kind) return <p role="alert">This answer changed. Reload it to keep editing.</p>;
-  return <section className="interactive-answer" aria-label={data.title}>{moduleViews[data.kind].render(data, state, { pending, onAction,motion })}</section>;
+  let content:ReactNode;
+  try { content=moduleViews[data.kind].render(data, state, { pending, onAction,motion,task }); }
+  catch { return <section className="interactive-answer" aria-label={data.title}><p role="alert">This saved example needs review before editing. Your saved work is kept.</p></section>; }
+  return <section className="interactive-answer" aria-label={data.title}>{data.kind==='join-lab'||data.kind==='grounded-join'||data.kind==='workflow-lab'||data.kind==='helper-studio'?<DraftNavigationScope identity={motion?.identity}><LearningDraftScope owner={draftOwner}>{content}</LearningDraftScope></DraftNavigationScope>:content}</section>;
 }

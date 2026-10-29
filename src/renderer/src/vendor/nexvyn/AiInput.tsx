@@ -128,6 +128,7 @@ export interface AiInputProps {
   placeholder?: string
   maxRows?: number
   disabled?: boolean
+  submitDisabled?: boolean
   name?: string
   startSlot?: ReactNode
   endSlot?: ReactNode
@@ -153,6 +154,7 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
       placeholder = 'Type a message…',
       maxRows = 6,
       disabled = false,
+      submitDisabled = false,
       name,
       startSlot,
       endSlot,
@@ -196,7 +198,7 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
     }, [value, maxRows, active])
 
     const trimmed = value.trim()
-    const canSend = !disabled && !streaming && trimmed.length > 0
+    const canSend = !disabled && !submitDisabled && !streaming && trimmed.length > 0
 
     const handleSubmit = useCallback(() => {
       if (!canSend) return

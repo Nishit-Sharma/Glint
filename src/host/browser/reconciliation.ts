@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Schema } from 'effect';
 import type { Companion } from '../../core/companion';
 import { BrowserObservationSchema, type BrowserObservation } from '../../core/task-session';
-import { LocalBrowser } from './local-browser';
+import { LocalBrowser, type BrowserWindowOwner } from './local-browser';
 
 const Review = Schema.Struct({ outcome: Schema.Literal('completed', 'not-completed', 'uncertain'), note: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(2_000)) });
 type OutcomeReview = typeof Review.Type;
@@ -11,12 +11,12 @@ type Inspection = { id: string; taskId: string; runId: string; operationId: stri
 /** Fresh read-only inspection, followed by trusted human review. Never retries the old effect. */
 export class BrowserReconciliation {
   private inspections = new Map<string, Inspection>();
-  constructor(private readonly core: Companion) {}
+  constructor(private readonly core: Companion, private readonly onWindowOwner?: BrowserWindowOwner) {}
   async inspect(input: { taskId: string; runId: string; operationId: string; url: string; signal?: AbortSignal }) {
     const task = await this.core.getTask(input.taskId), run = task.session?.runs.find(run => run.id === input.runId), operation = run?.operations.find(operation => operation.id === input.operationId);
     if (!run || !operation || operation.status !== 'uncertain') throw Error('This action does not need an uncertain-outcome inspection.');
     if (new URL(input.url).origin !== run.origin) throw Error('Inspect an explicitly selected page on the original website.');
-    const browser = await LocalBrowser.open({ taskId: input.taskId, origin: run.origin, url: input.url, signal: input.signal });
+    const browser = await LocalBrowser.open({ taskId: input.taskId, origin: run.origin, url: input.url, signal: input.signal, onWindowOwner: this.onWindowOwner });
     try {
       const observation = Schema.decodeUnknownSync(BrowserObservationSchema, { onExcessProperty: 'error' })(await browser.observe());
       const inspection: Inspection = { id: randomUUID(), taskId: input.taskId, runId: input.runId, operationId: input.operationId, reason: operation.reason, observation };

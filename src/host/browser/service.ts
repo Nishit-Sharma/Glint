@@ -19,7 +19,7 @@ export class BrowserService {
     changed: (taskId: string) => void; progress: (taskId: string, requestId: string, text: string) => void;
     headless?: boolean;
     onWindowOwner?:BrowserWindowOwner;
-  }) { this.reconciliation = new BrowserReconciliation(core); }
+  }) { this.reconciliation = new BrowserReconciliation(core, options.onWindowOwner); }
   async run(input: { taskId: string; requestId: string; prompt: string; url: string;submittedDraft?:ComposerDraft }) {
     if(this.lifetime.signal.aborted)throw Error('This browser session has closed. Start a new request.');
     const url = new URL(input.url);
