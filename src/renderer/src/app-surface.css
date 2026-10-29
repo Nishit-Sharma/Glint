@@ -25,7 +25,7 @@
 @supports(backdrop-filter:blur(1px)){.compact-body{background:rgba(28,32,34,.83);backdrop-filter:blur(26px)}}
 @media(prefers-reduced-transparency:reduce){.compact-body{background:#202322;backdrop-filter:none}}
 
-.export-review [data-export-destination]{max-height:160px;overflow:auto;white-space:pre-wrap}.export-file-details{margin:6px 0 12px}.export-file-details>summary{font-size:12px;min-height:26px;padding:2px 0}.image-workspace>button:last-child{position:sticky;bottom:0;justify-self:end;background:var(--ink);color:var(--paper);z-index:2}.manual-experiment-workbench .tiny:empty{display:none}.source-intake-editor .two-fields{grid-template-columns:1fr 1fr}.insight-detail{padding-top:12px}.insight-detail .readable-text{color:var(--muted)}
+.export-review [data-export-destination]{min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}.export-file-details{margin:6px 0 12px}.export-file-details>summary{font-size:12px;min-height:26px;padding:2px 0}.image-workspace>button:last-child{position:sticky;bottom:0;justify-self:end;background:var(--ink);color:var(--paper);z-index:2}.manual-experiment-workbench .tiny:empty{display:none}.source-intake-editor .two-fields{grid-template-columns:1fr 1fr}.insight-detail{padding-top:12px}.insight-detail .readable-text{color:var(--muted)}
 
 .inspector-notice{font-size:12px;color:#c5d8c6;margin:0 0 12px}.workspace main[inert],.workspace-compose[inert]{opacity:.55}
 
@@ -47,3 +47,10 @@
 .source-affected-work{margin:20px 0;padding-top:16px;border-top:1px solid var(--line)}.source-affected-work h3{font-size:15px}.source-affected-work>button span{min-width:0;overflow-wrap:anywhere}.source-affected-work>button small{margin-top:3px}
 
 .response-preferences>h3{margin-bottom:12px}.response-preferences>p,.response-preferences>label{margin-bottom:16px}.response-preferences>p{overflow-wrap:anywhere}.response-preferences textarea{min-height:170px}.response-preferences .row>input[type=checkbox]{flex-shrink:0}
+/* Model reviews have an independently scrolling body. Keep the fixed close
+   control in its own strip so scrolled text cannot pass beneath it. */
+.context-inspector:has(.model-draft-review)>.inspector-toolbar{height:48px;min-height:48px}
+
+/* Give destinations the full review width on narrow panes; the surrounding
+   review remains the single scroll region for long paths. */
+@media(max-width:600px){.export-review dl{grid-template-columns:minmax(0,1fr);gap:4px}.export-review dl>dd{margin-bottom:10px}}
