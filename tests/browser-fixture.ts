@@ -28,6 +28,7 @@ export class BrowserFixture {
   preferenceSaveError?:string;
   losePreferenceAcknowledgement=false;
   loseBranchAcknowledgement=false;
+  loseModelAcknowledgement=false;
   readonly commands: Command[] = [];
   readonly pending = new Map<string, ModelControl>();
   readonly externalRequests: string[] = [];
@@ -203,6 +204,7 @@ export class BrowserFixture {
         }));
         await this.changed(command.taskId);
         if (result.status !== 'completed') throw new Error(result.error || `Request ${result.status}`);
+        if(this.loseModelAcknowledgement){this.loseModelAcknowledgement=false;throw Error('Fixture lost the model acknowledgement after the saved response.');}
         return this.core.getTask(command.taskId);
       }
       case 'model.cancel': return this.mutation(command.taskId, () => this.core.cancelRequest(command.taskId, command.requestId));
