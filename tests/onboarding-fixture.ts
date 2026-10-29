@@ -55,6 +55,7 @@ export class OnboardingFixture{
    case 'module.edit':{await editModule(this.core,command);await this.emit({type:'changed'});return this.core.getTask(command.taskId);}
    case 'module.document':{const result=await saveModuleDocument(this.core,command);await this.emit({type:'changed'});return {...result,task:await this.core.getTask(command.taskId)};}
    case 'artifact.save':{const result=await this.core.saveArtifact(command.taskId,command.artifact);await this.emit({type:'changed'});return result;}
+   case 'source.invalidate':{const task=await this.core.invalidateSource(command.taskId,command.sourceId,'Explicitly marked changed. Refresh or replace this source.');await this.emit({type:'changed',taskId:command.taskId});return task;}
    case 'task-view.get':if(this.viewReadBarrier)await this.viewReadBarrier;return this.viewPreferences.read();
    case 'context.view':return this.viewPreferences.select(command.taskId??null);
    case 'context.pending':{const snapshot=this.pendingActivation;if(this.pendingReadBarrier)await this.pendingReadBarrier;return snapshot?{kind:'ready',activation:snapshot}:{kind:'none'};}

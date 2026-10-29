@@ -1,0 +1,15 @@
+.source-affected-work .source-affected-item { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.source-affected-work .source-affected-open { display: flex; width: 100%; min-width: 0; justify-content: flex-start; border: 0; text-align: left; padding: 4px 0; }
+.source-affected-work .source-affected-open strong,.source-affected-work .source-affected-open small { display: block; overflow-wrap: anywhere; }
+.source-affected-work .source-affected-compare { min-height: 36px; border: 0; padding: 4px 0; text-align: left; color: var(--muted); }
+.source-snapshot-difference { min-width: 0; overflow-wrap: anywhere; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.source-snapshot-difference h4 { margin: 0 0 8px; }
+.source-snapshot-difference p { margin: 8px 0; }
+.source-snapshot-difference details { margin-top: 10px; }
+.source-snapshot-difference summary { cursor: pointer; min-height: 36px; }
+.source-snapshot-difference .source-snapshot-text,.source-snapshot-difference .source-snapshot-changes pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 4px 0; }
+.source-snapshot-changes > div { border-left: 2px solid var(--line); padding: 4px 10px; }
+.source-snapshot-changes .source-change-added { border-color: var(--focus); }
+.source-snapshot-changes .source-change-removed { border-style: dashed; }
+.source-change-label { display: block; color: var(--muted); font-size: 12px; }
+.source-snapshot-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
