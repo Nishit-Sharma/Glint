@@ -57,7 +57,11 @@
     "appId": "local.nishit.windowcompanion",
     "productName": "Window Companion",
     "files": [
-      "out/**/*",
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
+      "out/native/document-source",
+      "out/native/mac-window-at-point",
       "package.json"
     ],
     "mac": {
