@@ -142,3 +142,8 @@
 .picking-case-editor select { width: 100%; min-width: 0; }
 
 .learning-practice-review{margin-block:16px}.learning-practice-review summary{cursor:pointer}.learning-practice-reason{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Preserve user-entered correction and source excerpt whitespace on inspection. */
+.grounded-correction-evidence { min-width: 0; }
+.grounded-correction-evidence li { min-width: 0; overflow-wrap: anywhere; }
+.grounded-evidence-value { white-space: pre-wrap; overflow-wrap: anywhere; }
