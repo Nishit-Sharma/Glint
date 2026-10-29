@@ -7,10 +7,10 @@ export type SnapshotDifference=
  | {kind:'no-newer'}
  | {kind:'large';before:SourceVersion;after:SourceVersion}
  | {kind:'ready';before:SourceVersion;after:SourceVersion;parts:Change[];unchanged:boolean};
-/** Compare saved text only. This does not check the live source or change any references. */
-export function sourceSnapshotDifference(source:Source,reference:SourceRef):SnapshotDifference{
- if(reference.sourceId!==source.id)return {kind:'missing'};
- const before=source.versions.find(v=>v.id===source.id&&v.version===reference.version&&v.digest===reference.digest),after=source.versions.find(v=>v.id===source.id&&v.version===source.currentVersion);
+/** Compare saved text only. Omitted afterReference retains the latest-saved work comparison. */
+export function sourceSnapshotDifference(source:Source,reference:SourceRef,afterReference?:SourceRef):SnapshotDifference{
+ if(reference.sourceId!==source.id||afterReference&&afterReference.sourceId!==source.id)return {kind:'missing'};
+ const before=source.versions.find(v=>v.id===source.id&&v.version===reference.version&&v.digest===reference.digest),after=source.versions.find(v=>v.id===source.id&&(afterReference?v.version===afterReference.version&&v.digest===afterReference.digest:v.version===source.currentVersion));
  if(!before||!after)return {kind:'missing'};
  if(before.kind!=='text'||after.kind!=='text')return {kind:'unsupported'};
  if(before.version===after.version&&before.digest===after.digest)return {kind:'no-newer'};

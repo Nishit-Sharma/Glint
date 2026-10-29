@@ -2,6 +2,7 @@ import {useEffect,useLayoutEffect,useRef,useState,type FormEvent,type ReactNode}
 import {ArrowLeft,FileText,Image as ImageIcon,AppWindow,Plus,RefreshCw} from 'lucide-react';
 import type {Task,Source,SourceInput,SourceRef,Artifact,Procedure} from '../../../core/types';
 import {SourceAffectedWork} from './SourceAffectedWork';
+import {SourceHistoryComparison} from './SourceHistoryComparison';
 import {sourceRoleLabel} from '../../../shared/public-messages';
 import {Button,Field,type Run} from '../ui';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
@@ -55,6 +56,7 @@ export function ContextInspector({task,busy,run,cache,saveSourceText,inspectSour
   <div className="source-capture-row"><small>{time(version.capturedAt)}</small>{version.kind==='window'&&!historical&&<Button kind="text" disabled={busy} onClick={async()=>{const result=await run<Task>({type:'windows.capture',taskId:task.id,windowId:version.windowId!,sourceId:source.id},'New window snapshot saved');if(result){const saved=result.sources.find(s=>s.id===source.id)!,v=latest(saved.versions);setSelection({sourceId:source.id,version:v.version,digest:v.digest});}}}><RefreshCw size={14}/>Refresh capture</Button>}</div>
   {source.freshness!=='fresh'&&<p className="warning">{version.kind==='window'?'Capture this window again to use its latest content.':'Review this source before using it again.'}</p>}
   <div className="source-role-row"><span>Use as</span><span>{sourceRoleLabel(version.role)}</span></div>
+  <SourceHistoryComparison key={`${task.id}:${source.id}:${version.version}:${version.digest}`} taskId={task.id} source={source} selectedReference={selection!}/>
   <SourceAffectedWork key={`${source.id}:${version.version}:${version.digest}`} task={task} source={source} onArtifact={onArtifact} onProcedure={onProcedure} onVersion={ref=>navigate(()=>setSelection(ref))}/>
   <details className="source-history"><summary>Source history</summary>{source.versions.map(v=><button type="button" className="source-version-link" key={v.version} onClick={()=>setSelection({sourceId:source.id,version:v.version,digest:v.digest})}>Version {v.version} · {time(v.capturedAt)}</button>)}</details><DeveloperDetails title="Source verification"><pre>{JSON.stringify(selection,null,2)}</pre></DeveloperDetails>
  </>}</section>;

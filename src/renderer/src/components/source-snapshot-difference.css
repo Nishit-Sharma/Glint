@@ -13,3 +13,8 @@
 .source-snapshot-changes .source-change-removed { border-style: dashed; }
 .source-change-label { display: block; color: var(--muted); font-size: 12px; }
 .source-snapshot-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.source-history-comparison { min-width: 0; margin-block: 14px; }
+.source-history-selectors { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.source-history-selectors label { display: grid; min-width: 0; gap: 5px; font-size: 13px; }
+.source-history-selectors select { width: 100%; min-width: 0; }
+@media (max-width: 600px) { .source-history-selectors { grid-template-columns: minmax(0,1fr); } }
