@@ -32,7 +32,7 @@ export function makeTruthPrediction(rule:BinaryAssignment){
 export function observeTruthPrediction(rule:BinaryAssignment,selected:string|undefined){
  if(selected===undefined)return null;if(selected!=='predict-0'&&selected!=='predict-1')throw Error('This saved prediction needs review.');
  const output=rule.operator==='and'?'0':'1',prediction=selected==='predict-0'?'0':'1';
- const explanation=rule.operator==='and'?`For ${rule.left} = 1 and ${rule.right} = 0, AND returns 0 because both inputs are not 1.`:rule.operator==='or'?`For ${rule.left} = 1 and ${rule.right} = 0, OR returns 1 because one input is 1.`:`For ${rule.left} = 1 and ${rule.right} = 0, XOR returns 1 because the inputs differ.`;
+ const explanation=rule.operator==='and'?`For ${rule.left} = 1 and ${rule.right} = 0, AND returns 0 because at least one input is 0.`:rule.operator==='or'?`For ${rule.left} = 1 and ${rule.right} = 0, OR returns 1 because one input is 1.`:`For ${rule.left} = 1 and ${rule.right} = 0, XOR returns 1 because the inputs differ.`;
  return {prediction,output,correct:prediction===output,explanation};
 }
 export function truthPredictionText(rule:BinaryAssignment,selected:string|undefined){

@@ -1,7 +1,9 @@
+import {TruthChangeTrace} from './TruthChangeTrace';
+import {truthChangeTrace} from '../../../learning/truth-change-trace';
 import {TruthPrediction} from './TruthPrediction';
 import {comparisonModule} from '../../../core/interactive-modules';
 import {readTruthBinding,truthStatus,parseBinaryAssignment,makeTruthComparison,makeTruthPrediction,TRUTH_MODULE_PREFIX,isTruthPredictionId,isTruthModuleId} from '../../../learning/truth-table';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Schema } from 'effect';
 import type { Artifact, ArtifactRevision, Task } from '../../../core/types';
 import { initialModuleState, moduleRegistry, parseModuleAnswer, readableModuleIntro, type ModuleAction } from '../../../core/interactive-modules';
@@ -32,7 +34,8 @@ export function ModuleAnswerView({ task, artifact, revision, onEdit, onSave }: {
     try { if (saved) state = moduleRegistry[module.data.kind].parseState(saved.state); } catch { return <p className="warning" key={module.id}>This saved choice needs review before editing.</p>; }
     if(truthCorrupt&&isTruthModuleId(module.id))return <p className="warning" key={module.id}>This saved truth table needs review. Its stored data is kept.</p>;
     if(isTruthPredictionId(module.id)){try{const binding=readTruthBinding(answer.markdown,module.id),rule=binding&&parseBinaryAssignment(binding.quote);if(!rule||module.data.kind!=='comparison'||state.kind!=='comparison')throw Error('Invalid prediction');return <TruthPrediction key={module.id} data={comparisonModule.parse(module.data)} state={comparisonModule.parseState(state)} rule={rule} pending={!!pending||truthUnavailable} onAction={action=>perform(module.id,()=>onEdit(module.id,action))}/>;}catch{return <p className="warning" key={module.id}>This saved prediction needs review. Its stored data is kept.</p>;}}
-    return <ModuleView key={module.id} task={task} data={module.data} state={state} pending={!!pending||truthUnavailable} motion={{identity:[identity,module.id,module.version].join(':'),arrivalIdentity:identity}} draftOwner={{taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version}} onAction={action => perform(module.id, () => onEdit(module.id, action))}/>;
+    let trace:ReturnType<typeof truthChangeTrace>|undefined;if(module.id.startsWith(TRUTH_MODULE_PREFIX)){try{const binding=readTruthBinding(answer.markdown,module.id);if(!binding||state.kind!=='comparison')throw Error('Invalid truth comparison');trace=truthChangeTrace(binding.quote,state.selectedRowId);}catch{return <p className="warning" key={module.id}>This saved input pair needs review. Its stored data is kept.</p>;}}
+    return <Fragment key={module.id}><ModuleView task={task} data={module.data} state={state} pending={!!pending||truthUnavailable} motion={{identity:[identity,module.id,module.version].join(':'),arrivalIdentity:identity}} draftOwner={{taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version}} onAction={action => perform(module.id, () => onEdit(module.id, action))}/>{trace!==undefined&&<TruthChangeTrace trace={trace} stale={truthUnavailable}/>}</Fragment>;
   })}<div className="module-answer-actions">{onSave && <button type="button" className="conversation-open" disabled={!!pending||truthUnavailable} onClick={() => void perform('save', onSave)}>Save as document</button>}{!!observedUrls.length&&<details className="module-answer-sources"><summary>Observed pages</summary><ul>{observedUrls.map(url => <li key={url}>{url}</li>)}</ul></details>}</div><div role="status" className="tiny">{pending ? 'Saving…' : ''}</div>{error && <p className="warning" role="alert">{error}</p>}</div>;
 }
 export default ModuleAnswerView;

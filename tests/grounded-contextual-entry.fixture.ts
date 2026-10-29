@@ -12,8 +12,8 @@ import type {WorkflowReviewPreparation} from '../src/learning/workflow-review';
  * actual App commands and real local core/store. Only host transport and surface
  * boundaries are substituted. Restart is store recreation + renderer reload,
  * never a native process quit/relaunch. No provider or capture is allowed. */
-export async function contextualPublicEntry(page:Page){
- const entry=await offlineTaskEntry(page),{fixture}=entry,invoke=fixture.invoke.bind(fixture);
+export async function contextualPublicEntry(page:Page,port=4180){
+ const entry=await offlineTaskEntry(page,port),{fixture}=entry,invoke=fixture.invoke.bind(fixture);
  const preparations:WorkflowReviewPreparation[]=[],publications:Extract<Command,{type:'workflow.review'|'workflow.contextual.review'}>[]=[],published:{mode:'legacy'|'contextual';artifactId:string;requestId:string}[]=[];
  const phases:{phase:string;utc:string}[]=[{phase:'fresh empty current core/sidecar; onboarding uncompleted',utc:new Date().toISOString()}];
  fixture.invoke=async(command:Command)=>{
