@@ -109,7 +109,7 @@ test('arriving join parts use the actual runtime once; edits, hidden answers and
   await page.getByRole('button',{name:'Try duplicate key',exact:true}).click();
   await page.locator('.workspace').getByLabel('Predict the output row count',{exact:true}).fill('4');await page.getByRole('button',{name:'Check prediction',exact:true}).click();
   await expect(page.getByRole('heading',{name:'4 output rows',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Try unseen transfer',exact:true}).click();
+  await page.getByRole('button',{name:'Try separate challenge',exact:true}).click();
   await expect(page.getByRole('region',{name:'Computed result',exact:true})).toHaveCount(0);
   await expect(page.locator('.workspace').getByText('Synthetic transfer · Supplied lesson tables, not a reading of your screen.',{exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Try duplicate key',exact:true})).toHaveCount(0);

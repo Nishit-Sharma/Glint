@@ -23,8 +23,8 @@ test('actual join controls change pairs, persist, undo and check unseen transfer
  await page.getByLabel('Predict the output row count').fill('4');
  await page.getByRole('button',{name:'Check prediction'}).click();
  await expect(page.getByRole('status')).toContainText('Correct.');
- await page.getByRole('button',{name:'Try unseen transfer'}).click();
- await expect(page.getByText('Unseen transfer: Shipments and warehouse scans')).toBeVisible();
+ await page.getByRole('button',{name:'Try separate challenge'}).click();
+ await expect(page.getByText('Separate challenge: Shipments and warehouse scans')).toBeVisible();
  await expect(page.getByRole('heading',{name:/output rows/})).toHaveCount(0);
  await page.getByLabel('Predict the output row count').fill('5');
  await page.getByRole('button',{name:'Check prediction'}).click();

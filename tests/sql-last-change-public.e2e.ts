@@ -81,7 +81,7 @@ test('source join explains the last applied edit, saves and resumes it without r
   await scope.getByRole('button',{name:'Deep',exact:true}).click();await capture(comparison().getByRole('list',{name:'Why the join rows changed',exact:true}).getByRole('listitem'),'05-compact-deep-row-cause');
   await scope.getByRole('button',{name:'Visual',exact:true}).click();await capture(comparison().getByRole('region',{name:'Members row 2 pair comparison',exact:true}),'06-compact-visual-pairs');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await scope.getByRole('button',{name:'Try unseen transfer',exact:true}).click();
+  await scope.getByRole('button',{name:'Try separate challenge',exact:true}).click();
   await expect(scope.getByRole('region',{name:'Computed result',exact:true})).toHaveCount(0);await expect(scope.getByRole('heading',{name:'6 output rows',exact:true})).toHaveCount(0);
   await expect(scope).not.toContainText('Transfer score:');await expect(scope.getByRole('list',{name:'Pair map',exact:true})).toHaveCount(0);
   await expect(comparison()).not.toContainText('Shipments');await expect(comparison().getByText(summary,{exact:true})).toBeVisible();

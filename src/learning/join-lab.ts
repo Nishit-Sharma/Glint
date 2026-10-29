@@ -99,7 +99,7 @@ export function validateLesson(data: JoinLesson) {
   const cases = [data.practice, data.transfer];
   unique([data.id, ...cases.flatMap(input => [input.id, ...[input.left, input.right].flatMap(current => [current.id, ...current.columns.map(value => value.id), ...current.rows.map(value => value.id)])])]);
   cases.forEach(validateJoinCase);
-  if (matchingStructure(data.practice) === matchingStructure(data.transfer)) throw Error('The held-out transfer must differ in join mode or matching structure.');
+  if (matchingStructure(data.practice) === matchingStructure(data.transfer)) throw Error('The separate challenge must differ in join mode or matching structure.');
 }
 function parse(value: unknown): JoinLesson {
   const data = decode(JoinLessonSchema, value);
@@ -210,7 +210,7 @@ function update(dataValue: unknown, stateValue: unknown, actionValue: unknown): 
     return { ...previous, revision: state.revision + 1, practiceEdits: state.practiceEdits + 1, practice: undoPractice, phase: { kind: 'practice-predict' } };
   }
   if (action.kind === 'edit-row' || action.kind === 'set-keys' || action.kind === 'set-mode') {
-    if (state.phase.kind !== 'practice-predict' && state.phase.kind !== 'practice-reviewed') throw Error('The held-out transfer cannot be edited.');
+    if (state.phase.kind !== 'practice-predict' && state.phase.kind !== 'practice-reviewed') throw Error('The separate challenge cannot be edited.');
     let practice: JoinCase;
     if (action.kind === 'edit-row') {
       const current = state.practice[action.side];
@@ -307,7 +307,7 @@ function readable(dataValue: unknown, stateValue?: unknown): string {
   const lastChange=view.lastChange??view.practiceReview?.lastChange;
   const last=lastChange?describeLastJoinChange(state.practice,lastChange):null;
   const lastText=last?[last.summary,'Hypothetical local practice edits; the original supplied practice data is unchanged.',...last.edits,last.effects,...last.rows.map(row=>`${row.label}: before ${row.before}; after ${row.after}.`),...(last.unchanged.length?[`Unchanged output contributions: ${last.unchanged.join(', ')}.`]:[]),...last.added.map(pair=>`Added: ${pair}.`),...last.removed.map(pair=>`Removed: ${pair}.`),...last.changed.map(pair=>`Displayed values changed: ${pair}.`)].join('\n\n'):'';
-  return `${data.title}\n${view.problem.title}\nSource: ${data.source.sourceId} version ${data.source.version}; digest ${data.source.digest}\nObservation revision: ${state.revision}\n${view.problem.join.mode} equality join on ${view.problem.join.leftColumnId} = ${view.problem.join.rightColumnId}.\n\n${tables}\n\n${view.assessment?.correction ?? 'Predict the result count to reveal paired rows.'}${reasoning}${pairs}${practiceReview}${change}${lastText?'\n'+lastText:''}\nNULL never matches under ordinary equality. Duplicate matches each produce a row. Types must agree; no coercion. Count correctness is checked; reasoning and human learning are not evaluated.`;
+  return `${data.title}\n${view.problem.title}\n${view.phase.startsWith('transfer')?'Separate synthetic challenge. Earlier exposure is not tracked.\n':''}Source: ${data.source.sourceId} version ${data.source.version}; digest ${data.source.digest}\nObservation revision: ${state.revision}\n${view.problem.join.mode} equality join on ${view.problem.join.leftColumnId} = ${view.problem.join.rightColumnId}.\n\n${tables}\n\n${view.assessment?.correction ?? 'Predict the result count to reveal paired rows.'}${reasoning}${pairs}${practiceReview}${change}${lastText?'\n'+lastText:''}\nNULL never matches under ordinary equality. Duplicate matches each produce a row. Types must agree; no coercion. Count correctness is checked; reasoning and human learning are not evaluated.`;
 }
 
 export const joinLab = Object.freeze({

@@ -25,8 +25,8 @@ test('cited source correction feeds the working join, persists mode/results and 
  await page.reload();
  await expect(page.getByRole('heading',{name:'5 output rows'})).toBeVisible();
  await expect(page.getByRole('group',{name:'Grounded explanation style'}).getByRole('button',{name:'Visual',exact:true})).toHaveAttribute('aria-pressed','true');
- await page.getByRole('button',{name:'Try unseen transfer'}).click();
- await expect(page.getByRole('heading',{name:'Unseen synthetic transfer'})).toBeVisible();
+ await page.getByRole('button',{name:'Try separate challenge'}).click();
+ await expect(page.getByRole('heading',{name:'Separate synthetic challenge'})).toBeVisible();
  await page.getByLabel('Predict the output row count').fill('6');await page.getByRole('button',{name:'Check prediction'}).click();
  await expect(page.getByText('Transfer score: 1 / 1',{exact:false})).toBeVisible();
  const taskId=new URL(page.url()).searchParams.get('task');

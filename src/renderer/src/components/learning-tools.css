@@ -138,3 +138,5 @@
 .picking-case-editor label { display: grid; gap: 5px; min-width: 0; }
 .picking-case-editor label:has(> input[type=checkbox]) { display: flex; align-items: center; }
 .picking-case-editor select { width: 100%; min-width: 0; }
+
+.learning-practice-review{margin-block:16px}.learning-practice-review summary{cursor:pointer}.learning-practice-reason{white-space:pre-wrap;overflow-wrap:anywhere}

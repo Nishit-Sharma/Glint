@@ -72,7 +72,7 @@ test('checked source join traces exact row contributions through edits, compact 
   await expect(trace()).toContainText('Members row 2 contributes 1 of the 4 output rows.');await capture(trace().locator('.join-row-trace-result'),'06-compact-unmatched');
   await capture(trace().getByRole('list',{name:'Key comparisons for Members row 2',exact:true}),'07-compact-exact-comparisons');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await scope.getByRole('button',{name:'Try unseen transfer',exact:true}).click();await expect(trace()).toHaveCount(0);await expect(scope).not.toContainText('Transfer score:');
+  await scope.getByRole('button',{name:'Try separate challenge',exact:true}).click();await expect(trace()).toHaveCount(0);await expect(scope).not.toContainText('Transfer score:');
   await predict(scope,'5','6');await expect(trace()).toContainText('Shipments row 1 contributes 2 of the 6 output rows.');await capture(trace().locator('.join-row-trace-result'),'08-compact-first-transfer');
   expect(fixture.external).toEqual([]);expect(entry.counters.modelRequests).toHaveLength(modelCount);
   expect(fixture.commands.filter(command=>command.type==='browser.run'||command.type==='connection.configure'||/^(?:windows\.capture|context\.(?:start|capture)|export\.)/.test(command.type))).toEqual([]);

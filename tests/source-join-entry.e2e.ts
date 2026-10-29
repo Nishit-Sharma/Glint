@@ -105,7 +105,7 @@ test('full App source action admits reviewed tables, computes changes, saves and
   const activity=page.getByRole('region',{name:'Saved revision',exact:true});await expect(activity).toContainText('Current join: LEFT equality on Members.Team = Invitations.Team');
   expect(await activity.innerText()).not.toMatch(/contextDigest|source-join-[a-f0-9]|p-key|Shipments/);await page.screenshot({path:evidence+'/activity-practice.png'});
   await page.getByRole('dialog',{name:'Saved revision',exact:true}).getByRole('button',{name:'Back to task',exact:true}).click();
-  await scope.getByRole('button',{name:'Try unseen transfer',exact:true}).click();
+  await scope.getByRole('button',{name:'Try separate challenge',exact:true}).click();
   await expect(scope.getByRole('region',{name:'Computed result',exact:true})).toHaveCount(0);await expect(scope).toContainText('separate synthetic problem');
   await scope.getByRole('button',{name:'Task options',exact:true}).click();await scope.getByRole('button',{name:'Activity',exact:true}).click();
   await page.getByRole('dialog',{name:'Activity',exact:true}).getByRole('button',{name:'Review the cited tables · Revision 1',exact:true}).click();

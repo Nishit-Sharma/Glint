@@ -70,7 +70,7 @@ test('unresolved, transfer prediction and reviewed transfer notes disclose only 
  state=groundedJoin.update(f.data,state,{kind:'lab',action:{kind:'predict',count:4,reasoning:'I forgot the unmatched member.',expectedRevision:1},expectedRevision:3});
  state=groundedJoin.update(f.data,state,{kind:'lab',action:{kind:'start-transfer',expectedRevision:2},expectedRevision:4});
  const transfer=groundedJoin.text(f.data,state);assertHuman(transfer,f.data);
- expect(transfer).toContain('Unseen synthetic transfer');expect(transfer).toContain('Shipments');expect(transfer).toContain('Predict the output row count');
+ expect(transfer).toContain('Separate synthetic challenge');expect(transfer).toContain('Shipments');expect(transfer).toContain('Predict the output row count');
  expect(transfer).toContain('Current join: LEFT equality on Shipments.Dock = Scans.Dock');
  expect(transfer).not.toContain('6 output rows');expect(transfer).not.toContain('Transfer score:');expect(transfer).not.toContain('transfer-a');
  expect(transfer).toContain('Prior practice prediction: 4; computed result: 5 rows. Incorrect.');expect(transfer).toContain('I forgot the unmatched member.');
