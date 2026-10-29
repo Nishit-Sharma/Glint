@@ -10,3 +10,6 @@
 .structured-tools .model-export-heading{padding-right:40px}
 .model-draft-export{flex:1;min-height:0;overflow:auto;scrollbar-width:thin}
 .structured-tools .model-file-saved{font-size:13px;color:var(--muted);margin:0 0 14px}
+.experiment-comparison{margin:18px 0;padding:16px;border:1px solid var(--border);border-radius:10px;min-width:0;overflow-wrap:anywhere}
+.experiment-comparison h3{margin:0 0 8px}
+.experiment-comparison ul{padding-left:22px}
