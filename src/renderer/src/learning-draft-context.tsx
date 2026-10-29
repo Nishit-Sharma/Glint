@@ -80,7 +80,7 @@ export function LearningDraftReview({task,cache}:{task:Task;cache:DraftCache}){
       if((table?'table':semantic?'semantic':'text')!==mode)current=false;
       else{
        const family=entry.slot.split(':')[2],helperState=table?pickingHelper.parseState(module.data.id,raw):semantic?semanticHelper.parseState(module.data.id,raw):raw?helperStudio.parseState(module.data,raw):helperStudio.initial(module.data);
-       const basis=table?pickingHelperDraftBasis(helperState as ReturnType<typeof pickingHelper.parseState>,family as PickingFamily):semantic?semanticHelperDraftBasis(helperState as ReturnType<typeof semanticHelper.parseState>,family as 'steps'|'record'|'checks'|'correction'|'run'):legacyHelperDraftBasis(helperState as ReturnType<typeof helperStudio.parseState>,family as 'details'|'demonstration'|'operation'|'exception'|'check'|'version'|'run');
+       const basis=table?pickingHelperDraftBasis(helperState as ReturnType<typeof pickingHelper.parseState>,family as PickingFamily):semantic?semanticHelperDraftBasis(helperState as ReturnType<typeof semanticHelper.parseState>,family as Parameters<typeof semanticHelperDraftBasis>[1]):legacyHelperDraftBasis(helperState as ReturnType<typeof helperStudio.parseState>,family as 'details'|'demonstration'|'operation'|'exception'|'check'|'version'|'run');
        const expected=navigationFormBasis(null,{slot:entry.slot,basisMode:'explicit',basis,...(table&&family==='context'?{variableArrays:['rows']}:{} )});
        current=[entry.local,entry.remote?.value??null].every(value=>value===null||value.basis===expected);
       }

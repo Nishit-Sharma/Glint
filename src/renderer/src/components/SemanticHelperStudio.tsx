@@ -5,6 +5,8 @@ import type {HelperData} from '../../../learning/reusable-helper';
 import {useGuardedAction,useNavigationForm,formSubmission} from '../draft-navigation';
 import {semanticHelperDraftBasis} from '../semantic-helper-draft-basis';
 import './learning-tools.css';
+import {typedDraftFromProcedure} from '../typed-semantic-procedure';
+import {TypedSemanticHelperStudio} from './TypedSemanticHelperStudio';
 
 type Config={inputName:string;numberField:string;approvalField:string;sensitiveField:string;outputField:string;threshold:string;comparison:'gte'|'gt'|'lte'|'lt';whenTrue:string;whenFalse:string};
 const defaults:Config={inputName:'request',numberField:'amount',approvalField:'approved',sensitiveField:'sensitive',outputField:'route',threshold:'1000',comparison:'gte',whenTrue:'review',whenFalse:'standard'};
@@ -36,7 +38,7 @@ function LocalResult({result}:{result:SemanticRunResult}){
  const labels:Record<string,string>={approval:'Check approval',sensitivity:'Check sensitivity',threshold:'Compare the number',match:'Choose the matching result',other:'Choose the other result','sensitive-stop':'Stop for review','match-done':'Finish','other-done':'Finish','allowed-result':'Check the result'};
  return <><p>{result.status==='completed'?'Computed result':`Stopped: ${result.reason}`}</p><Fields value={result.output}/><h5>Steps checked</h5><ol>{result.trace.map((item,index)=><li key={`${item.stepId}:${index}`}>{labels[item.stepId]??item.stepId}{item.decision!==null?`: ${item.decision?'yes':'no'}`:''}{item.inspected.length>0&&<ul>{item.inspected.map((read,i)=><li key={i}>{read.field??'Value'}: <span className="semantic-exact-value">{String(read.value)}</span></li>)}</ul>}</li>)}</ol></>;
 }
-export function SemanticHelperStudio({data,state,pending=false,onAction}:{data:HelperData;state:SemanticHelperState;pending?:boolean;onAction:(action:SemanticHelperAction)=>void|Promise<boolean>}){
+function CompactSemanticHelperStudio({data,state,pending=false,onAction,onCustom}:{data:HelperData;state:SemanticHelperState;pending?:boolean;onAction:(action:SemanticHelperAction)=>void|Promise<boolean>;onCustom:()=>void}){
  const [message,setMessage]=useState(''),guard=useGuardedAction();
  const savedConfig=configFrom(state);
  const active=state.versions.find(item=>item.version===state.activeVersion),activeConfig=active?configFrom({...state,draftVersion:active.procedureVersion}):null;
@@ -66,6 +68,7 @@ export function SemanticHelperStudio({data,state,pending=false,onAction}:{data:H
  return <div className="learning-tool helper-studio" data-ui><header><h3>Local record helper</h3><p>Choose typed fields, inspect a computation, and save a checked version.</p></header>
   <p className="learning-origin">Computes local values only. It does not observe a screen or perform an external action.</p>
   <fieldset className="helper-editor" disabled={pending}>
+   {state.draftVersion===null&&<div className="learning-actions"><button type="button" onClick={onCustom}>Teach a typed procedure</button><p>Use text, number and yes/no fields with ordered rules, combined conditions and copied results. Choose this before saving compact steps; existing compact definitions keep their original editor.</p></div>}
    <section className="learning-section" aria-label="Record steps"><h4>1. Set up the steps</h4><p>Provide a number and two yes/no fields. Approval is required; sensitive inputs stop. The comparison chooses one of two results.</p>
     {config?<><div className="helper-fields">{([['inputName','Input record name'],['numberField','Number field'],['approvalField','Approval field'],['sensitiveField','Sensitive field'],['outputField','Result field'],['threshold','Compare with'],['whenTrue','Result when comparison is true'],['whenFalse','Result when comparison is false']] as const).map(([key,label])=><label key={key}>{label}<input aria-label={label} value={config[key]} maxLength={80} disabled={steps.held} onChange={event=>{const value=event.currentTarget.value;steps.setDraft(previous=>({...previous,[key]:value}));}}/></label>)}<label>Comparison<select aria-label="Number comparison" value={config.comparison} disabled={steps.held} onChange={event=>{const comparison=event.currentTarget.value as Config['comparison'];steps.setDraft(previous=>({...previous,comparison}));}}><option value="gte">At least</option><option value="gt">Greater than</option><option value="lte">At most</option><option value="lt">Less than</option></select></label></div>{steps.feedback}<button type="button" disabled={steps.held} onClick={submitSteps}>{current?'Save revised draft steps':'Save draft steps'}</button></>:<>{steps.feedback}<p role="alert">These saved steps cannot be edited in this compact editor. The saved definition is kept.</p></>}
     {current&&savedConfig&&<details><summary>Inspect current steps</summary><ol><li>Require {savedConfig.approvalField} to be yes.</li><li>Stop for review if {savedConfig.sensitiveField} is yes.</li><li>Compare {savedConfig.numberField} {({gte:'at least',gt:'greater than',lte:'at most',lt:'less than'} as const)[savedConfig.comparison]} {savedConfig.threshold}.</li><li>Set {savedConfig.outputField} to {savedConfig.whenTrue} when true; otherwise set it to {savedConfig.whenFalse}.</li><li>Check the result is one of those two values.</li></ol></details>}
@@ -82,4 +85,10 @@ export function SemanticHelperStudio({data,state,pending=false,onAction}:{data:H
    {message&&<p role="alert">{message}</p>}
   </fieldset>
  </div>;
+}
+
+export function SemanticHelperStudio(props:{data:HelperData;state:SemanticHelperState;pending?:boolean;onAction:(action:SemanticHelperAction)=>void|Promise<boolean>}){
+ const [custom,setCustom]=useState(false);
+ const current=props.state.definitions.find(item=>item.procedure.version===props.state.draftVersion)?.procedure;
+ return custom||current&&typedDraftFromProcedure(current)?<TypedSemanticHelperStudio {...props}/>:<CompactSemanticHelperStudio {...props} onCustom={()=>setCustom(true)}/>;
 }
