@@ -3,7 +3,7 @@ import {runSemanticProcedure,parseSemanticProcedure,type SemanticProcedure,type 
 
 export type TypedField={name:string;kind:'string'|'number'|'boolean'};
 export type TypedCondition={field:string;operator:'eq'|'ne'|'gt'|'gte'|'lt'|'lte';value:string};
-export type TypedAtom={source:'literal'|'input';value:string};
+export type TypedAtom={source:'literal'|'input'|'output';value:string};
 export type TypedValue=TypedAtom|{source:'calculate';operator:'add'|'subtract'|'multiply'|'divide';left:TypedAtom;right:TypedAtom};
 export type TypedOutcome={kind:'return'|'stop';reason:string;values:TypedValue[]};
 export type TypedRule={label:string;match:'all'|'any';conditions:TypedCondition[];outcome:TypedOutcome};
@@ -12,7 +12,7 @@ export const typedProcedureLimits=Object.freeze({inputs:6,outputs:3,rules:4,cond
 const rawText=Schema.String.pipe(Schema.maxLength(500));
 const rawField=Schema.Struct({name:rawText,kind:Schema.Literal('string','number','boolean')});
 const rawCondition=Schema.Struct({field:rawText,operator:Schema.Literal('eq','ne','gt','gte','lt','lte'),value:rawText});
-const rawAtom=Schema.Struct({source:Schema.Literal('literal','input'),value:rawText});
+const rawAtom=Schema.Struct({source:Schema.Literal('literal','input','output'),value:rawText});
 const rawValue=Schema.Union(rawAtom,Schema.Struct({source:Schema.Literal('calculate'),operator:Schema.Literal('add','subtract','multiply','divide'),left:rawAtom,right:rawAtom}));
 const rawOutcome=Schema.Struct({kind:Schema.Literal('return','stop'),reason:rawText,values:Schema.Array(rawValue).pipe(Schema.maxItems(3))});
 const rawDraft=Schema.Struct({name:rawText,intent:rawText,inputs:Schema.Array(rawField).pipe(Schema.minItems(1),Schema.maxItems(6)),outputs:Schema.Array(rawField).pipe(Schema.minItems(1),Schema.maxItems(3)),requirements:Schema.Array(rawCondition).pipe(Schema.maxItems(4)),rules:Schema.Array(Schema.Struct({label:rawText,match:Schema.Literal('all','any'),conditions:Schema.Array(rawCondition).pipe(Schema.maxItems(4)),outcome:rawOutcome})).pipe(Schema.maxItems(4)),fallback:rawOutcome});
@@ -46,11 +46,9 @@ export function renameTypedField(draft:TypedProcedureDraft,side:'inputs'|'output
  if(draft[side].some((field,i)=>i!==index&&field.name===old))return {kind:'refused',message:'This earlier draft has duplicate field names. Their references cannot be reassigned safely. Discard this unsaved form through Unfinished practice and re-enter unique names.'};
  if(draft[side].some((field,i)=>i!==index&&field.name===name))return {kind:'refused',message:'That field name already exists. Choose a unique name; all references were kept.'};
  const next={...draft,[side]:draft[side].map((field,i)=>i===index?{...field,name}:field)};
- if(side==='inputs'){
-  const atom=(item:TypedAtom):TypedAtom=>item.source==='input'&&item.value===old?{...item,value:name}:item,renamed=(item:TypedValue):TypedValue=>item.source==='calculate'?{...item,left:atom(item.left),right:atom(item.right)}:atom(item);
-  const conditions=(items:TypedCondition[])=>items.map(item=>item.field===old?{...item,field:name}:item),outcome=(item:TypedOutcome)=>({...item,values:item.values.map(renamed)});
-  next.requirements=conditions(next.requirements);next.rules=next.rules.map(rule=>({...rule,conditions:conditions(rule.conditions),outcome:outcome(rule.outcome)}));next.fallback=outcome(next.fallback);
- }
+ const atom=(item:TypedAtom):TypedAtom=>item.source===(side==='inputs'?'input':'output')&&item.value===old?{...item,value:name}:item,renamed=(item:TypedValue):TypedValue=>item.source==='calculate'?{...item,left:atom(item.left),right:atom(item.right)}:atom(item);
+ const conditions=(items:TypedCondition[])=>side==='inputs'?items.map(item=>item.field===old?{...item,field:name}:item):items,outcome=(item:TypedOutcome)=>({...item,values:item.values.map(renamed)});
+ next.requirements=conditions(next.requirements);next.rules=next.rules.map(rule=>({...rule,conditions:conditions(rule.conditions),outcome:outcome(rule.outcome)}));next.fallback=outcome(next.fallback);
  return {kind:'accepted',value:next};
 }
 export function typedInputIsReferenced(draft:TypedProcedureDraft,name:string):boolean{
@@ -58,11 +56,25 @@ export function typedInputIsReferenced(draft:TypedProcedureDraft,name:string):bo
  const copied=(outcome:TypedOutcome)=>outcome.kind==='return'&&outcome.values.some(value=>value.source==='calculate'?referenced(value.left)||referenced(value.right):referenced(value));
  return draft.requirements.some(item=>item.field===name)||draft.rules.some(rule=>rule.conditions.some(item=>item.field===name)||copied(rule.outcome))||copied(draft.fallback);
 }
+const atoms=(value:TypedValue):readonly TypedAtom[]=>value.source==='calculate'?[value.left,value.right]:[value];
+export function typedOutputIsReferenced(draft:TypedProcedureDraft,name:string):boolean{
+ return [...draft.rules.map(rule=>rule.outcome),draft.fallback].some(outcome=>outcome.kind==='return'&&outcome.values.some(value=>atoms(value).some(atom=>atom.source==='output'&&atom.value===name)));
+}
+export function moveTypedOutput(draft:TypedProcedureDraft,index:number,direction:-1|1):{kind:'accepted';value:TypedProcedureDraft}|{kind:'refused';message:string}{
+ const target=index+direction;if(!draft.outputs[index]||!draft.outputs[target])return {kind:'refused',message:'Choose an available result step.'};
+ const order=draft.outputs.map((_,i)=>i);[order[index],order[target]]=[order[target],order[index]];
+ const reorder=(outcome:TypedOutcome):TypedOutcome=>({...outcome,values:order.map(i=>outcome.values[i])});
+ const next={...draft,outputs:order.map(i=>draft.outputs[i]),rules:draft.rules.map(rule=>({...rule,outcome:rule.outcome.kind==='return'?reorder(rule.outcome):rule.outcome})),fallback:reorder(draft.fallback)};
+ for(const outcome of [...next.rules.map(rule=>rule.outcome),next.fallback])if(outcome.kind==='return')for(const [i,value] of outcome.values.entries()){
+  if(!value||atoms(value).some(atom=>atom.source==='output'&&!next.outputs.slice(0,i).some(field=>field.name===atom.value)))return {kind:'refused',message:'This move would place a result before a step it uses. Change the earlier-result binding first; all fields were kept.'};
+ }
+ return {kind:'accepted',value:next};
+}
 export function typedInputDefaults(fields:readonly TypedField[]):Record<string,string>{return Object.fromEntries(fields.map(field=>[field.name,field.kind==='boolean'?'false':field.kind==='number'?'0':'']));}
 const fieldSpec=(field:TypedField)=>field.kind==='string'?{name:field.name,kind:field.kind,minLength:0,maxLength:160}:field.kind==='number'?{name:field.name,kind:field.kind,minimum:-1000000,maximum:1000000}:{name:field.name,kind:field.kind};
-const atomFor=(field:TypedField,value:TypedAtom)=>{if(value.source==='input')return {kind:'input' as const,field:value.value};const scalar=typedScalar(field.kind,value.value);if(typeof scalar==='number'&&Math.abs(scalar)>1000000)throw Error('Numeric constants must be between -1,000,000 and 1,000,000.');return {kind:'literal' as const,value:scalar};};
+const atomFor=(field:TypedField,value:TypedAtom)=>{if(value.source!=='literal')return {kind:value.source,field:value.value};const scalar=typedScalar(field.kind,value.value);if(typeof scalar==='number'&&Math.abs(scalar)>1000000)throw Error('Numeric constants must be between -1,000,000 and 1,000,000.');return {kind:'literal' as const,value:scalar};};
 const valueFor=(field:TypedField,value:TypedValue):Extract<SemanticStep,{kind:'assign'}>['value']=>{if(value.source!=='calculate')return atomFor(field,value);if(field.kind!=='number')throw Error('Calculated results must use a numeric result field.');return {kind:'arithmetic',operator:value.operator,left:atomFor(field,value.left),right:atomFor(field,value.right)};};
-const calculationLabel=(value:TypedValue)=>{const atom=(operand:TypedAtom)=>operand.source==='input'?operand.value:String(typedScalar('number',operand.value));return value.source==='calculate'?` using ${atom(value.left)} ${{add:'plus',subtract:'minus',multiply:'times',divide:'divided by'}[value.operator]} ${atom(value.right)}`:'';};
+const calculationLabel=(value:TypedValue)=>{const atom=(operand:TypedAtom)=>operand.source==='literal'?String(typedScalar('number',operand.value)):(operand.source==='output'?'earlier result ':'')+operand.value;return value.source==='calculate'?` using ${atom(value.left)} ${{add:'plus',subtract:'minus',multiply:'times',divide:'divided by'}[value.operator]} ${atom(value.right)}`:'';};
 export function typedProcedure(draft:TypedProcedureDraft,id='typed-record-helper'):SemanticProcedure{
  if(draft.inputs.length<1||draft.inputs.length>typedProcedureLimits.inputs||draft.outputs.length<1||draft.outputs.length>typedProcedureLimits.outputs||draft.rules.length>typedProcedureLimits.rules||draft.requirements.length>typedProcedureLimits.conditions)throw Error('Keep within the displayed field and rule limits.');
  const predicate=(condition:TypedCondition):SemanticPredicate=>{const field=draft.inputs.find(field=>field.name===condition.field);if(!field)throw Error('Choose an existing input field for every condition.');return {kind:'compare',operator:condition.operator,left:{kind:'input',field:field.name},right:{kind:'literal',value:typedScalar(field.kind,condition.value)}};};
@@ -70,7 +82,10 @@ export function typedProcedure(draft:TypedProcedureDraft,id='typed-record-helper
   if(value.kind==='stop')return {kind:'abstain',id:prefix+'-stop',intent:'Stop for review.',reason:value.reason};
   if(value.values.length!==draft.outputs.length)throw Error('Give every result field a value.');
   let next:SemanticStep={kind:'return',id:prefix+'-done',intent:'Return the checked result.'};
-  for(let index=draft.outputs.length-1;index>=0;index--)next={kind:'assign',id:`${prefix}-output-${index+1}`,intent:value.values[index].source==='calculate'?`Calculate ${draft.outputs[index].name}${calculationLabel(value.values[index])}`:`Set ${draft.outputs[index].name}.`,field:draft.outputs[index].name,value:valueFor(draft.outputs[index],value.values[index]),next};
+  for(let index=draft.outputs.length-1;index>=0;index--){
+   const assigned=value.values[index],field=draft.outputs[index];
+   next={kind:'assign',id:`${prefix}-output-${index+1}`,intent:assigned.source==='calculate'?`Calculate ${field.name}${calculationLabel(assigned)}`:assigned.source==='output'?`Copy earlier result ${assigned.value} into ${field.name}.`:`Set ${field.name}.`,field:field.name,value:valueFor(field,assigned),next};
+  }
   return next;
  };
  if(draft.fallback.kind!=='return')throw Error('The otherwise result must return values.');
@@ -89,7 +104,7 @@ export function typedDraftFromProcedure(procedure:SemanticProcedure):TypedProced
   const outcome=(start:SemanticStep):TypedOutcome=>{
    if(start.kind==='abstain')return {kind:'stop',reason:start.reason,values:outputs.map(()=>({source:'literal',value:''}))};
    const values:TypedValue[]=[];let step:SemanticStep=start;
-   const atom=(value:{kind:'input';field:string}|{kind:'literal';value:SemanticScalar}):TypedAtom=>value.kind==='input'?{source:'input',value:value.field}:{source:'literal',value:String(value.value)};
+   const atom=(value:{kind:'input'|'output';field:string}|{kind:'literal';value:SemanticScalar}):TypedAtom=>value.kind==='literal'?{source:'literal',value:String(value.value)}:{source:value.kind,value:value.field};
    while(step.kind==='assign'){values.push(step.value.kind==='arithmetic'?{source:'calculate',operator:step.value.operator,left:atom(step.value.left),right:atom(step.value.right)}:atom(step.value));step=step.next;}
    if(step.kind!=='return')throw Error();return {kind:'return',reason:'',values};
   };

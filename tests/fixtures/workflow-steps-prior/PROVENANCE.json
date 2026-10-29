@@ -1,0 +1,11 @@
+{
+  "baselineHead": "56d1032491b39eb34dc0bcb8bd17aef46a444ff9",
+  "baselineSource": "afe65950e693af0f5b957652ceac758ab0cdb1707578a990284645d9d9f8aeb0",
+  "scope": "Exact immediate prior local helper interpreter/state/recording/compiler. Generic full task/sidecar reader proof separately uses preserved a91 fixture.",
+  "files": {
+    "src/learning/semantic-procedure.ts": "a98e28ca5858b4cd22f0c8ccf04aeacb4875c7327be9a1a6b8da4cfd31791dce",
+    "src/learning/semantic-helper.ts": "015d16fb3bb20fe7e693a3db359df6c9120222deea6e6a2c1d0e66505337357c",
+    "src/learning/semantic-demonstration.ts": "36f2526dfb88ade512acdaf7c01f5fa2c0e93ff9badcf71b672fedcbce249e89",
+    "src/renderer/src/typed-semantic-procedure.ts": "1b516b37efd0577b2767a6f0ab0306f44baa094b77ea0a98ec91e22a689c3e90"
+  }
+}

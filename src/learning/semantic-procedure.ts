@@ -17,11 +17,11 @@ const fieldSchema=Schema.Union(
 type Field=typeof fieldSchema.Type;
 const recordSchema=Schema.Struct({name:identifier,fields:Schema.Array(fieldSchema).pipe(Schema.minItems(1),Schema.maxItems(semanticProcedureLimits.fields))});
 const atomicValueSchema=Schema.Union(Schema.Struct({kind:Schema.Literal('literal'),value:scalarSchema}),Schema.Struct({kind:Schema.Literal('input'),field:identifier}));
-const arithmeticSchema=Schema.Struct({kind:Schema.Literal('arithmetic'),operator:Schema.Literal('add','subtract','multiply','divide'),left:atomicValueSchema,right:atomicValueSchema});
-const valueSchema=Schema.Union(atomicValueSchema,arithmeticSchema);
-type Value=typeof valueSchema.Type;
 const operandSchema=Schema.Union(atomicValueSchema,Schema.Struct({kind:Schema.Literal('output'),field:identifier}));
 type Operand=typeof operandSchema.Type;
+const arithmeticSchema=Schema.Struct({kind:Schema.Literal('arithmetic'),operator:Schema.Literal('add','subtract','multiply','divide'),left:operandSchema,right:operandSchema});
+const valueSchema=Schema.Union(operandSchema,arithmeticSchema);
+type Value=typeof valueSchema.Type;
 const operatorSchema=Schema.Literal('eq','ne','gt','gte','lt','lte');
 export type SemanticPredicate=
  | {readonly kind:'compare';readonly operator:typeof operatorSchema.Type;readonly left:Operand;readonly right:Operand}
@@ -163,12 +163,13 @@ export function parseSemanticProcedure(value:unknown):SemanticProcedure {
   switch(value.kind){
    case 'assign':{
     const field=outputs.get(value.field);if(!field)fail(`Unknown output field ${value.field}.`);
+    const prior=(operand:Operand)=>{if(operand.kind==='output'&&(plan.target!=='local-record'||operand.field===value.field))fail('Only a different earlier local result can be used by this step.');return operandType(operand,assigned,true);};
     if(value.value.kind==='arithmetic'){
      if(plan.target!=='local-record')fail('Arithmetic assignments are available only to local record helpers.');
-     if(field.kind!=='number'||operandType(value.value.left,assigned,false)!=='number'||operandType(value.value.right,assigned,false)!=='number')fail('Arithmetic assignments require a numeric result and two numeric inputs or constants.');
+     if(field.kind!=='number'||prior(value.value.left)!=='number'||prior(value.value.right)!=='number')fail('Arithmetic assignments require a numeric result and numeric inputs, constants or earlier results.');
      if(value.value.operator==='divide'&&value.value.right.kind==='literal'&&value.value.right.value===0)fail('A constant divisor must not be zero.');
     }else{
-     if(operandType(value.value,assigned,false)!==field.kind)fail(`Assignment type differs for ${value.field}.`);
+     if(prior(value.value)!==field.kind)fail(`Assignment type differs for ${value.field}.`);
      if(value.value.kind==='literal'&&!accepts(field,value.value.value))fail(`Assignment exceeds the output contract for ${value.field}.`);
     }
     step(value.next,new Set([...assigned,value.field]),depth+1);return;
