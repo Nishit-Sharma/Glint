@@ -24,4 +24,4 @@
 .readable-text.markdown-content .markdown-image-reference{color:var(--muted);line-height:1.6}
 .readable-text.markdown-content :is(pre,.markdown-table-scroll):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
-.readable-text.markdown-content pre:has(code.language-window-transcription),.rich-document-body pre:has(code.language-window-transcription){white-space:pre-wrap;overflow-wrap:anywhere}
+.readable-text.markdown-content pre:has(code:is(.language-window-transcription,.language-text)),.rich-document-body pre:has(code:is(.language-window-transcription,.language-text)){white-space:pre-wrap;overflow-wrap:anywhere}

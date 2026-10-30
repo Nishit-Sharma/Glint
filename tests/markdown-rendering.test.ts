@@ -62,3 +62,9 @@ describe('saved Markdown rendering',()=>{
   }
  });
 });
+
+it('keeps complete whitespace-preserved plain-text fence bytes and their wrapping language marker in saved notes',()=>{
+ const line='  LONG_LINE_BEGIN_'+'x'.repeat(220)+'_LONG_LINE_END  ',html=renderToStaticMarkup(createElement(ReadableText,{text:'```text\n'+line+'\n```'}));
+ expect(html).toContain('<pre tabindex="0" role="region" aria-label="Code block">');expect(html).toContain('<code class="language-text">'+line+'\n</code>');
+ const code=renderToStaticMarkup(createElement(ReadableText,{text:'```js\nconst value = 1;\n```'}));expect(code).toContain('<code class="language-js">const value = 1;\n</code>');
+});
