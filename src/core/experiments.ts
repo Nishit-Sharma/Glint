@@ -37,7 +37,10 @@ function calculateExperiment(spec: ExperimentSpec, inputs: Record<string, number
   for (const variable of spec.variables) {
     if (!/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(variable.name) || variables.has(variable.name)) fail('invalid or duplicate variable');
     if (!Number.isFinite(variable.min) || !Number.isFinite(variable.max) || variable.min > variable.max) fail('invalid input bounds');
+    if (variable.integer !== undefined && variable.integer !== true) fail('integer input domain must be true when present');
+    if (variable.integer && (!Number.isSafeInteger(variable.min) || !Number.isSafeInteger(variable.max))) fail('integer input bounds must be safe whole numbers');
     const value = inputs[variable.name];
+    if (variable.integer && !Number.isSafeInteger(value)) fail(`input ${variable.name} must be a safe whole number`);
     if (!Object.hasOwn(inputs, variable.name) || !Number.isFinite(value) || value < variable.min || value > variable.max) fail(`input ${variable.name} is outside bounds`);
     variables.set(variable.name, { value, dimensions: dimensions(variable.unit) });
   }

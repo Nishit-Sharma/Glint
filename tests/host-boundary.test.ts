@@ -1,4 +1,5 @@
 import {prepareRequestFollowup} from '../src/shared/request-followup';
+import {recognizeRangeSum,rangeSumVariables,RANGE_SUM_FORMULA,RANGE_SUM_ASSUMPTION} from '../src/learning/python-range-sum';
 import {browserReviewNotesPreview} from '../src/shared/browser-review-notes';
 import {emptyTaskSession} from '../src/core/task-session';
 import {responseBranchSnapshot} from '../src/core/response-branch'
@@ -31,6 +32,13 @@ import {REVISION_INSTRUCTIONS_SLOT,emptyRevisionInstructions} from '../src/share
 // Bundle the production host handler. Only OS/network boundaries are substituted;
 // source versions, request authority and all durable writes use the actual core.
 const cleanups:Array<()=>Promise<void>>=[]
+it('shared source formula and target dispatch enforce the bounded derived integer loop domain without external effects',async()=>{
+ const f=await fixture(),created=await f.core.createTask({title:'Owned loop domain'}),quote='total = 2\nfor item in range(5):\n    total += item',loop=recognizeRangeSum(quote)!,task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Loop source',content:quote}),v=task.sources[0].versions[0],ref={sourceId:v.id,version:1,digest:v.digest},input={taskId:task.id,sourceRef:ref,lineNumber:1,start:0,end:loop.end,title:'Derived integer sum',formula:RANGE_SUM_FORMULA,variables:rangeSumVariables(loop),assumptions:[RANGE_SUM_ASSUMPTION],correctionReason:'Derived bounded arithmetic, not executed Python.',confirmed:'reviewed-source-transcription',derivation:'python-range-sum-v1'};
+ const saved=await f.command({type:'experiment.source.save',input}),current=await f.core.getTask(task.id),packet=JSON.parse(current.artifacts.find((a:any)=>a.id===saved.artifactId)!.revisions[0].content);expect(packet.citation.quote).toBe(quote);expect(packet.citation.lineCount).toBe(3);
+ for(const count of [-1,.5,33])await expect(f.command({type:'experiment.evaluate',spec:packet.draft.spec,inputs:{initial:2,count}})).rejects.toThrow();await expect(f.command({type:'experiment.evaluate',spec:{...packet.draft.spec,variables:packet.draft.spec.variables.map((item:any)=>({...item,integer:false}))},inputs:{initial:2,count:5}})).rejects.toThrow();expect(await f.command({type:'experiment.evaluate',spec:packet.draft.spec,inputs:{initial:2,count:6}})).toMatchObject({value:17});
+ const practice={taskId:task.id,basis:{artifactId:saved.artifactId,revision:1,digest:saved.digest},expectedSourceRefs:[ref],variable:'count',demonstratedInputs:[{initial:2,count:6}]};expect(await f.command({type:'experiment.target.inspect',...practice})).toMatchObject({kind:'not-started',challenge:{target:30,integer:true}});await expect(f.command({type:'experiment.target.submit',...practice,answer:7.5,reasoning:'Fractional count is unsupported.',shareWithTask:true})).rejects.toThrow();expect((await f.core.getTask(task.id)).requests).toHaveLength(1);
+ const first=await f.command({type:'experiment.target.submit',...practice,answer:7,reasoning:'I included the excluded stop.',shareWithTask:true});expect(first.content).toContain('Calculated output from your answer: 23 1');expect(first.content).toContain('I included the excluded stop.');expect((await f.core.getTask(task.id)).requests).toHaveLength(2);expect(f.calls.provider).toEqual([]);expect(f.calls.captures).toBe(0);expect(f.calls.confirmations).toEqual([]);
+});
 it('temporary production host resolves exactly the project dependencies without ambient module paths',async()=>{
  const f=await fixture(),loadTemporary=createRequire(pathToFileURL(join(f.directory,'host-under-test.cjs'))),loadProject=createRequire(pathToFileURL(join(resolve('.'),'package.json')));
  expect(await realpath(join(f.directory,'node_modules','effect','package.json'))).toBe(await realpath(loadProject.resolve('effect/package.json')));

@@ -92,8 +92,9 @@ function experiment(value: Record<string, unknown>): ExperimentDraft {
   const source = shape(object.spec, 'spec', ['title', 'expression', 'variables', 'assumptions']);
   const specTitle = string(source.title, 'spec.title', 200);
   const variables = array(source.variables, 'variables', 1, 12).map((entry, index) => {
-    const variable = shape(entry, `variable ${index + 1}`, ['name', 'unit', 'min', 'max']);
-    const result = { name: name(variable.name, 'variable.name'), unit: string(variable.unit, 'variable.unit', 80), min: finite(variable.min, 'variable.min'), max: finite(variable.max, 'variable.max') };
+    const variable = shape(entry, `variable ${index + 1}`, ['name', 'unit', 'min', 'max'], ['integer']);
+    if (variable.integer !== undefined && variable.integer !== true) return fail('integer input domain must be true when present');
+    const result = { name: name(variable.name, 'variable.name'), unit: string(variable.unit, 'variable.unit', 80), min: finite(variable.min, 'variable.min'), max: finite(variable.max, 'variable.max'), ...(variable.integer === true ? {integer: true as const} : {}) };
     if (result.min > result.max) return fail('variable minimum exceeds maximum');
     return result;
   });

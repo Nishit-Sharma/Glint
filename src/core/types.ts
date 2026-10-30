@@ -121,7 +121,7 @@ export type Expression =
   | { op: 'power'; base: Expression; exponent: number };
 export interface ExperimentSpec {
   title: string; expression: Expression;
-  variables: { name: string; unit: string; min: number; max: number }[];
+  variables: { name: string; unit: string; min: number; max: number; integer?: true }[];
   assumptions: string[];
 }
 export interface ExperimentResult { value: number; unit: string; assumptions: string[] }
