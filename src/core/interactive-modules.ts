@@ -1,3 +1,4 @@
+import {tableWorkflow,TableWorkflowStateSchema,TableWorkflowActionSchema} from '../learning/table-workflow';
 import {initialRecordedTextHelper} from '../learning/recorded-text-procedure';
 import {readTruthBinding,TRUTH_INTRO,isTruthModuleId} from '../learning/truth-table';
 import { Schema } from 'effect';
@@ -36,8 +37,11 @@ export const planModule = defineModule({ kind: 'plan', schemaVersion: 1, descrip
 export const joinModule = defineModule({ kind: 'join-lab', schemaVersion: 1, description: 'Predict and change a bounded equality join; inspect exact pairs and try a distinct transfer.', data: JoinLessonSchema, state: JoinStateSchema, action: JoinActionSchema, validate: validateLesson, initial: joinLab.initial, update: joinLab.update, text: joinLab.text });
 const BeginTable=Schema.Struct({kind:Schema.Literal('begin-table-helper'),expectedRevision:Schema.Int.pipe(Schema.between(0,500))});
 const BeginSemantic=Schema.Struct({kind:Schema.Literal('begin-semantic-helper'),expectedRevision:Schema.Int.pipe(Schema.between(0,500))});
-export const helperModule = defineModule({kind:'helper-studio',schemaVersion:1,description:'Teach, test, version and activate a local helper.',data:HelperDataSchema,state:Schema.Union(HelperStateSchema,SemanticHelperStateSchema,PickingStateSchema),action:Schema.Union(HelperActionSchema,SemanticHelperActionSchema,PickingActionSchema,BeginSemantic,BeginTable),initial:data=>data.recordedText?initialRecordedTextHelper(data):helperStudio.initial(data),
+export const helperModule = defineModule({kind:'helper-studio',schemaVersion:1,description:'Teach, test, version and activate a local helper.',data:HelperDataSchema,state:Schema.Union(HelperStateSchema,SemanticHelperStateSchema,PickingStateSchema,TableWorkflowStateSchema),action:Schema.Union(HelperActionSchema,SemanticHelperActionSchema,PickingActionSchema,TableWorkflowActionSchema,BeginSemantic,BeginTable),initial:data=>data.recordedText?initialRecordedTextHelper(data):helperStudio.initial(data),
  update(data,state,action){
+  if(action.kind==='begin-table-workflow'){if('format'in state||state.revision!==0)throw Error('Choose table workflow only from a new unchanged helper.');return {...tableWorkflow.initial(data.id),revision:1};}
+  if('format'in state&&state.format==='table-workflow-v1')return tableWorkflow.update(data.id,state,action);
+  if(action.kind.startsWith('table-workflow-'))throw Error('Choose table workflow mode first.');
   if(action.kind==='begin-table-helper'){
    if('format' in state||state.revision!==0)throw Error('Start a table helper only from a new, unchanged helper.');
    return pickingHelper.parseState(data.id,{...pickingHelper.initial(data.id),revision:1});
@@ -55,7 +59,7 @@ export const helperModule = defineModule({kind:'helper-studio',schemaVersion:1,d
   if(action.kind.includes('semantic'))throw Error('Choose local record mode first.');
   return helperStudio.update(data,state,action);
  },
- text(data,state){return 'format' in state?state.format==='semantic-table-v2'?pickingHelper.text(data.id,state):semanticHelperText(data.id,state):helperStudio.text(data,state);},
+ text(data,state){return 'format'in state&&state.format==='table-workflow-v1'?tableWorkflow.text(data,state):'format' in state?state.format==='semantic-table-v2'?pickingHelper.text(data.id,state):semanticHelperText(data.id,state):helperStudio.text(data,state);},
 });
 export const groundedJoinModule=defineModule({kind:'grounded-join',schemaVersion:1,description:'Review cited table extraction, correct ambiguities and run the installed join experiment.',data:GroundedJoinDataSchema,state:GroundedJoinStateSchema,action:GroundedJoinActionSchema,validate:groundedJoin.parse,initial:groundedJoin.initial,update:groundedJoin.update,text:groundedJoin.text});
 export const workflowModule=defineModule({kind:'workflow-lab',schemaVersion:1,description:'Predict and edit a bounded finite workflow; inspect the computed trace and try a distinct transfer.',data:WorkflowDataSchema,state:WorkflowStateSchema,action:WorkflowActionSchema,validate:workflowLab.parse,initial:workflowLab.initial,update:workflowLab.update,text:workflowLab.text});
@@ -94,6 +98,7 @@ export function readableModuleIntro(answer:ModuleAnswer,stateFor?:(moduleId:stri
   if(answer.markdown!=='Local text helper. Teach only the listed text operations on text you paste here.'||answer.modules.length!==1)return answer.markdown;
   const module=answer.modules[0];if(module.data.kind!=='helper-studio')return answer.markdown;
   const state=stateFor?.(module.id);
+  if(state&&typeof state==='object'&&'format'in state&&state.format==='table-workflow-v1'){try{tableWorkflow.parseState(module.data.id,state);return 'Local table workflow. Demonstrate, check and reuse collection-level table steps here.';}catch{return answer.markdown;}}
   if(state&&typeof state==='object'&&'format' in state&&state.format==='semantic-table-v2'){try{pickingHelper.parseState(module.data.id,state);return 'Local picking helper. Review owned table actions and local manifest drafts here.';}catch{return answer.markdown;}}
   if(!state||typeof state!=='object'||!('format' in state)||state.format!=='semantic-record-v1')return answer.markdown;
   try{semanticHelper.parseState(module.data.id,state);return 'Local record helper. Choose fields and check local computations here.';}catch{return answer.markdown;}

@@ -1,3 +1,5 @@
+import {tableWorkflow} from '../learning/table-workflow';
+import {tableWorkflowForm,validateTableWorkflowRaw} from '../shared/table-workflow-draft';
 import {TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT} from '../shared/experiment-target-draft';
 import {reviewedSourceFormula} from '../learning/source-formula';
 import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT} from '../shared/source-formula-draft';
@@ -149,6 +151,7 @@ export class LearningDraftStore{
     const policy=learningDraftJsonPolicy(owner,slot);
     return [value.initial,value.value].every(text=>parseJoinRowRaw(parseLearningDraftJson(text,policy)).cells.length===table.columns.length);
    }
+   if(tableWorkflowForm(slot)){if(module.data.kind!=='helper-studio'||artifact?.revisions.at(-1)!==revision)return false;const saved=task.session?.moduleStates.filter(item=>item.artifactId===artifact.id&&item.artifactRevision===revision.revision&&(item.moduleId===module.id||(item.moduleId===undefined&&answer.modules.length===1)))??[];if(saved.length!==1||saved[0].state.format!=='table-workflow-v1')return false;const flow=tableWorkflow.parseState(module.data.id,saved[0].state);if(!flow.owner||Object.entries({...owner,helperId:module.data.id}).some(([key,v])=>flow.owner![key as keyof typeof flow.owner]!==v))return false;return [value.initial,value.value].every(text=>{validateTableWorkflowRaw(parseLearningDraftJson(text,'table-workflow-form'),slot);return true;});}
    if(module.data.kind==='document-recipe'){if(!documentRecipeForm(slot)||artifact?.revisions.at(-1)!==revision)return false;return [value.initial,value.value].every(text=>{validateDocumentRecipeRaw(parseLearningDraftJson(text,'document-recipe-form'),slot);return true;});}
    if(module.data.kind!=='helper-studio')return !isHelperDraftSlot(slot)&&['join-lab','grounded-join','workflow-lab'].includes(module.data.kind);
    const mode=helperDraftMode(slot);if(!mode||artifact?.revisions.at(-1)!==revision)return false;
@@ -161,6 +164,7 @@ export class LearningDraftStore{
    const current=matches[0].state;
    if(mode==='table'&&current.format!=='semantic-table-v2')return false;
    if(current.format==='semantic-table-v2'){const parsed=pickingHelper.parseState(module.data.id,current),actual={...owner,helperId:module.data.id};if(mode==='table'&&parsed.owner&&Object.entries(actual).some(([key,value])=>parsed.owner![key as keyof typeof parsed.owner]!==value))return false;}
+   else if(current.format==='table-workflow-v1')tableWorkflow.parseState(module.data.id,current);
    else if(current.format==='semantic-record-v1')semanticHelper.parseState(module.data.id,current);
    else helperStudio.parseState(module.data,current);
    return true;

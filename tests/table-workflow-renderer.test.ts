@@ -1,0 +1,43 @@
+import {afterEach,expect,test,vi} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('./controlled-renderer.fixture')).hooks}));
+import {createElement} from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {createControlledRenderer} from './controlled-renderer.fixture';
+import {TableWorkflowStudio} from '../src/renderer/src/components/TableWorkflowStudio';
+import {LearningDraftProvider,LearningDraftScope} from '../src/renderer/src/learning-draft-context';
+import {LearningDraftStore} from '../src/host/learning-drafts';
+import {createLearningDrafts} from '../src/renderer/src/learning-drafts';
+import {editModule} from '../src/core/module-state';
+import {TableWorkflowActionSchema,tableWorkflow,type TableWorkflowAction} from '../src/learning/table-workflow';
+import {Schema} from 'effect';
+import {tableWorkflowFixture,demoCsv,freshCsv,freshExpected,stopCsv} from './table-workflow.fixture';
+type Renderer=ReturnType<typeof createControlledRenderer>;type Node=ReturnType<Renderer['nodes']>[number];
+const text=(node:Node):string=>node.type==='#text'?String(node.props.text):node.children.map(text).join('');
+const button=(r:Renderer,name:string)=>r.find(n=>n.type==='button'&&text(n)===name);
+const click=(r:Renderer,name:string)=>{const b=button(r,name);expect(b.props.disabled).not.toBe(true);b.props.onClick();r.render();};
+const change=(r:Renderer,name:string,value:string)=>{r.find(n=>n.props['aria-label']===name).props.onChange({target:{value},currentTarget:{value}});r.render();};
+const close:Array<()=>Promise<void>>=[];afterEach(async()=>{for(const f of close.splice(0))await f();});
+async function fixture(){
+ const f=await tableWorkflowFixture();close.push(f.close);const demo=await f.source(),fresh=await f.source(freshCsv,'fresh-orders'),{helperId:_helper,...owner}=f.owner;let task=await f.core.getTask(f.owner.taskId),mounted=true,releaseReply:(()=>void)|undefined,holdReply:Promise<void>|undefined;const commands:TableWorkflowAction[]=[],pending:Promise<unknown>[]=[],store=new LearningDraftStore({directory:f.directory,lookupTask:async id=>(await f.core.listTasks()).find(item=>item.id===id)});let cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();
+ const state=()=>tableWorkflow.parseState(f.owner.helperId,task.session!.moduleStates.find(item=>item.moduleId===f.owner.moduleId)!.state);
+ const onAction=(action:TableWorkflowAction)=>{commands.push(structuredClone(action));const result=(async()=>{await editModule(f.core,{...f.owner,action});task=await f.core.getTask(task.id);if(holdReply)await holdReply;return true;})();pending.push(result);return result;};
+ const factory=()=>mounted?createElement(LearningDraftProvider,{cache,children:createElement(LearningDraftScope,{owner,children:createElement(TableWorkflowStudio,{state:state(),task,onAction})})}):null;
+ let r=createControlledRenderer(factory);r.render();
+ const settle=async()=>{await cache.flush();await new Promise<void>(resolve=>setImmediate(resolve));await Promise.allSettled(pending.splice(0));await new Promise<void>(resolve=>setImmediate(resolve));r.render();await cache.flush();};
+ return {f,demo,fresh,commands,state,get r(){return r;},settle,async recreate(){mounted=false;r.render();await cache.flush();cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();mounted=true;r=createControlledRenderer(factory);r.render();},holdNextReply(){holdReply=new Promise<void>(resolve=>{releaseReply=resolve;});return ()=>{releaseReply?.();holdReply=undefined;};},async pause(){task=await f.core.pause(task.id);r.render();},unmount(){mounted=false;r.render();},get cache(){return cache;}};
+}
+async function demonstrate(f:Awaited<ReturnType<typeof fixture>>){
+ change(f.r,'Table workflow name','  Ready order totals  ');change(f.r,'Demonstration CSV source',JSON.stringify(f.demo));click(f.r,'Start local table demonstration');await f.settle();change(f.r,'Next table step filter column','status');change(f.r,'Next table step filter value','ready');click(f.r,'Perform and record table step');await f.settle();change(f.r,'Next table step type','calculate');change(f.r,'Next table step new column','amount');change(f.r,'Next table step Left value column','qty');change(f.r,'Next table step Right value column','price');click(f.r,'Perform and record table step');await f.settle();change(f.r,'Next table step type','summarize');change(f.r,'Next table step group column','team');change(f.r,'Next table step sum column','amount');change(f.r,'Next table step total column','total');click(f.r,'Perform and record table step');await f.settle();click(f.r,'Review demonstrated table workflow');click(f.r,'Create inactive table workflow draft');await f.settle();
+}
+
+test('actual cached controls demonstrate heterogeneous table steps, gate inactive/check/activate, then run a distinct saved source',async()=>{
+ const f=await fixture();await demonstrate(f);expect(f.state().draft.steps.map(step=>step.kind)).toEqual(['filter','calculate','summarize']);expect(f.state().draft.observation?.source.content).toBe(demoCsv);expect(button(f.r,'Save checked table workflow version').props.disabled).toBe(true);change(f.r,'Table workflow stop text','HOLD');change(f.r,'Table workflow stop reason','  Leave held orders for review.  ');click(f.r,'Add table stop rule');await f.settle();change(f.r,'Table check CSV',freshCsv);change(f.r,'Table check expected CSV',freshExpected);click(f.r,'Add or replace table check');await f.settle();change(f.r,'Table check CSV',stopCsv);change(f.r,'Table check expected outcome','stopped');click(f.r,'Add or replace table check');await f.settle();click(f.r,'Save checked table workflow version');await f.settle();expect(f.state().activeVersion).toBeNull();click(f.r,'Activate table workflow version 1');await f.settle();change(f.r,'Fresh table CSV source',JSON.stringify(f.fresh));click(f.r,'Run active table workflow locally');await f.settle();expect(f.state().lastRun?.result.status).toBe('completed');expect(f.r.nodes().map(text).join('')).toContain('Complete table workflow result');expect((await f.f.core.getTask(f.f.owner.taskId)).artifacts).toHaveLength(1);expect(f.commands.filter(c=>c.kind==='table-workflow-run')).toHaveLength(1);expect(f.r.nodes().some(n=>n.props['aria-label']==='Original source and performed actions'&&n.type==='pre')).toBe(false);f.unmount();
+});
+
+test('exact unfinished numeric fields survive raw reopen and cannot dispatch or silently become zero',async()=>{
+ const f=await fixture();change(f.r,'Demonstration CSV source',JSON.stringify(f.demo));click(f.r,'Start local table demonstration');await f.settle();change(f.r,'Next table step type','calculate');change(f.r,'Next table step Left value source','number');change(f.r,'Next table step Left value number','');change(f.r,'Next table step new column','  unfinished column  ');await f.settle();await f.recreate();expect(f.r.find(n=>n.props['aria-label']==='Next table step Left value number').props.value).toBe('');expect(f.r.find(n=>n.props['aria-label']==='Next table step new column').props.value).toBe('  unfinished column  ');const count=f.commands.length;click(f.r,'Perform and record table step');await f.settle();expect(f.commands).toHaveLength(count);expect(f.r.nodes().map(text).join('')).toContain('Complete each fixed numeric value');expect(f.state().workspace?.actions).toHaveLength(0);f.unmount();
+});
+
+test('newer raw check text survives a held successful reply and retained callbacks cannot write after the task pauses',async()=>{
+ const f=await fixture();await demonstrate(f);change(f.r,'Table workflow stop text','HOLD');click(f.r,'Add table stop rule');await f.settle();change(f.r,'Table check CSV',freshCsv);change(f.r,'Table check expected CSV',freshExpected);const release=f.holdNextReply();click(f.r,'Add or replace table check');await vi.waitFor(()=>expect(f.commands.filter(c=>c.kind==='table-workflow-check')).toHaveLength(1));change(f.r,'Table check CSV','  NEWER unfinished CSV  ');release();await f.settle();expect(f.r.find(n=>n.props['aria-label']==='Table check CSV').props.value).toBe('  NEWER unfinished CSV  ');await f.recreate();expect(f.r.find(n=>n.props['aria-label']==='Table check CSV').props.value).toBe('  NEWER unfinished CSV  ');const retained=button(f.r,'Add or replace table check').props.onClick,count=f.commands.length;await f.pause();retained();await f.settle();expect(f.commands).toHaveLength(count);expect(f.r.find(n=>n.props['aria-label']==='Table check CSV').props.value).toBe('  NEWER unfinished CSV  ');f.unmount();
+});

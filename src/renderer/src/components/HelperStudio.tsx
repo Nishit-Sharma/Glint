@@ -14,7 +14,7 @@ function operationFrom(kind:string,find:string,replacement:string):HelperOperati
  if(kind==='trim'||kind==='collapse-spaces'||kind==='lowercase'||kind==='uppercase')return {kind};
  throw Error('Choose an installed text operation.');
 }
-export function HelperStudio({data,state,pending=false,onAction,motion,onBeginRecord,onBeginPicking}:{data:HelperData;state:HelperState;pending?:boolean;onAction:(action:HelperAction)=>void|Promise<boolean>;motion?:{identity:string;arrivalIdentity:string};onBeginRecord?:()=>void;onBeginPicking?:()=>void}){
+export function HelperStudio({data,state,pending=false,onAction,motion,onBeginRecord,onBeginPicking,onBeginTableWorkflow}:{data:HelperData;state:HelperState;pending?:boolean;onAction:(action:HelperAction)=>void|Promise<boolean>;motion?:{identity:string;arrivalIdentity:string};onBeginRecord?:()=>void;onBeginPicking?:()=>void;onBeginTableWorkflow?:()=>void}){
  const identity=(family:FormGroup)=>({slot:`helper:text:${family}`,basisMode:'explicit' as const,basis:legacyHelperDraftBasis(state,family)});
  const details=useNavigationForm({name:state.draft.name,invocation:state.draft.invocation},state,undefined,undefined,identity('details'));
  const examples=useNavigationForm({firstBefore:'  River   DOCK  ',firstAfter:'river dock',secondBefore:'  NORTH   Desk  ',secondAfter:'north desk',proposalId:''},state,undefined,undefined,identity('examples'));
@@ -65,6 +65,7 @@ export function HelperStudio({data,state,pending=false,onAction,motion,onBeginRe
   <p className="learning-origin">Local text helper · Works only on text pasted here.</p></ReadyArtifact>
   {state.revision===0&&onBeginRecord&&<p>Want to work with named fields instead? <button type="button" disabled={pending} onClick={()=>guard(onBeginRecord)}>Create a local record helper</button></p>}
   {state.revision===0&&onBeginPicking&&<p><button type="button" disabled={pending} onClick={()=>guard(onBeginPicking)}>Create a local picking manifest</button></p>}
+  {state.revision===0&&onBeginTableWorkflow&&<p><button type="button" disabled={pending} onClick={()=>guard(onBeginTableWorkflow)}>Create a local table workflow</button></p>}
   <fieldset className="helper-editor" disabled={pending}>
   <details><summary>Name and discovery label</summary><form className="helper-fields" onSubmit={event=>{event.preventDefault();send({kind:'set-details',name,description:state.draft.description,invocation,expectedRevision:state.revision},['details']);}}><label>Helper name<input value={name} maxLength={160} required disabled={details.held} onChange={event=>{setName(event.target.value);}}/></label><label>Discovery label<input value={invocation} maxLength={160} required disabled={details.held} onChange={event=>{setInvocation(event.target.value);}}/></label>{details.feedback}<button disabled={pending||!!state.recording||details.held}>Apply details</button></form></details>
   {state.versions.length>0&&<section className="learning-section" aria-label="Use helper"><h4>Use the saved helper</h4>{catalog?<p>Find it in Saved helpers as “{catalog.invocation}”. {catalog.description} Version {catalog.version}. Scope: {catalog.scope}.</p>:<p>Activate a saved version to run it. Saved helpers opens this original helper and its version history.</p>}

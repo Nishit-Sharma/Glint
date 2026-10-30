@@ -1,3 +1,4 @@
+import {tableWorkflow} from '../learning/table-workflow';
 import type {Artifact,Task} from '../core/types';
 import {parseModuleAnswer} from '../core/interactive-modules';
 import {documentRecipe} from '../learning/document-recipe';
@@ -33,6 +34,7 @@ export function savedHelpers(tasks:readonly Task[]):SavedHelperEntry[]{
      if(module.data.kind!=='helper-studio')continue;
      const matches=task.session?.moduleStates.filter(saved=>saved.artifactId===artifact.id&&saved.artifactRevision===revision.revision&&(saved.moduleId===module.id||(saved.moduleId===undefined&&answer.modules.length===1)))??[];
      if(matches.length!==1)continue;
+     if(matches[0].state.format==='table-workflow-v1'){const state=tableWorkflow.parseState(module.data.id,matches[0].state),saved=state.versions.find(item=>item.version===state.activeVersion)??state.versions.at(-1);if(!saved)continue;entries.push({taskId:task.id,taskTitle:task.title,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,helperId:module.data.id,stateRevision:state.revision,name:saved.definition.name,description:saved.definition.intent,invocation:'Local table workflow',version:saved.version,activeVersion:state.activeVersion,savedVersionCount:state.versions.length,example:undefined});continue;}
      if(matches[0].state.format==='semantic-table-v2'){
       const state=pickingHelper.parseState(module.data.id,matches[0].state),saved=state.releases.find(r=>r.version===state.activation.version)??state.releases.at(-1);if(!saved)continue;
       const observed=state.observations.find(o=>saved.observations.some(ref=>ref.id===o.id&&ref.digest===o.digest)),context=observed&&state.contexts.find(c=>c.id===observed.contextId);

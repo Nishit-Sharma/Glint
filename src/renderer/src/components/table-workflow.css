@@ -1,0 +1,10 @@
+.table-workflow { min-width:0; }
+.table-workflow .table-workflow-table { max-width:100%; overflow:auto; margin:.75rem 0; border:1px solid var(--border, #dadada); border-radius:.5rem; }
+.table-workflow table { width:100%; border-collapse:collapse; }
+.table-workflow th,.table-workflow td { padding:.55rem .7rem; text-align:left; vertical-align:top; border-bottom:1px solid var(--border, #dadada); white-space:pre-wrap; overflow-wrap:anywhere; min-width:7rem; max-width:24rem; }
+.table-workflow caption { padding:.5rem; text-align:left; }
+.table-workflow .table-workflow-step { border:1px solid var(--border, #dadada); border-radius:.65rem; padding:1rem; margin:.75rem 0; min-width:0; }
+.table-workflow .table-workflow-operand { min-width:0; margin:.5rem 0; }
+.table-workflow .table-workflow-exact { white-space:pre-wrap; overflow-wrap:anywhere; }
+.table-workflow input,.table-workflow select,.table-workflow textarea { max-width:100%; min-width:0; }
+.table-workflow [hidden] { display:none!important; }
