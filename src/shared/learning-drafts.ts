@@ -1,3 +1,4 @@
+import {TargetDraftOwnerSchema,TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT,emptyTargetReview,emptyTargetIntent,readTargetDraft,targetDraftBasis} from './experiment-target-draft';
 import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT,sourceFormulaDraftBasis,emptySourceFormulaDraft,emptySourceFormulaIntent,readSourceFormulaDraft} from './source-formula-draft';
 import {documentRecipeForm,validateDocumentRecipeRaw,DOCUMENT_RECIPE_DRAFT_BYTES} from './document-recipe-raw';
 import {SavedDocumentDraftOwnerSchema,SAVED_DOCUMENT_DRAFT_SLOT,SAVED_DOCUMENT_CONTENT_LIMIT,SAVED_DOCUMENT_DRAFT_JSON_BYTES,emptySavedDocumentDraft,parseSavedDocumentDraft,parseSavedDocumentDraftBasis} from './saved-document-draft';
@@ -28,7 +29,7 @@ const ReviewOwner=Schema.Struct({kind:Schema.Literal('window-workflow-review'),t
 const SourceReviewOwner=Schema.Struct({kind:Schema.Literal('workflow-source-review'),taskId:safeText(200),artifactId:safeText(200),artifactRevision:positive,artifactDigest:safeText(200)});
 const LocalTaskOwner=Schema.Struct({kind:Schema.Literal('local-task-form'),form:Schema.Literal('text','draft')});
 const FormulaOwner=Schema.Struct({kind:Schema.Literal('source-formula-review'),taskId:safeText(200)});
-const Owner=Schema.Union(FormulaOwner,ModuleOwner,ReviewOwner,SourceReviewOwner,LocalTaskOwner,SourceTextDraftOwnerSchema,SavedDocumentDraftOwnerSchema);
+const Owner=Schema.Union(TargetDraftOwnerSchema,FormulaOwner,ModuleOwner,ReviewOwner,SourceReviewOwner,LocalTaskOwner,SourceTextDraftOwnerSchema,SavedDocumentDraftOwnerSchema);
 const Value=Schema.Struct({initial:Schema.String,value:Schema.String,basis:safeText(LEARNING_DRAFT_LIMITS.basisLength)});
 const RecordSchema=Schema.Struct({owner:Owner,slot:safeText(512),revision:positive,value:Schema.NullOr(Value)});
 const Epoch=Schema.String.pipe(Schema.filter(value=>value==='initial'||/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)));
@@ -133,6 +134,9 @@ export function parseLearningDraftValue(value:unknown,owner?:LearningDraftOwner,
  const policy=owner&&slot!==undefined?learningDraftJsonPolicy(parseLearningDraftOwner(owner),parseLearningDraftSlot(slot)):undefined;
  canonicalJson(value,jsonLimit(policy));const parsed=decode(Value,value);
  const initial=parseLearningDraftJson(parsed.initial,policy),current=parseLearningDraftJson(parsed.value,policy);
+ if(owner&&'kind' in owner&&owner.kind==='experiment-target-practice'){
+  try{if(![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot??'')||parsed.basis!==targetDraftBasis(owner,slot!)||parsed.initial!==serializeLearningDraftJson(slot===TARGET_REVIEW_SLOT?emptyTargetReview:emptyTargetIntent))throw Error();readTargetDraft(slot!,initial);readTargetDraft(slot!,current);}catch{throw invalid('Target-practice raw fields need inspection.');}
+ }
  if(owner&&'kind' in owner&&owner.kind==='source-formula-review'){
   try{if(![SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT].includes(slot??'')||parsed.basis!==sourceFormulaDraftBasis(slot!)||parsed.initial!==serializeLearningDraftJson(slot===SOURCE_FORMULA_DRAFT_SLOT?emptySourceFormulaDraft:emptySourceFormulaIntent))throw Error();readSourceFormulaDraft(slot!,initial);readSourceFormulaDraft(slot!,current);}catch{throw invalid('Formula review edits need inspection.');}
  }
@@ -176,6 +180,7 @@ export function parseLearningDraftRecord(value:unknown):LearningDraftRecord{
  const owner=parseLearningDraftOwner(fields.owner),slot=parseLearningDraftSlot(fields.slot);
  if(!isTaskLearningDraftOwner(owner)&&slot!==LOCAL_TASK_DRAFT_SLOT)throw invalid('Local task draft slot is invalid.');
  if('kind' in owner&&owner.kind==='saved-document-edit'&&slot!==SAVED_DOCUMENT_DRAFT_SLOT&&slot!==REVISION_INSTRUCTIONS_SLOT)throw invalid('Document edit slot is invalid.');
+ if('kind' in owner&&owner.kind==='experiment-target-practice'&&![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot))throw invalid('Target-practice slot is invalid.');
  if('kind' in owner&&owner.kind==='source-formula-review'&&![SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT].includes(slot))throw invalid('Formula review slot is invalid.');
  if('kind' in owner&&owner.kind==='source-text-edit'&&slot!==SOURCE_TEXT_DRAFT_SLOT)throw invalid('Source edit slot is invalid.');
  const parsedValue=parseLearningDraftValue(fields.value,owner,slot);

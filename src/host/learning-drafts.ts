@@ -1,3 +1,5 @@
+import {TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT} from '../shared/experiment-target-draft';
+import {reviewedSourceFormula} from '../learning/source-formula';
 import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT} from '../shared/source-formula-draft';
 import {documentRecipeForm,validateDocumentRecipeRaw} from '../shared/document-recipe-raw';
 import {SAVED_DOCUMENT_DRAFT_SLOT,parseSavedDocumentDraftBasis,parseSavedDocumentDraft,ordinaryTextDocument,sameDocumentRefs} from '../shared/saved-document-draft';
@@ -101,6 +103,9 @@ export class LearningDraftStore{
   if(!isTaskLearningDraftOwner(owner))return slot===LOCAL_TASK_DRAFT_SLOT;
   const task=await this.options.lookupTask(owner.taskId);
   if(!task||task.id!==owner.taskId)return false;
+  if('kind' in owner&&owner.kind==='experiment-target-practice'){
+   try{if(![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot))return false;const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision)return false;reviewedSourceFormula(task,owner.artifactId,revision);return true;}catch{return false;}
+  }
   if('kind' in owner&&owner.kind==='source-formula-review')return [SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT].includes(slot);
   if('kind' in owner&&owner.kind==='saved-document-edit'){
    if(slot!==SAVED_DOCUMENT_DRAFT_SLOT&&slot!==REVISION_INSTRUCTIONS_SLOT)return false;

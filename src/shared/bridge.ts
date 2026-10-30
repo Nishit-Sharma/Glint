@@ -1,3 +1,4 @@
+import type {TargetPracticeInput,TargetPracticeSubmission} from '../learning/experiment-target-practice';
 import type {SourceFormulaInput,SourceFormulaCommand} from '../learning/source-formula';
 import type {DocumentRecipeRequest,DocumentRecipeSave,DocumentRecipeInspection} from './document-recipe';
 import type {HelperSourceBatchRequest,HelperSourceBatchSave,HelperSourceBatchInspection} from './helper-source-batch';
@@ -68,6 +69,9 @@ export type Command =
   | {type:'workflow.prepare';taskId:string;basis:ArtifactRef}
   | {type:'truth.review';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction';retryOf?:string}
   | {type:'truth.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction'}
+  | ({type:'experiment.target.inspect'} & TargetPracticeInput)
+  | ({type:'experiment.target.submit'} & TargetPracticeSubmission)
+  | ({type:'experiment.target.inspect-original'} & TargetPracticeSubmission)
   | {type:'experiment.practice';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];inputs:Record<string,number>;demonstratedInputs?:Record<string,number>[];prediction:number;reasoning:string;retryOf?:string}
   | {type:'experiment.practice.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];inputs:Record<string,number>;demonstratedInputs?:Record<string,number>[]}
   | {type:'packing.practice';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;previewCount:number;preview:ArtifactRef;count:number;prediction:number;retryOf?:string}
