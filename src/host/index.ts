@@ -1,3 +1,5 @@
+import {saveSourceFormula,inspectSourceFormulaSave} from '../core/source-formula-host';
+import {readSourceFormulaCommand,readSourceFormulaInput,SOURCE_FORMULA_MIME} from '../learning/source-formula';
 import {helperSourceBatchPreview,readHelperSourceBatchRequest,readHelperSourceBatchSave,readHelperSourceBatchInspection} from '../shared/helper-source-batch';
 import {createExperimentPractice,inspectExperimentPractice} from '../core/experiment-practice-host';
 import {createPackingPractice,inspectPackingPractice} from '../core/packing-practice-host';
@@ -148,7 +150,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
-  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','module.edit','module.document','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','module.edit','module.document','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='tasks.branch'){const {type,...input}=c;return {type:'tasks.branch',...readResponseBranchInput(input)};}
   if(!allowed.includes(c.type as string))throw Error('Unknown companion command.')
   if(JSON.stringify(c).length>18*1024*1024)throw Error('Command exceeds the local input limit.')
@@ -218,6 +220,7 @@ function validate(value:unknown):Command{
     str(c.requestId,'request ID',200);str(c.prompt,'request',16000);
     if(c.revisionBasis!==undefined){const basis=parseSavedDocumentDraftBasis(str(c.revisionBasis,'document revision basis',16*1024));if(c.kind!=='revise'||c.artifactId!==basis.artifactId||c.taskId!==basis.taskId||c.briefAction!==undefined||c.submittedDraft!==undefined)throw Error('Revision instructions require their exact saved document.');}
   }
+  if(c.type==='experiment.source.save'||c.type==='experiment.source.inspect'){const {type,...input}=c;if(type==='experiment.source.save')readSourceFormulaCommand(input);else{if(Object.keys(input).some(key=>key!=='input'))throw Error('Unknown formula inspection field.');readSourceFormulaInput(input.input);}return c as Command;}
   if(c.type==='helper.source-batch.preview'||c.type==='helper.source-batch.save'||c.type==='helper.source-batch.inspect'){const {type,...input}=c;type==='helper.source-batch.preview'?readHelperSourceBatchRequest(input):type==='helper.source-batch.save'?readHelperSourceBatchSave(input):readHelperSourceBatchInspection(input);return c as Command}
   if(c.type==='helper.recorded.inspect'||c.type==='helper.recorded.create'){const {type,...input}=c;type==='helper.recorded.inspect'?readRecordedTextRequest(input):readRecordedTextAcceptance(input);return c as Command}
   if(c.type==='module.edit'||c.type==='module.document'){
@@ -711,6 +714,8 @@ async function command(c:Command):Promise<unknown>{
     case 'workflow.prepare':{const {type,...input}=c;return prepareWorkflowReview(core,input);}
     case 'truth.review':{const {type,...input}=c;const saved=await createTruthTable(core,input);changed(c.taskId);return saved;}
     case 'truth.inspect':{const {type,...input}=c;return inspectTruthTable(core,input);}
+    case 'experiment.source.save':{const {type,...input}=c,saved=await saveSourceFormula(core,input,()=>assertCurrentWork(lifecycle));changed(c.input.taskId);return saved;}
+    case 'experiment.source.inspect':return inspectSourceFormulaSave(core,c.input);
     case 'experiment.practice':{const {type,...input}=c;const saved=await createExperimentPractice(core,input);changed(c.taskId);return saved;}
     case 'experiment.practice.inspect':{const {type,...input}=c;return inspectExperimentPractice(core,input);}
     case 'packing.practice':{const {type,...input}=c;const saved=await createPackingPractice(core,input);changed(c.taskId);return saved;}
@@ -836,7 +841,7 @@ async function command(c:Command):Promise<unknown>{
     case 'windows.capture':str(c.taskId,'task ID',200);return captureWindowSource(c)
     case 'artifact.save':{
       const a=object(c.artifact);
-      if(a.artifactId){const current=await core.getTask(c.taskId),revision=current.artifacts.find(item=>item.id===a.artifactId)?.revisions.at(-1);if(revision)assertRawModuleOperationAllowed(revision.mimeType,'revise');}
+      if(a.artifactId){const current=await core.getTask(c.taskId),revision=current.artifacts.find(item=>item.id===a.artifactId)?.revisions.at(-1);if(revision?.mimeType===SOURCE_FORMULA_MIME)throw Error('Keep the cited formula publication unchanged. Save a separately reviewed transcription from its source.');if(revision)assertRawModuleOperationAllowed(revision.mimeType,'revise');}
       if(a.mimeType==='image/png'){
         if(a.encoding!=='base64')throw Error('PNG artifacts require base64 encoding.')
         const bytes=Buffer.from(str(a.content,'image',12*1024*1024),'base64');if(!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))throw Error('Artifact is not a PNG.')
@@ -874,6 +879,7 @@ async function command(c:Command):Promise<unknown>{
       const epoch=keyEpoch,privacy=capturePrivacyEpoch,privacySignal=capturePrivacyAbort.signal,provider=activeProvider()
       const before=await core.getTask(c.taskId),target=c.artifactId?before.artifacts.find(a=>a.id===c.artifactId):undefined,targetRevision=target?.revisions.at(-1)
       assertCurrentWork(lifecycle);if(c.kind==='revise'&&!targetRevision)throw Error('Select an existing artifact to revise.')
+      if(c.kind==='revise'&&targetRevision?.mimeType===SOURCE_FORMULA_MIME)throw Error('Keep the cited formula publication unchanged. Save a separately reviewed transcription from its source.');
       if(c.kind==='revise'&&targetRevision)assertRawModuleOperationAllowed(targetRevision.mimeType,'revise')
       if(c.revisionBasis!==undefined)assertRevisionInstructionRequest(before,c.artifactId!,c.revisionBasis,c.sourceIds,c.expectedSourceRefs)
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)

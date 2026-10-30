@@ -1,3 +1,4 @@
+import type {SourceFormulaInput,SourceFormulaCommand} from '../learning/source-formula';
 import type {HelperSourceBatchRequest,HelperSourceBatchSave,HelperSourceBatchInspection} from './helper-source-batch';
 import type {RecordedTextRequest} from '../core/recorded-text-helper-host';
 import type {LearningDraftOwner,LearningDraftValue} from './learning-drafts'
@@ -15,6 +16,8 @@ import type {SourceTextExpected} from './source-text-draft'
 import type {SourceTextSaveInspectionInput} from './source-text-save'
 
 export type Command =
+  | ({type:'experiment.source.save'} & SourceFormulaCommand)
+  | {type:'experiment.source.inspect';input:SourceFormulaInput}
   | {type:'capture.settings.get'} | {type:'capture.settings.revoke';expectedRevision:number}
   | {type:'capture.settings.private';expectedRevision:number;keep:number[];windowIds:string[]}
   | {type:'bots.get'} | {type:'bots.change';change:BotCommand}

@@ -1,3 +1,4 @@
+import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT} from '../shared/source-formula-draft';
 import {SAVED_DOCUMENT_DRAFT_SLOT,parseSavedDocumentDraftBasis,parseSavedDocumentDraft,ordinaryTextDocument,sameDocumentRefs} from '../shared/saved-document-draft';
 import {REVISION_INSTRUCTIONS_SLOT,parseRevisionInstructions} from '../shared/revision-instructions';
 import {createHash,randomUUID} from 'node:crypto';
@@ -99,6 +100,7 @@ export class LearningDraftStore{
   if(!isTaskLearningDraftOwner(owner))return slot===LOCAL_TASK_DRAFT_SLOT;
   const task=await this.options.lookupTask(owner.taskId);
   if(!task||task.id!==owner.taskId)return false;
+  if('kind' in owner&&owner.kind==='source-formula-review')return [SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT].includes(slot);
   if('kind' in owner&&owner.kind==='saved-document-edit'){
    if(slot!==SAVED_DOCUMENT_DRAFT_SLOT&&slot!==REVISION_INSTRUCTIONS_SLOT)return false;
    try{const basis=parseSavedDocumentDraftBasis(value.basis),artifact=task.artifacts.find(item=>item.id===owner.artifactId),revision=artifact?.revisions.find(item=>item.revision===basis.revision&&item.digest===basis.digest);

@@ -1,3 +1,4 @@
+import {SourceFormulaWorkbench} from './components/SourceFormulaWorkbench';
 import {ResponsePreferencesEditor} from './ResponsePreferencesEditor';
 import {RequestFollowupReview} from './components/RequestFollowupReview';
 import {reviewRequestFollowup,prepareRequestFollowup,type RequestFollowupSelection,type RequestFollowupCommand} from '../../shared/request-followup';
@@ -542,7 +543,7 @@ function Experiment({task,busy,run,back}:{task:Task;busy:boolean;run:Run;back:()
   if(calculation&&epoch.current===launched)setResult({...submitted,calculation});
  }
  return <>
-  <Button kind="back" onClick={back}><ArrowLeft size={15}/>Saved work</Button><section className="manual-experiment-workbench"><h2>{title}</h2>
+  <Button kind="back" onClick={back}><ArrowLeft size={15}/>Saved work</Button><SourceFormulaWorkbench task={task} busy={busy}/><section className="manual-experiment-workbench"><h2>{title}</h2>
 
   <form onSubmit={calculate} noValidate><div className="two-fields">{spec.variables.map((variable,index)=><div key={variable.name}><Field label={`${variable.name[0].toUpperCase()+variable.name.slice(1)}${variable.name==='speed'?' (m/s)':variable.unit!=='1'?' ('+variable.unit+')':''}`}><input disabled={busy} type="number" min={variable.min} max={variable.max} step="any" required value={Number.isFinite(inputs[variable.name])?inputs[variable.name]:''} aria-invalid={!!inputIssues[index]} aria-describedby={`manual-experiment-input-${index}`} onChange={event=>{index===0?setSpeed(event.target.valueAsNumber):setDuration(event.target.valueAsNumber);invalidate();}}/></Field><p className={inputIssues[index]?'tiny warning':'tiny'} id={`manual-experiment-input-${index}`} role={inputIssues[index]?'alert':undefined}>{inputIssues[index]||''}</p></div>)}</div><Button type="submit" disabled={busy||!valid||!title.trim()}>Calculate</Button></form>
   {result&&<div className="calculation"><small>Result</small><output>{numberLabel(result.calculation.value)}<span>{result.calculation.unit==='1'?'ratio':result.calculation.unit}</span></output>{stale.length>0&&<p className="warning">Source links changed. Review the inputs and calculate again before saving.</p>}<Button disabled={busy||stale.length>0} kind="primary" onClick={async()=>{

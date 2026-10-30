@@ -9,11 +9,13 @@ import {readLocalTaskStart} from '../src/shared/local-task-start';
 import type {Command} from '../src/shared/bridge';
 import {OnboardingFixture} from './onboarding-fixture';
 
-/** No task, source or module is seeded. Product onboarding and New task controls
- * create every object. Only OS/provider/transport boundaries are substituted.
+/** By default no task, source or module is seeded. The optional ready fixture
+ * initializes identity and its bundled example only; journey-owned work is still
+ * created through New task and source controls. Only initialized identity/example
+ * setup and OS/provider/transport boundaries are substituted.
  * The pinned-old phase runs actual old Companion+Store, not an old packaged UI. */
-export async function offlineTaskEntry(page:Page,port=4180){
- const fixture=await OnboardingFixture.open(page,{port});
+export async function offlineTaskEntry(page:Page,port=4180,options:{ready?:boolean}={}){
+ const fixture=await OnboardingFixture.open(page,{port,...options});
  const invoke=fixture.invoke.bind(fixture);
  const creations:Extract<Command,{type:'tasks.start-local'}>[]=[];
  const phases:Array<{phase:string;utc:string;companionSha256?:string;storeSha256?:string}>=[{phase:'current-renderer/current-core',utc:new Date().toISOString()}];

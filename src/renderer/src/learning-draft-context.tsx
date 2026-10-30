@@ -1,3 +1,4 @@
+import {SOURCE_FORMULA_DRAFT_SLOT,readSourceFormulaDraft} from '../../shared/source-formula-draft';
 import {parseSavedDocumentDraft,parseSavedDocumentDraftBasis,savedDocumentDraftBasis} from '../../shared/saved-document-draft';
 import {REVISION_INSTRUCTIONS_SLOT,parseRevisionInstructions} from '../../shared/revision-instructions';
 import {isWorkflowSourceReviewSlot,workflowSourceDraftLabel} from '../../shared/workflow-source-admission';
@@ -55,6 +56,9 @@ export function LearningDraftReview({task,cache}:{task:Task;cache:DraftCache}){
  if(!entries.length&&!state.error)return null;
  return <details className="learning-draft-review"><summary>Unfinished practice</summary><p>These are unapplied editing drafts. Opening this list never runs a lesson, captures a window or sends a request.</p>{state.error&&<p role="alert">Saved practice could not be read. Its original bytes are preserved. Retry after resolving the storage problem.</p>}{entries.map(entry=>{
   const owner=entry.owner;
+  if('kind' in owner&&owner.kind==='source-formula-review'){
+   const value=entry.local??entry.remote?.value,raw=value?readSourceFormulaDraft(entry.slot,parseLearningDraftJson(value.value)):undefined;return <article key={learningDraftKey(owner,entry.slot)}><h4>{entry.slot===SOURCE_FORMULA_DRAFT_SLOT?'Source formula review':'Original source formula save'}</h4><p>Open Files → New file → Experiment → Use a formula from a saved source to continue. The source and pending save are never rebound automatically.</p>{raw&&<pre className="source-content">{readable(raw)}</pre>}{entry.error&&<p role="alert">These raw fields could not be saved. Their original bytes are kept.</p>}<button type="button" disabled={state.maintenance||state.frozen} onClick={()=>void cache.retry(owner,entry.slot).catch(()=>{})}>Check latest saved formula edits</button>{entry.slot===SOURCE_FORMULA_DRAFT_SLOT&&<button type="button" disabled={!entry.canDiscard} onClick={()=>cache.discard(owner,entry.slot,entry.generation)}>Discard formula review edits</button>}</article>;
+  }
   if('kind' in owner&&owner.kind==='source-text-edit'){
    const source=task.sources.find(source=>source.id===owner.sourceId),version=source?.versions.at(-1),value=entry.local??entry.remote?.value;
    const raw=value?parseSourceTextDraft(parseLearningDraftJson(value.value,'source-text-edit')):undefined;
