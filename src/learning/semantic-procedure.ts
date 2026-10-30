@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import {HelperOperationSchema,applyHelperOperation} from './text-operation';
 
 /** A value-only interpreter. Host ownership, activation and effects remain outside this module. */
 export const semanticProcedureLimits=Object.freeze({fields:16,steps:64,stepDepth:16,predicates:128,predicateDepth:8,conditions:8,examples:20,characters:4000,totalCharacters:64000,members:4096,dataDepth:48});
@@ -20,7 +21,8 @@ const atomicValueSchema=Schema.Union(Schema.Struct({kind:Schema.Literal('literal
 const operandSchema=Schema.Union(atomicValueSchema,Schema.Struct({kind:Schema.Literal('output'),field:identifier}));
 type Operand=typeof operandSchema.Type;
 const arithmeticSchema=Schema.Struct({kind:Schema.Literal('arithmetic'),operator:Schema.Literal('add','subtract','multiply','divide'),left:operandSchema,right:operandSchema});
-const valueSchema=Schema.Union(operandSchema,arithmeticSchema);
+const transformSchema=Schema.Struct({kind:Schema.Literal('text-transform'),operation:HelperOperationSchema,input:operandSchema});
+const valueSchema=Schema.Union(operandSchema,arithmeticSchema,transformSchema);
 type Value=typeof valueSchema.Type;
 const operatorSchema=Schema.Literal('eq','ne','gt','gte','lt','lte');
 export type SemanticPredicate=
@@ -168,6 +170,8 @@ export function parseSemanticProcedure(value:unknown):SemanticProcedure {
      if(plan.target!=='local-record')fail('Arithmetic assignments are available only to local record helpers.');
      if(field.kind!=='number'||prior(value.value.left)!=='number'||prior(value.value.right)!=='number')fail('Arithmetic assignments require a numeric result and numeric inputs, constants or earlier results.');
      if(value.value.operator==='divide'&&value.value.right.kind==='literal'&&value.value.right.value===0)fail('A constant divisor must not be zero.');
+    }else if(value.value.kind==='text-transform'){
+     if(plan.target!=='local-record'||field.kind!=='string'||prior(value.value.input)!=='string')fail('Text transformations require a local text result and text input or earlier result.');
     }else{
      if(prior(value.value)!==field.kind)fail(`Assignment type differs for ${value.field}.`);
      if(value.value.kind==='literal'&&!accepts(field,value.value.value))fail(`Assignment exceeds the output contract for ${value.field}.`);
@@ -237,6 +241,9 @@ function execute(plan:SemanticProcedure,input:SemanticRecord):SemanticRunResult 
      const reason=step.value.operator==='divide'&&right===0?'Cannot divide by zero.':!Number.isFinite(number)?'The calculation did not produce a finite number.':null;
      if(reason){trace.push({stepId:step.id,kind:step.kind,inspected,decision:false,reason,output:snapshot()});return stopped('output-contract',step.id,reason);}
      value=number;
+    }else if(step.value.kind==='text-transform'){
+     const input=read(step.value.input,inspected);
+     try{value=applyHelperOperation(String(input),step.value.operation);}catch{const reason='The text operation exceeds its local output limit.';trace.push({stepId:step.id,kind:step.kind,inspected,decision:false,reason,output:snapshot()});return stopped('output-contract',step.id,reason);}
     }else value=read(step.value,inspected);
     const field=outputs.get(step.field);
     if(!field||!accepts(field,value)){

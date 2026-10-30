@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import {LOCAL_HELPER_CONTEXT_NOTICE} from '../core/interactive-modules';
 
 const HistoryReview=Schema.Struct({
  title:Schema.String,goal:Schema.String,
@@ -6,7 +7,7 @@ const HistoryReview=Schema.Struct({
  checkpoints:Schema.Array(Schema.Struct({note:Schema.String})),
  sourceResume:Schema.optional(Schema.Struct({sources:Schema.Array(Schema.Struct({status:Schema.String})),relatedCheckpoints:Schema.Array(Schema.Struct({note:Schema.String})),omittedRelatedCheckpoints:Schema.Number,affectedProcedures:Schema.optional(Schema.Array(Schema.Struct({currentRevision:Schema.Number,revisions:Schema.Array(Schema.Struct({revision:Schema.Number,omittedSourceRefs:Schema.optional(Schema.Number)})),omittedRevisions:Schema.optional(Schema.Number)}))),omissions:Schema.optional(Schema.Struct({affectedProcedures:Schema.optional(Schema.Number),procedureRevisions:Schema.optional(Schema.Number),procedureSourceRefs:Schema.optional(Schema.Number)}))})),
  savedUserModuleChoices:Schema.Array(Schema.Unknown),unresolvedOperations:Schema.Array(Schema.Unknown),
- omissions:Schema.Struct({olderRequests:Schema.Number,olderCheckpoints:Schema.Number}),
+ omissions:Schema.Struct({olderRequests:Schema.Number,olderCheckpoints:Schema.Number,localHelperContentsExcluded:Schema.optional(Schema.Boolean)}),
 });
 const line=(text:string,limit:number)=>{const clean=text.replace(/[\p{Cc}\p{Cf}]/gu,' ').replace(/\s+/g,' ').trim();return clean.length>limit?clean.slice(0,limit)+'…':clean;};
 
@@ -33,5 +34,6 @@ export function taskHistoryReview(context:string):string{
   if(unresolved)details.push(`${unresolved} unfinished actions are included as context. They cannot run from this request.`);
   if(history.omissions.olderRequests||history.omissions.olderCheckpoints)details.push('Some older conversation is omitted. The response must treat missing history as unknown.');
  }
+ if(history.omissions.localHelperContentsExcluded)details.push(LOCAL_HELPER_CONTEXT_NOTICE);
  return details.join('\n');
 }

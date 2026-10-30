@@ -105,7 +105,7 @@ export function typedDraftFromProcedure(procedure:SemanticProcedure):TypedProced
    if(start.kind==='abstain')return {kind:'stop',reason:start.reason,values:outputs.map(()=>({source:'literal',value:''}))};
    const values:TypedValue[]=[];let step:SemanticStep=start;
    const atom=(value:{kind:'input'|'output';field:string}|{kind:'literal';value:SemanticScalar}):TypedAtom=>value.kind==='literal'?{source:'literal',value:String(value.value)}:{source:value.kind,value:value.field};
-   while(step.kind==='assign'){values.push(step.value.kind==='arithmetic'?{source:'calculate',operator:step.value.operator,left:atom(step.value.left),right:atom(step.value.right)}:atom(step.value));step=step.next;}
+   while(step.kind==='assign'){if(step.value.kind==='text-transform')throw Error();values.push(step.value.kind==='arithmetic'?{source:'calculate',operator:step.value.operator,left:atom(step.value.left),right:atom(step.value.right)}:atom(step.value));step=step.next;}
    if(step.kind!=='return')throw Error();return {kind:'return',reason:'',values};
   };
   const rules:TypedRule[]=[];let step=procedure.root;

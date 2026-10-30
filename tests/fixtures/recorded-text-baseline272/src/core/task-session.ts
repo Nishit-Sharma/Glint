@@ -1,0 +1,52 @@
+import { Schema } from 'effect';
+import { StoredModuleStateSchema } from './module-registry';
+import {composerKinds} from './composer-draft';
+export {readComposerDraft,type ComposerDraft,type ComposerKind} from './composer-draft';
+
+const text = Schema.String.pipe(Schema.maxLength(100_000));
+const id = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200));
+export const ComposerKindSchema=Schema.Literal(...composerKinds);
+export const BrowserObservationSchema = Schema.Struct({
+  id, taskId: id, browserId: id, documentId: id, url: text, title: text, text, digest: id,
+  targets: Schema.Array(Schema.Struct({ id, role: text, label: text, href: Schema.optional(text), value: Schema.optional(text), options: Schema.optional(Schema.Array(Schema.Struct({ value: Schema.String.pipe(Schema.maxLength(10_000)), label: Schema.String.pipe(Schema.maxLength(500)), disabled: Schema.Boolean })).pipe(Schema.maxItems(100))) })).pipe(Schema.maxItems(100)),
+});
+export type BrowserObservation = typeof BrowserObservationSchema.Type;
+export const BrowserIntentSchema = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal('click'), snapshotId: id, targetId: id }),
+  Schema.Struct({ kind: Schema.Literal('fill'), snapshotId: id, targetId: id, value: text }),
+  Schema.Struct({ kind: Schema.Literal('select'), snapshotId: id, targetId: id, value: Schema.String.pipe(Schema.maxLength(10_000)) }),
+);
+export const BrowserOperationSchema = Schema.Struct({
+  id, intent: BrowserIntentSchema,
+  status: Schema.Literal('proposed', 'executing', 'observed', 'uncertain', 'failed', 'retired'),
+  reason: text,
+  result: Schema.optional(BrowserObservationSchema),
+  receipt: Schema.optional(Schema.Struct({ status: Schema.Int, url: text, body: text })),
+  reconciliation: Schema.optional(Schema.Struct({ id, outcome: Schema.Literal('completed', 'not-completed', 'uncertain'), basis: Schema.Literal('user-reviewed-observation'), note: text, observation: BrowserObservationSchema })),
+  error: Schema.optional(text),
+});
+export const TaskSessionSchema = Schema.Struct({
+  revision: Schema.Int.pipe(Schema.nonNegative()), draft: text,
+  draftKind:Schema.optional(ComposerKindSchema),
+  draftRevision:Schema.optional(Schema.Int.pipe(Schema.nonNegative())),
+  contextRevision: Schema.optional(Schema.Int.pipe(Schema.nonNegative())),
+  browserContext: Schema.optional(Schema.Struct({ origin: text, url: text, requestId: id })),
+  runs: Schema.Array(Schema.Struct({
+    id, endpointKey: id, origin: text, browserId: id,
+    initialObservation: BrowserObservationSchema,
+    operations: Schema.Array(BrowserOperationSchema).pipe(Schema.maxItems(64)),
+  })).pipe(Schema.maxItems(100)),
+  moduleStates: Schema.Array(Schema.Struct({ artifactId: id, artifactRevision: Schema.Int, moduleId: Schema.optional(id), state: StoredModuleStateSchema })).pipe(Schema.maxItems(200)),
+});
+export type TaskSession = typeof TaskSessionSchema.Type;
+export const emptyTaskSession = (): TaskSession => ({ revision: 0, draft: '', runs: [], moduleStates: [] });
+
+/** Retain descriptions/results, never restore browser execution authority after host restart. */
+export function recoverTaskSession(session: TaskSession): TaskSession {
+  return { ...session, revision: session.revision + 1, runs: session.runs.map(run => ({ ...run,
+    operations: run.operations.map(operation => operation.status === 'executing'
+      ? { ...operation, status: 'uncertain', error: 'The host stopped during this action. Inspect the website before another attempt.' }
+      : operation.status === 'proposed' ? { ...operation, status: 'retired', error: 'Restart retired this unexecuted proposal. Observe and approve a fresh target.' } : operation),
+  })) };
+}
+

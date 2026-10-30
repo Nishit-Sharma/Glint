@@ -5,24 +5,24 @@ const short=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(160));
 const input=Schema.String.pipe(Schema.maxLength(4_000));
 const output=Schema.String.pipe(Schema.maxLength(16_000));
 const rev=Schema.Int.pipe(Schema.between(0,500));
-export const HelperOperationSchema=Schema.Union(
- Schema.Struct({kind:Schema.Literal('trim','collapse-spaces','lowercase','uppercase')}),
- Schema.Struct({kind:Schema.Literal('replace-literal'),find:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(80)),replacement:Schema.String.pipe(Schema.maxLength(80))}),
-);
-export type HelperOperation=typeof HelperOperationSchema.Type;
+export {HelperOperationSchema,type HelperOperation} from './text-operation';
+import {HelperOperationSchema,applyHelperOperation as operation,type HelperOperation} from './text-operation';
 const textExamples=Schema.Array(Schema.Struct({before:Schema.String.pipe(Schema.maxLength(1000)),after:Schema.String.pipe(Schema.maxLength(1000))})).pipe(Schema.minItems(2),Schema.maxItems(2));
 export type TextExampleProposal={id:string;operations:HelperOperation[];outputs:string[]};
 const exception=Schema.Struct({id,contains:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(80)),behavior:Schema.Literal('preserve','abstain'),reason:short});
 const expected=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),text:output}),Schema.Struct({kind:Schema.Literal('abstain')}));
+// A recording needs start, step and finish revisions: at most 166 fit the existing 500-revision limit.
+export const TextDemonstrationSchema=Schema.Struct({id,atRevision:rev,input,steps:Schema.Array(Schema.Struct({operation:HelperOperationSchema,before:output,after:output})).pipe(Schema.minItems(1),Schema.maxItems(8))});
+export type TextDemonstration=typeof TextDemonstrationSchema.Type;
 const step=Schema.Struct({operation:HelperOperationSchema,before:output,after:output});
 const runResult=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),text:output,exceptionId:Schema.NullOr(id),trace:Schema.Array(step).pipe(Schema.maxItems(8))}),Schema.Struct({kind:Schema.Literal('abstain'),reason:short,exceptionId:id,trace:Schema.Array(step).pipe(Schema.maxItems(8))}));
 const testCase=Schema.Struct({id,label:short,role:Schema.Literal('example','counterexample'),input,expected,demonstration:Schema.optional(Schema.Array(step).pipe(Schema.minItems(1),Schema.maxItems(8)))});
 const definition=Schema.Struct({name:short,description:short,invocation:short,operations:Schema.Array(HelperOperationSchema).pipe(Schema.maxItems(8)),exceptions:Schema.Array(exception).pipe(Schema.maxItems(8)),tests:Schema.Array(testCase).pipe(Schema.maxItems(20))});
 export type HelperDefinition=typeof definition.Type;
 const version=Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),savedAtRevision:rev,changeNote:short,definition});
-export const HelperDataSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),schemaVersion:Schema.Literal(1),id,title:short,description:short});
+export const HelperDataSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),schemaVersion:Schema.Literal(1),id,title:short,description:short,recordedText:Schema.optional(Schema.Struct({kind:Schema.Literal('owned-local-text-actions'),physicalGestureVerified:Schema.Literal(false),effectAuthority:Schema.Literal('none'),source:Schema.Struct({taskId:id,artifactId:id,artifactRevision:Schema.Int.pipe(Schema.positive()),artifactDigest:Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),moduleId:id,moduleVersion:Schema.Int.pipe(Schema.positive()),helperId:id,stateRevision:rev}),observation:TextDemonstrationSchema}))});
 export type HelperData=typeof HelperDataSchema.Type;
-export const HelperStateSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),helperId:id,revision:rev,draft:definition,versions:Schema.Array(version).pipe(Schema.maxItems(20)),activeVersion:Schema.NullOr(Schema.Int.pipe(Schema.between(1,20))),recording:Schema.NullOr(Schema.Struct({input,current:output,steps:Schema.Array(step).pipe(Schema.maxItems(8))})),lastRun:Schema.optional(Schema.NullOr(Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),input,result:runResult})))});
+export const HelperStateSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),helperId:id,revision:rev,draft:definition,versions:Schema.Array(version).pipe(Schema.maxItems(20)),activeVersion:Schema.NullOr(Schema.Int.pipe(Schema.between(1,20))),observations:Schema.optional(Schema.Array(TextDemonstrationSchema).pipe(Schema.maxItems(166))),recording:Schema.NullOr(Schema.Struct({input,current:output,steps:Schema.Array(step).pipe(Schema.maxItems(8))})),lastRun:Schema.optional(Schema.NullOr(Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),input,result:runResult})))});
 export type HelperState=typeof HelperStateSchema.Type;
 export const HelperActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('apply-example-proposal'),examples:textExamples,proposalId:id,expectedRevision:rev}),
@@ -42,18 +42,6 @@ export const HelperActionSchema=Schema.Union(
 );
 export type HelperAction=typeof HelperActionSchema.Type;
 function decode<A,I>(schema:Schema.Schema<A,I>,value:unknown):A{return Schema.decodeUnknownSync(schema,{onExcessProperty:'error'})(value);}
-function operation(value:string,op:HelperOperation):string {
- let result:string;
- switch(op.kind){
-  case 'trim':result=value.trim();break;
-  case 'collapse-spaces':result=value.replace(/[ \t]+/g,' ');break;
-  case 'lowercase':result=value.toLowerCase();break;
-  case 'uppercase':result=value.toUpperCase();break;
-  case 'replace-literal':result=value.split(op.find).join(op.replacement);break;
- }
- if(result.length>16_000)throw Error('The output exceeds the local text limit.');
- return result;
-}
 /** Pasted pairs constrain a closed formatting family; they are not observations. */
 export function proposeHelperFromExamples(value:unknown):TextExampleProposal[]{
  const examples=decode(textExamples,value);
@@ -107,6 +95,8 @@ function parseState(dataValue:unknown,value:unknown):HelperState{
  const data=decode(HelperDataSchema,dataValue),state=decode(HelperStateSchema,value);
  if(state.helperId!==data.id)throw Error('This helper state belongs to a different helper.');
  validateDefinition(state.draft);
+ const observed=state.observations??[];unique(observed.map(item=>item.id));
+ for(const [index,item] of observed.entries()){if(item.atRevision>state.revision||index>0&&item.atRevision<=observed[index-1].atRevision)throw Error('Recorded text actions must retain their original revision order.');let current=item.input;for(const event of item.steps){if(event.before!==current||operation(current,event.operation)!==event.after)throw Error('Recorded text actions changed.');current=event.after;}}
  state.versions.forEach((v,index)=>{validateDefinition(v.definition);if(v.version!==index+1||v.savedAtRevision>state.revision||!checkHelper(v.definition).passed)throw Error('Saved helper versions must be ordered, tested immutable snapshots.');});
  if(state.activeVersion!==null&&!state.versions.some(v=>v.version===state.activeVersion))throw Error('The active helper version is unavailable.');
  if(state.lastRun){const run=state.lastRun,saved=state.versions.find(v=>v.version===run.version);if(!saved||JSON.stringify(execute(saved.definition,run.input))!==JSON.stringify(run.result))throw Error('Saved helper output does not match its exact input and version.');}
@@ -131,7 +121,7 @@ function update(dataValue:unknown,stateValue:unknown,actionValue:unknown):Helper
   next={...next,recording:{...state.recording,current:after,steps:[...state.recording.steps,{operation:action.operation,before:state.recording.current,after}]}};
  } else if(action.kind==='finish-demonstration'){
   if(!state.recording?.steps.length)throw Error('Demonstrate at least one transformation.');
-  next={...next,recording:null,draft:{...state.draft,operations:state.recording.steps.map(event=>event.operation),tests:[...state.draft.tests,{id:`demo-${state.revision}`,label:'Recorded local demonstration',role:'example',input:state.recording.input,expected:{kind:'output',text:state.recording.current},demonstration:state.recording.steps}]}};
+  next={...next,observations:[...(state.observations??[]),{id:`observed-${next.revision}`,atRevision:next.revision,input:state.recording.input,steps:state.recording.steps}],recording:null,draft:{...state.draft,operations:state.recording.steps.map(event=>event.operation),tests:[...state.draft.tests,{id:`demo-${state.revision}`,label:'Recorded local demonstration',role:'example',input:state.recording.input,expected:{kind:'output',text:state.recording.current},demonstration:state.recording.steps}]}};
  } else if(action.kind==='cancel-demonstration')next={...next,recording:null};
  else {
   if(state.recording)throw Error('Finish or cancel the demonstration before changing this helper.');

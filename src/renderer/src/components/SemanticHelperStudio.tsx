@@ -1,3 +1,4 @@
+import {RecordedTextOriginView} from './RecordedTextReview';
 import {useState} from 'react';
 import {semanticHelper,type SemanticHelperAction,type SemanticHelperState} from '../../../learning/semantic-helper';
 import {parseSemanticProcedure,type SemanticProcedure,type SemanticRecord,type SemanticRunResult} from '../../../learning/semantic-procedure';
@@ -92,5 +93,6 @@ export function SemanticHelperStudio(props:{data:HelperData;state:SemanticHelper
  const [custom,setCustom]=useState<'compact'|'typed'|'staged'>('compact');
  const current=props.state.definitions.find(item=>item.procedure.version===props.state.draftVersion)?.procedure;
  const staged=custom==='staged'||!!current&&!!stagedDraftFromProcedure(current);
- return custom!=='compact'||current&&(typedDraftFromProcedure(current)||staged)?<TypedSemanticHelperStudio {...props} staged={staged}/>:<CompactSemanticHelperStudio {...props} onCustom={()=>setCustom('typed')} onStaged={()=>setCustom('staged')}/>;
+ const editor=custom!=='compact'||current&&(typedDraftFromProcedure(current)||staged)?<TypedSemanticHelperStudio {...props} staged={staged}/>:<CompactSemanticHelperStudio {...props} onCustom={()=>setCustom('typed')} onStaged={()=>setCustom('staged')}/>;
+ return <>{props.data.recordedText&&<RecordedTextOriginView origin={props.data.recordedText}/>} {editor}</>;
 }

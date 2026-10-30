@@ -1,3 +1,4 @@
+import {initialRecordedTextHelper} from '../learning/recorded-text-procedure';
 import {readTruthBinding,TRUTH_INTRO,isTruthModuleId} from '../learning/truth-table';
 import { Schema } from 'effect';
 import { createModuleRegistry, defineModule } from './module-registry';
@@ -34,7 +35,7 @@ export const planModule = defineModule({ kind: 'plan', schemaVersion: 1, descrip
 export const joinModule = defineModule({ kind: 'join-lab', schemaVersion: 1, description: 'Predict and change a bounded equality join; inspect exact pairs and try a distinct transfer.', data: JoinLessonSchema, state: JoinStateSchema, action: JoinActionSchema, validate: validateLesson, initial: joinLab.initial, update: joinLab.update, text: joinLab.text });
 const BeginTable=Schema.Struct({kind:Schema.Literal('begin-table-helper'),expectedRevision:Schema.Int.pipe(Schema.between(0,500))});
 const BeginSemantic=Schema.Struct({kind:Schema.Literal('begin-semantic-helper'),expectedRevision:Schema.Int.pipe(Schema.between(0,500))});
-export const helperModule = defineModule({kind:'helper-studio',schemaVersion:1,description:'Teach, test, version and activate a local helper.',data:HelperDataSchema,state:Schema.Union(HelperStateSchema,SemanticHelperStateSchema,PickingStateSchema),action:Schema.Union(HelperActionSchema,SemanticHelperActionSchema,PickingActionSchema,BeginSemantic,BeginTable),initial:helperStudio.initial,
+export const helperModule = defineModule({kind:'helper-studio',schemaVersion:1,description:'Teach, test, version and activate a local helper.',data:HelperDataSchema,state:Schema.Union(HelperStateSchema,SemanticHelperStateSchema,PickingStateSchema),action:Schema.Union(HelperActionSchema,SemanticHelperActionSchema,PickingActionSchema,BeginSemantic,BeginTable),initial:data=>data.recordedText?initialRecordedTextHelper(data):helperStudio.initial(data),
  update(data,state,action){
   if(action.kind==='begin-table-helper'){
    if('format' in state||state.revision!==0)throw Error('Start a table helper only from a new, unchanged helper.');
@@ -95,8 +96,22 @@ export function readableModuleIntro(answer:ModuleAnswer,stateFor?:(moduleId:stri
   if(!state||typeof state!=='object'||!('format' in state)||state.format!=='semantic-record-v1')return answer.markdown;
   try{semanticHelper.parseState(module.data.id,state);return 'Local record helper. Choose fields and check local computations here.';}catch{return answer.markdown;}
 }
+/** Local helpers contain arbitrary pasted values and operation literals. Only closed metadata enters automatic model context. */
+export const LOCAL_HELPER_CONTEXT_NOTICE='Local helper names, operations, inputs, results, checks and reasons are excluded from automatic AI and browser context. Text you include in requests, selected sources or saved notes can still be shared.';
+export function modelModuleIntro(answer:ModuleAnswer,stateFor?:(moduleId:string)=>unknown):string{
+ return answer.modules.some(module=>module.data.kind==='helper-studio')?'Local helper answer. Its text and values are excluded from automatic AI and browser context.':readableModuleIntro(answer,stateFor);
+}
+export function modelModuleText(data:ModuleDraft,stateValue?:unknown):string{
+ if(data.kind!=='helper-studio')return moduleText(data,stateValue);
+ let metadata:unknown={family:data.recordedText?'recorded-text':'unstarted',stateRevision:null,savedVersionCount:null,activeVersion:null};
+ if(stateValue!==undefined)try{
+  const state=helperModule.parseState(stateValue);
+  metadata={family:'format' in state?state.format:'local-text',stateRevision:state.revision,savedVersionCount:'versions' in state?state.versions.length:state.releases.length,activeVersion:'activeVersion' in state?state.activeVersion:state.activation.version};
+ }catch{/* Unknown helper state remains excluded without exposing parser diagnostics. */}
+ return 'Local helper metadata: '+JSON.stringify(metadata)+'\n'+LOCAL_HELPER_CONTEXT_NOTICE;
+}
 /** Historical/model context must never expose raw module JSON or an unstarted challenge. */
 export function moduleHistoryText(content:string,stateFor?:(moduleId:string)=>unknown):string{
-  try{const answer=parseModuleAnswer(JSON.parse(content));return [readableModuleIntro(answer,stateFor),...answer.modules.map(module=>moduleText(module.data,stateFor?.(module.id)))].join('\n\n');}
+  try{const answer=parseModuleAnswer(JSON.parse(content));return [modelModuleIntro(answer,stateFor),...answer.modules.map(module=>modelModuleText(module.data,stateFor?.(module.id)))].join('\n\n');}
   catch{return 'An interactive answer is saved, but its current stage needs review. No raw module data is included.';}
 }

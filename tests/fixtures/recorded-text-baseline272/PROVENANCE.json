@@ -1,0 +1,15 @@
+{
+  "commit": "272737c194637fc8c16a037314dd6cd1d08d6737",
+  "source": "cb7bff7eaafacbccf3f6a22834f49c1fdd9b5bcca4032f4fe77cf83c7cf06f85",
+  "scope": "Exact baseline helper decoder and opaque task-store read/write graph; separate established a91 sidecar test is explicitly older, not exact baseline editing support.",
+  "files": {
+    "src/learning/reusable-helper.ts": "f39984fac54c3eecd5b41fe15963cab08d96c48fe832454315eb24d26fcf7238",
+    "src/core/store.ts": "f92762234f2937d69d113b06109d5867f42a02afd58d738f96017db2dfbce831",
+    "src/core/types.ts": "953917af06b1650dbe1928f9f68519b0e98047d87fae71c0817d1c843983b36c",
+    "src/core/task-session.ts": "9051c6c445ea0848a07b941ce411a4f7932af495e23b6bdb09febfa70d508ac9",
+    "src/core/module-registry.ts": "49725dcb5123ff7b406b784ac279388758039b50f664be7de6ce740d655c14b5",
+    "src/core/composer-draft.ts": "8537cd97cff445925695fd92b6e52a2b8f600b5c184bfe3a72f14c950ecb82da",
+    "src/shared/document-source.ts": "e64838fbcf1bbfe2b6b513c5a078f581354a1d9435e40eabb71d6a461377a854",
+    "src/core/source-resume.ts": "7f51056c69b80fd0464c65eada627b9d4c378661df6079246fed43ebf9b8032b"
+  }
+}

@@ -1,3 +1,4 @@
+import type {RecordedTextRequest} from '../core/recorded-text-helper-host';
 import type {LearningDraftOwner,LearningDraftValue} from './learning-drafts'
 import type {ResponseBranchInput} from '../core/response-branch'
 import type {LocalTaskStartInput} from './local-task-start'
@@ -50,6 +51,8 @@ export type Command =
   | {type:'workflow.window.review';taskId:string;requestId:string;candidate:ArtifactRef;review:unknown}
   | {type:'workflow.example';taskId:string;requestId:string}
   | {type:'helper.create';taskId:string;requestId:string}
+  | ({type:'helper.recorded.inspect'} & RecordedTextRequest)
+  | ({type:'helper.recorded.create';binding:string;confirmed:'create-separate-inactive-draft'} & RecordedTextRequest)
   | {type:'workflow.prepare';taskId:string;basis:ArtifactRef}
   | {type:'truth.review';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction';retryOf?:string}
   | {type:'truth.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction'}

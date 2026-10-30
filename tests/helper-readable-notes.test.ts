@@ -114,7 +114,7 @@ test('notes preserve abstention separately from an output and explain the matchi
  const text=h.text();expect(text).toContain('Abstained');expect(text).toContain('Leave private labels for manual review.');expect(text).not.toContain('abstain-internal-id');
 });
 
-test('saved document, task history and restart use the same readable helper projection',async()=>{
+test('explicit saved document and restart retain helper text while automatic task history contains only metadata',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'readable-helper-notes-'));let core=await createCompanion({dataDir:directory});
  try{
   const task=await core.createTask({title:'Owned helper notes fixture'});
@@ -124,7 +124,7 @@ test('saved document, task history and restart use the same readable helper proj
   await editModule(core,{...target,action:{kind:'demonstrate-step',operation:{kind:'trim'},expectedRevision:1}});
   await editModule(core,{...target,action:{kind:'finish-demonstration',expectedRevision:2}});
   const current=await core.getTask(task.id),state=helperStudio.parseState(helperExample,current.session!.moduleStates[0].state),text=helperStudio.text(helperExample,state);
-  const projected=readTaskArtifactText(current,artifact.artifactId,1);expect(projected.available).toBe(true);if(projected.available)expect(projected.text).toContain(text);
+  const projected=readTaskArtifactText(current,artifact.artifactId,1);expect(projected.available).toBe(true);if(projected.available){expect(projected.text).toContain('Local helper metadata');expect(projected.text).not.toContain('  Dock  ');expect(projected.text).not.toContain('Recorded result');}
   const saved=await saveModuleDocument(core,{...target,sessionRevision:current.session!.revision});
   await core.close();core=await createCompanion({dataDir:directory});
   const reopened=await core.getTask(task.id),notes=reopened.artifacts.find(a=>a.id===saved.artifactId)!.revisions.at(-1)!;

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
 import { Companion, CompanionError } from '../../core/companion';
 import { emptyTaskSession, type TaskSession, type BrowserObservation, type ComposerDraft } from '../../core/task-session';
-import { moduleText, parseModelModule, parseModuleAnswer, type ModelModuleDraft } from '../../core/interactive-modules';
+import { modelModuleText, parseModelModule, parseModuleAnswer, type ModelModuleDraft } from '../../core/interactive-modules';
 import type { Task } from '../../core/types';
 import {readTaskArtifactText} from '../../core/task-dialogue';
 import { LocalBrowser, BrowserObservationChangedError, ExpectedFormFields, type FormValuesMismatch, type BrowserProposal, type WriteScope, type BrowserWindowOwner } from './local-browser';
@@ -36,7 +36,7 @@ export function taskContext(task: Task, currentRequestId: string, current?: {obs
     if (!revision) return { artifactId: saved.artifactId, available: false };
     try {
       const answer = parseModuleAnswer(JSON.parse(revision.content)), module = answer.modules.find(module => module.id === saved.moduleId) ?? (saved.moduleId === undefined && answer.modules.length === 1 ? answer.modules[0] : undefined);
-      return module ? { artifactId: saved.artifactId, artifactRevision: saved.artifactRevision, moduleId: module.id, userStateRevision: saved.state.revision, currentArtifactRevision: artifact?.revisions.at(-1)?.revision, userEditedContent: moduleText(module.data, saved.state) } : { artifactId: saved.artifactId, available: false };
+      return module ? { artifactId: saved.artifactId, artifactRevision: saved.artifactRevision, moduleId: module.id, userStateRevision: saved.state.revision, currentArtifactRevision: artifact?.revisions.at(-1)?.revision, userEditedContent: modelModuleText(module.data, saved.state) } : { artifactId: saved.artifactId, available: false };
     } catch { return { artifactId: saved.artifactId, available: false }; }
   });
   const context = JSON.stringify({ title: task.title, goal: task.goal, previousTurns: turns, checkpoints: task.checkpoints.slice(-3).map(checkpoint => checkpoint.note.slice(0, 1_000)), browserHistory: tools, ...(current?{currentBrowser:{browserId:current.observation.browserId,documentId:current.observation.documentId,snapshotId:current.observation.id,authority:'Only the current observation describes live fields. Earlier values and target IDs are historical.'},admissionFailure:current.admissionFailure}:{}), currentUserModuleChoices: userChoices, uncertainActionCount: uncertainCount, omittedOlderHistory: task.requests.length > turns.length + 1 });

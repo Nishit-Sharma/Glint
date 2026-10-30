@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import {LOCAL_HELPER_CONTEXT_NOTICE} from '../../core/interactive-modules';
 import { dialog, type BrowserWindow } from 'electron';
 import type { Companion } from '../../core/companion';
 import type { MetaRunInput } from '../provider';
@@ -44,7 +45,7 @@ export class BrowserService {
         if(!connection.configured)throw Error('Connect the selected AI service before starting a browser task.');
         const consent = await dialog.showMessageBox(this.options.panel(), {
       type: 'question', signal, message: 'Use an isolated browser for this task?',
-      detail: `Website: ${url.origin}\nTask: ${input.prompt}\n\nThis opens a fresh browser without your personal cookies or sign-ins. Visible pages, ordinary field values and this task’s conversation, saved choices and checkpoints will be sent to ${connection.provider === 'Meta' ? 'Meta' : 'OpenAI through your Codex plan'}${connection.tier === 'Standard' ? ' at Standard speed' : ''}. Up to eight planning steps may use your existing model allowance.\n\nEach interaction asks for your approval. Automatic page redirects are currently blocked; use the final page address. Form changes need exact approval; unknown writes, other websites, uploads and downloads are blocked. Websites can still log page visits. Closing this panel keeps the task running; Stop ends this app’s work.`,
+      detail: `Website: ${url.origin}\nTask: ${input.prompt}\n\nThis opens a fresh browser without your personal cookies or sign-ins. Visible pages, ordinary field values and this task’s conversation, saved choices and checkpoints will be sent to ${connection.provider === 'Meta' ? 'Meta' : 'OpenAI through your Codex plan'}${connection.tier === 'Standard' ? ' at Standard speed' : ''}. Up to eight planning steps may use your existing model allowance.\n\n${LOCAL_HELPER_CONTEXT_NOTICE}\n\nEach interaction asks for your approval. Automatic page redirects are currently blocked; use the final page address. Form changes need exact approval; unknown writes, other websites, uploads and downloads are blocked. Websites can still log page visits. Closing this panel keeps the task running; Stop ends this app’s work.`,
       buttons: ['Cancel', 'Open browser'], defaultId: 0, cancelId: 0,
     });
     if (consent.response !== 1) throw Error('The browser task was not authorized. Nothing was sent.');

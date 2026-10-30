@@ -1574,3 +1574,17 @@ it.skipIf(process.env.RUN_OWNED_BROWSER_SELECT!=='1')('owned single-choice brows
  }catch(error){failure=error;throw error;}
  finally{if(f)await f.stop().catch(()=>{});server.closeAllConnections();if(server.listening)await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));await writeFile(join(evidence,'DISPOSITION.json'),JSON.stringify({source,status:failure?'failed':'completed',error:failure?String(failure):undefined,origin,journal,effects,blocked,submissions,unapprovedPosts,cleanup:'Existing host stop and owned server close awaited. Catastrophic runner loss and universal process-absence proof remain outside this fixture.'},null,2)+'\n');}
 },60000);
+
+
+// No UI or provider process: production host request/consent, inert Electron/provider seams.
+it('recorded text stays out of actual model consent and provider payloads including no-state helper history while raw module revision remains refused',async()=>{
+ const f=await fixture(),{privateRecordedHelpers,privateText}=await import('./recorded-text-privacy.fixture'),owned=await privateRecordedHelpers(f.core);
+ await f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-followup',kind:'explain',prompt:'Review the public plan',sourceIds:[]});
+ expect(f.calls.provider).toHaveLength(1);expect(f.calls.provider[0].taskContext).toContain('PUBLIC_PLAN_ITEM');
+ for(const sentinel of Object.values(privateText)){expect(JSON.stringify(f.calls.provider)).not.toContain(sentinel);expect(JSON.stringify(f.calls.details)).not.toContain(sentinel);}
+ expect(f.calls.details[0].detail).toContain('Local helper names, operations, inputs, results, checks and reasons are excluded');
+ await expect(f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-revise',kind:'revise',prompt:'Explain the metadata',artifactId:owned.derived.artifactId,sourceIds:[]})).rejects.toThrow('Use this answer’s controls');
+ expect(f.calls.provider).toHaveLength(1);expect(f.calls.details).toHaveLength(1);
+ for(const sentinel of Object.values(privateText)){expect(JSON.stringify(f.calls.provider)).not.toContain(sentinel);expect(JSON.stringify(f.calls.details)).not.toContain(sentinel);}
+ f.setResponse(0);await expect(f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-denied',kind:'explain',prompt:'Another public question',sourceIds:[]})).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
+});

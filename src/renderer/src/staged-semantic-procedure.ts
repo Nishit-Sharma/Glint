@@ -1,18 +1,20 @@
 import {Schema} from 'effect';
+import {HelperOperationSchema,type HelperOperation} from '../../learning/text-operation';
 import {parseSemanticProcedure,type SemanticProcedure,type SemanticPredicate,type SemanticStep} from '../../learning/semantic-procedure';
 import {typedScalar,type TypedAtom,type TypedField,type TypedValue} from './typed-semantic-procedure';
 
 export type StagedCondition={source:'input'|'output';field:string;operator:'eq'|'ne'|'gt'|'gte'|'lt'|'lte';value:string};
+export type StagedValue=TypedValue|{source:'text-transform';input:TypedAtom;operation:HelperOperation};
 export type ProcedureStage=
- | {kind:'assign';label:string;field:TypedField;value:TypedValue}
- | {kind:'decide';label:string;field:TypedField;condition:StagedCondition;whenTrue:TypedValue;whenFalse:TypedValue}
+ | {kind:'assign';label:string;field:TypedField;value:StagedValue}
+ | {kind:'decide';label:string;field:TypedField;condition:StagedCondition;whenTrue:StagedValue;whenFalse:StagedValue}
  | {kind:'checkpoint';label:string;condition:StagedCondition;reason:string};
 export type StagedProcedureDraft={format:'staged-record-v1';name:string;intent:string;inputs:TypedField[];requirements:StagedCondition[];stages:ProcedureStage[]};
 export const stagedProcedureLimits=Object.freeze({inputs:6,stages:6,decisions:2,requirements:4});
 const text=Schema.String.pipe(Schema.maxLength(500));
 const field=Schema.Struct({name:text,kind:Schema.Literal('string','number','boolean')});
 const atom=Schema.Struct({source:Schema.Literal('literal','input','output'),value:text});
-const value=Schema.Union(atom,Schema.Struct({source:Schema.Literal('calculate'),operator:Schema.Literal('add','subtract','multiply','divide'),left:atom,right:atom}));
+const value=Schema.Union(atom,Schema.Struct({source:Schema.Literal('calculate'),operator:Schema.Literal('add','subtract','multiply','divide'),left:atom,right:atom}),Schema.Struct({source:Schema.Literal('text-transform'),input:atom,operation:HelperOperationSchema}));
 const condition=Schema.Struct({source:Schema.Literal('input','output'),field:text,operator:Schema.Literal('eq','ne','gt','gte','lt','lte'),value:text});
 const stage=Schema.Union(
  Schema.Struct({kind:Schema.Literal('assign'),label:text,field,value}),
@@ -41,7 +43,7 @@ export function stagedProcedure(draft:StagedProcedureDraft,id='staged-record-hel
   return {kind:'compare',operator:item.operator,left:{kind:item.source,field:item.field},right:{kind:'literal',value:typedScalar(field.kind,item.value)}};
  };
  const operand=(item:TypedAtom,kind:TypedField['kind'])=>item.source==='literal'?{kind:'literal' as const,value:typedScalar(kind,item.value)}:{kind:item.source,field:item.value};
- const assigned=(item:TypedValue,field:TypedField):Extract<SemanticStep,{kind:'assign'}>['value']=>item.source==='calculate'?{kind:'arithmetic',operator:item.operator,left:operand(item.left,'number'),right:operand(item.right,'number')}:operand(item,field.kind);
+ const assigned=(item:StagedValue,field:TypedField):Extract<SemanticStep,{kind:'assign'}>['value']=>item.source==='calculate'?{kind:'arithmetic',operator:item.operator,left:operand(item.left,'number'),right:operand(item.right,'number')}:item.source==='text-transform'?{kind:'text-transform',operation:item.operation,input:operand(item.input,'string')}:operand(item,field.kind);
  function compile(index:number,path:string,available:readonly TypedField[]):SemanticStep{
   const stage=draft.stages[index],identity=`stage-${index+1}${path}`;
   if(!stage)return {kind:'return',id:`staged-done${path}`,intent:'Return the checked procedure results.'};
@@ -58,8 +60,8 @@ export function stagedDraftFromProcedure(procedure:SemanticProcedure):StagedProc
  try{
   const inputs=procedure.input.fields.map(({name,kind})=>({name,kind})),outputs=procedure.output.fields;
   const condition=(predicate:SemanticPredicate):StagedCondition=>{if(predicate.kind!=='compare'||predicate.left.kind==='literal'||predicate.right.kind!=='literal')throw Error();return {source:predicate.left.kind,field:predicate.left.field,operator:predicate.operator,value:String(predicate.right.value)};};
-  const atom=(value:Exclude<Extract<SemanticStep,{kind:'assign'}>['value'],{kind:'arithmetic'}>):TypedAtom=>value.kind==='literal'?{source:'literal',value:String(value.value)}:{source:value.kind,value:value.field};
-  const value=(value:Extract<SemanticStep,{kind:'assign'}>['value']):TypedValue=>value.kind==='arithmetic'?{source:'calculate',operator:value.operator,left:atom(value.left),right:atom(value.right)}:atom(value);
+  const atom=(value:Exclude<Extract<SemanticStep,{kind:'assign'}>['value'],{kind:'arithmetic'|'text-transform'}>):TypedAtom=>value.kind==='literal'?{source:'literal',value:String(value.value)}:{source:value.kind,value:value.field};
+  const value=(value:Extract<SemanticStep,{kind:'assign'}>['value']):StagedValue=>value.kind==='arithmetic'?{source:'calculate',operator:value.operator,left:atom(value.left),right:atom(value.right)}:value.kind==='text-transform'?{source:'text-transform',input:atom(value.input),operation:value.operation}:atom(value);
   const resultField=(name:string)=>{const field=outputs.find(field=>field.name===name);if(!field)throw Error();return {name:field.name,kind:field.kind};};
   const stages:ProcedureStage[]=[];let step=procedure.root;
   while(step.kind!=='return'){
@@ -87,7 +89,7 @@ export function renameStagedField(draft:StagedProcedureDraft,source:'input'|'out
  if(name!==old&&fields.some(field=>field.name===name))throw Error('This field name is already used. Choose a unique name; your fields and references were kept.');
  if(fields.filter(field=>field.name===old).length!==1)throw Error('Resolve duplicate field names before renaming references.');
  const renameAtom=(atom:TypedAtom):TypedAtom=>atom.source===source&&atom.value===old?{...atom,value:name}:atom;
- const value=(value:TypedValue):TypedValue=>value.source==='calculate'?{...value,left:renameAtom(value.left),right:renameAtom(value.right)}:renameAtom(value);
+ const value=(value:StagedValue):StagedValue=>value.source==='calculate'?{...value,left:renameAtom(value.left),right:renameAtom(value.right)}:value.source==='text-transform'?{...value,input:renameAtom(value.input)}:renameAtom(value);
  const condition=(item:StagedCondition)=>item.source===source&&item.field===old?{...item,field:name}:item;
  return {...draft,inputs:draft.inputs.map(field=>source==='input'&&field.name===old?{...field,name}:field),requirements:draft.requirements.map(condition),stages:draft.stages.map(stage=>stage.kind==='checkpoint'?{...stage,condition:condition(stage.condition)}:{...stage,field:source==='output'&&stage.field.name===old?{...stage.field,name}:stage.field,...(stage.kind==='assign'?{value:value(stage.value)}:{condition:condition(stage.condition),whenTrue:value(stage.whenTrue),whenFalse:value(stage.whenFalse)})})};
 }
