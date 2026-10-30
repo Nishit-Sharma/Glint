@@ -43,6 +43,10 @@ export async function offlineTaskEntry(page:Page,port=4180,options:{ready?:boole
   if(command.type==='artifact.save'){
    fixture.commands.push(structuredClone(command));await fixture.core.saveArtifact(command.taskId,command.artifact);await fixture.emit({type:'changed',taskId:command.taskId});return fixture.core.getTask(command.taskId);
   }
+  if(command.type==='artifact.handoff'){
+   fixture.commands.push(structuredClone(command));const {type,...input}=command;
+   const result=await fixture.core.saveTaskHandoff(input);await fixture.emit({type:'changed',taskId:command.taskId});return result;
+  }
   return invoke(command);
  };
  return {fixture,creations,phases,

@@ -16,6 +16,7 @@ import type {ComposerDraft} from '../core/task-session'
 import type {SourceDragState} from './source-drag'
 import type {SourceTextExpected} from './source-text-draft'
 import type {SourceTextSaveInspectionInput} from './source-text-save'
+import type {TaskHandoffSave} from './task-handoff';
 import type {SavedDocumentSourceInput} from './saved-document-source';
 
 export type Command =
@@ -54,6 +55,7 @@ export type Command =
   | {type:'context.view';taskId?:string} | {type:'task-view.get'} | {type:'context.pending'}
   | {type:'context.capture';activationId:string;windowId:string;taskId?:string}
   | {type:'artifact.save';taskId:string;artifact:ArtifactInput}
+  | ({type:'artifact.handoff'} & TaskHandoffSave)
   | {type:'module.edit';taskId:string;artifactId:string;artifactRevision:number;moduleId:string;action:ModuleAction}
   | {type:'module.document';taskId:string;artifactId:string;artifactRevision:number;sessionRevision:number}
   | {type:'workflow.window.review';taskId:string;requestId:string;candidate:ArtifactRef;review:unknown}

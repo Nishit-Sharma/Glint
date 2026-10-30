@@ -10,6 +10,8 @@ import {sourceResumeContext} from './source-resume';
 import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
 import { projectTaskDialogue } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
+import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
+import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
 import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
 import {encodeBrowserReviewNotesReceipt,findBrowserReviewNotesReceipt} from './browser-review-notes-receipt';
@@ -600,6 +602,25 @@ export class Companion {
         this.claimRequest(state,intentId);const saved=this.appendArtifact(current,{title:BROWSER_REVIEW_NOTES_TITLE,content:preview.content,mimeType:'text/markdown',sourceRefs:[]});
         state.usedRequestIds.push(encodeBrowserReviewNotesReceipt({claimHash,payloadDigest,taskId:current.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
         return {taskId:value.taskId,runId:value.runId,operationId:value.operationId,binding:value.binding,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest,alreadySaved:false};
+      });
+    });
+  }
+  saveTaskHandoff(input:unknown,assertCurrent:()=>void=()=>{}):Promise<TaskHandoffSaved>{
+    const value=clone(readTaskHandoffSave(input)),intent='task-handoff:'+value.intentId,claimHash=hash(intent),requestDigest=hash(taskHandoffIdentity(value));
+    return this.exclusive<TaskHandoffSaved>(()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),receipt=findTaskHandoffReceipt(this.state.usedRequestIds,claimHash);
+      if(receipt){
+        const original=task.artifacts.find(artifact=>artifact.id===receipt.artifactId)?.revisions.find(revision=>revision.revision===receipt.revision);
+        if(receipt.taskId!==task.id||receipt.requestDigest!==requestDigest||receipt.payloadDigest!==hash(value.binding)||!original||original.digest!==receipt.digest||hash(original.content)!==receipt.digest||original.content!==value.binding||original.mimeType!=='text/markdown'||original.sourceRefs.length)return reject('conflict','The original saved handoff is unavailable. No replacement was created.');
+        return clone({task,artifactId:receipt.artifactId,revision:receipt.revision,digest:receipt.digest,alreadySaved:true});
+      }
+      return this.commit(state=>{
+        assertCurrent();const current=this.task(state,value.taskId);if(current.status!=='active')return reject('conflict','Resume the task before saving a handoff.');
+        const preview=taskHandoffPreview(current,{taskId:value.taskId,artifacts:value.artifacts,noteIds:value.noteIds,includeGoal:value.includeGoal});
+        if(preview.binding!==value.binding)return reject('conflict','The selected saved work or its source status changed. Review the current handoff before saving.');
+        this.claimRequest(state,intent);const saved=this.appendArtifact(current,{title:preview.title,content:preview.content,mimeType:'text/markdown',sourceRefs:[]});
+        state.usedRequestIds.push(encodeTaskHandoffReceipt({claimHash,requestDigest,payloadDigest:hash(preview.content),taskId:current.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
+        return {task:current,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest,alreadySaved:false};
       });
     });
   }
