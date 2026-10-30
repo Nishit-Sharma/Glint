@@ -1,0 +1,6 @@
+.window-source-continuity{margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:8px;overflow-wrap:anywhere}
+.window-source-continuity.needs-review{border-left:3px solid var(--accent)}
+.window-source-continuity p{margin:0 0 8px}
+.window-source-continuity p:last-child{margin-bottom:0}
+.window-source-state{font-weight:600}
+.window-source-continuity button{white-space:normal;text-align:left}

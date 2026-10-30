@@ -12,18 +12,19 @@ import {Button} from '../ui';
 import {publicErrorMessage,requestStatusLabel} from '../../../shared/public-messages';
 import {browserRequestOutcome,earlierBrowserOutcome,requestArtifact} from '../browser-outcome';
 import {SOURCE_FORMULA_MIME,readSourceFormulaPacket} from '../../../learning/source-formula';
+import {WindowSourceContinuity} from './WindowSourceContinuity';
 
 const latest=<T,>(items:T[])=>items[items.length-1];
 interface Props {
  character:ReactNode;active:boolean;compactFit?:CompactFit;task?:Task;loaded:boolean;busy:boolean;connection?:ConnectionStatus;attachedWindow?:AttachedWindow;
  running:boolean;anyRunning:boolean;requestId?:string;stream?:string;error:string;notice:string;composer:ReactNode;draftText?:string;
- onWorkspace:(page?:'work'|'sources'|'tasks'|'roster'|'settings')=>void;onReviewSource:(reference:SourceRef)=>void;
+ onWorkspace:(page?:'work'|'sources'|'tasks'|'roster'|'settings')=>void;onReviewSource:(reference:SourceRef,isCurrent?:()=>boolean)=>void;sourceReviewCurrent?:()=>boolean;
  onArtifact:(artifact:Artifact)=>void;onRefresh:(source:Source)=>void;onCaptureAttached:()=>void;
  onCollapse:()=>void;onStop:()=>void;onDismissError:()=>void;
  contextContent?:ReactNode;renderBrief?:(artifact:Artifact)=>ReactNode;onStartContext:()=>void;
  selectedSourceIds?:string[];onSourceSelection:(id:string)=>void;
 }
-export function CompactCompanion({character,active,compactFit,task,loaded,busy,attachedWindow,running,anyRunning,requestId,stream,error,notice,composer,draftText='',onWorkspace,onReviewSource,onArtifact,onRefresh,onCaptureAttached,onCollapse,onStop,onDismissError,contextContent,renderBrief,onStartContext,selectedSourceIds,onSourceSelection}:Props){
+export function CompactCompanion({character,active,compactFit,task,loaded,busy,attachedWindow,running,anyRunning,requestId,stream,error,notice,composer,draftText='',onWorkspace,onReviewSource,sourceReviewCurrent,onArtifact,onRefresh,onCaptureAttached,onCollapse,onStop,onDismissError,contextContent,renderBrief,onStartContext,selectedSourceIds,onSourceSelection}:Props){
  const presentation=usePresentationSession();
  const [preparedFitId,setPreparedFitId]=useState<string>(),[failedFitId,setFailedFitId]=useState<string>(),[selectedId,setSelectedId]=useState<string>(),main=useRef<HTMLElement>(null),content=useRef<HTMLDivElement>(null);
  const fitFailed=!!compactFit&&failedFitId===compactFit.id;
@@ -40,6 +41,7 @@ export function CompactCompanion({character,active,compactFit,task,loaded,busy,a
  const showOutcome=!!currentRequest&&(!!outcome||currentRequest.status!=='completed'||!revision)&&!currentRunning&&!currentStream;
 
  const uncaptured=!!attachedWindow&&!sources.some(source=>latest(source.versions).kind==='window'&&latest(source.versions).windowId===attachedWindow.id),stale=selected?.freshness==='refresh-required';
+ const differentSelectedWindow=!!attachedWindow&&version?.kind==='window'&&version.windowId!==attachedWindow.id;
  const sourceName=uncaptured?attachedWindow!.title:scopeIds.length===0?'Only your question':scopeIds.length>1?`${scopeIds.length} sources selected`:version?.label||'No source attached';
  let formulaValid=false;if(revision?.mimeType===SOURCE_FORMULA_MIME)try{readSourceFormulaPacket(revision.content);formulaValid=true;}catch{/* Unsupported saved packets are never displayed as raw text. */}
  const itemIdentity=[task?.id,artifact?.id,revision?.revision,revision?.digest].join(':');
@@ -109,6 +111,8 @@ export function CompactCompanion({character,active,compactFit,task,loaded,busy,a
    {error&&<div className="message error" role="alert"><span>{publicErrorMessage(error)}</span><Button title="Dismiss error" kind="icon" onClick={onDismissError}>×</Button></div>}
    {contextContent?contextContent:!loaded?<p className="loading">Opening…</p>:!task?<div className="context-welcome"><h2>What’s on your screen?</h2><p>Use your shortcut to understand a window and find useful next steps.</p><Button onClick={onStartContext}>Use screen context</Button></div>:<>
     {task.status==='paused'&&<p className="warning">Task paused. Resume in the workspace.</p>}
+    {!uncaptured&&differentSelectedWindow&&<p className="tiny" role="status">The attached window differs from the selected source: {version?.label}. Review Context to change the selected source.</p>}
+    {!uncaptured&&!differentSelectedWindow&&selected&&version?.kind==='window'&&<WindowSourceContinuity task={task} sourceId={selected.id} onReview={onReviewSource} isCurrent={sourceReviewCurrent}/>}
     {(currentStream||currentRunning)?<section className="compact-response" aria-label="Current response">{!currentRunning&&<div className="compact-result-heading"><strong>Partial response</strong></div>}<StreamingText text={currentStream||'Preparing a response…'} streaming={active&&currentRunning}/></section>:showOutcome?<section className="compact-response" aria-label="Latest request outcome"><p className="conversation-status" role="status">{outcome?.label??requestStatusLabel(currentRequest!.status)}</p>{outcome?.message?<p>{outcome.message}</p>:currentRequest!.error&&<p className="warning">{publicErrorMessage(currentRequest!.error)}</p>}<button type="button" className="conversation-open" onClick={()=>onWorkspace('work')}>{outcome?.needsReview||earlierOutcome?.needsReview?'Review browser outcome':'View request in conversation'}<ArrowUpRight size={14}/></button></section>:revision&&artifact?(renderedBrief||<section className="settled-result" aria-label="Latest saved result"><div className="settled-result-card">{revision.mimeType==='image/png'&&revision.encoding==='base64'?<ReadyArtifact identity={itemIdentity} variant="image"><img className="compact-artifact-image" src={'data:image/png;base64,'+revision.content} alt={revision.title}/></ReadyArtifact>:revision.mimeType===SOURCE_FORMULA_MIME&&!formulaValid?<p role="status">This saved source formula needs inspection. Its original content is kept.</p>:revision.mimeType==='application/json'||formulaValid?<ReadyArtifact identity={itemIdentity}><button className="compact-structured" onClick={()=>onArtifact(artifact)}><FileText size={17}/><span><strong>{revision.title}</strong><small>Review and edit</small></span><ArrowUpRight size={14}/></button></ReadyArtifact>:<ReadableText text={revision.content}/>}</div></section>):!draftText.trim()&&!uncaptured?<div className="context-welcome"><Button onClick={onStartContext}>Use screen context</Button></div>:null}
     {earlierOutcome&&<section aria-label="Earlier browser action"><p className="conversation-status" role="status">Earlier browser action: {earlierOutcome.label}</p><p className="tiny">{earlierOutcome.needsReview?earlierOutcome.message:'The earlier website outcome was reviewed by you. See its request for the recorded evidence.'}</p>{!showOutcome&&<button type="button" className="conversation-open" onClick={()=>onWorkspace('work')}>{earlierOutcome.needsReview?'Review browser outcome':'View request in conversation'}<ArrowUpRight size={14}/></button>}</section>}
     {!isShownBrief&&citations&&citations.length>0&&<div className="compact-citations" aria-label="Response sources">{citations.map(({ref,version})=><button key={[ref.sourceId,ref.version,ref.digest].join(':')} onClick={()=>onReviewSource(ref)} title={'View the source used for this response'}>{version?.label||'Earlier source'}</button>)}{outdatedResult&&<div className="compact-result-recovery" role="status"><span>Earlier context. Review sources before continuing.</span><button onClick={()=>onWorkspace('sources')}>Review sources</button></div>}</div>}

@@ -14,6 +14,7 @@ import {SavedTextSourceEditor,type SavedTextSourceStart} from './SavedTextSource
 import type {SourceTextSaveInput,SourceTextSaveInspectionInput} from '../../../shared/source-text-save';
 import type {createLearningDrafts} from '../learning-drafts';
 import {SavedDocumentSource} from './SavedDocumentSource';
+import {WindowSourceContinuity} from './WindowSourceContinuity';
 
 const latest=<T,>(items:T[])=>items[items.length-1];
 const time=(value:string)=>new Date(value).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -55,6 +56,7 @@ export function ContextInspector({task,tasks,beforeDocumentSource,busy,run,cache
  if(mode==='source')return <section className="selected-context" aria-label="Source snapshot">{!source||!version?<p>This source version is no longer available.</p>:<>
   <div className="source-object-heading"><Button kind="icon" title="All context" onClick={()=>navigate(()=>{setSelection(undefined);setMode('list');})}><ArrowLeft size={16}/></Button><h2 ref={heading} tabIndex={-1}>{version.label}</h2><TaskMenu label="Source options">{version.kind==='text'&&!historical&&<Button onClick={edit}>Edit / refresh</Button>}{version.kind==='image'&&!historical&&<Button onClick={()=>setMode('crop')}>Crop & annotate</Button>}{version.kind==='image'&&!historical&&<Button disabled={busy} onClick={()=>void run({type:'source.image',taskId:task.id,sourceId:source.id,role:version.role},'Image source replaced')}>Replace image…</Button>}<Button disabled={busy} onClick={()=>void run({type:'source.invalidate',taskId:task.id,sourceId:source.id},'Source marked for refresh')}>Mark changed</Button></TaskMenu></div>
   {historical&&<p className="warning">Earlier snapshot · Version {version.version}</p>}
+  {version.kind==='window'&&!historical&&<WindowSourceContinuity task={task} sourceId={source.id}/>}
   {version.kind==='text'?<pre className="source-content">{version.content}</pre>:version.kind==='image'?<img className="source-image" src={version.content} alt={'Source snapshot: '+version.label}/>:<FrozenSourcePreview taskId={task.id} source={source} reference={selection}/>}
   <div className="source-capture-row"><small>{time(version.capturedAt)}</small>{version.kind==='window'&&!historical&&<Button kind="text" disabled={busy} onClick={async()=>{const result=await run<Task>({type:'windows.capture',taskId:task.id,windowId:version.windowId!,sourceId:source.id},'New window snapshot saved');if(result){const saved=result.sources.find(s=>s.id===source.id)!,v=latest(saved.versions);setSelection({sourceId:source.id,version:v.version,digest:v.digest});}}}><RefreshCw size={14}/>Refresh capture</Button>}</div>
   {source.freshness!=='fresh'&&<p className="warning">{version.kind==='window'?'Capture this window again to use its latest content.':'Review this source before using it again.'}</p>}
