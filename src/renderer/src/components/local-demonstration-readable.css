@@ -1,0 +1,8 @@
+.learning-tool .local-demonstration-values{display:grid;gap:12px;margin-block:12px;min-width:0}
+.learning-tool .local-demonstration-values>div{display:grid;gap:4px;min-width:0}
+.learning-tool .local-demonstration-values dt{font-weight:600;overflow-wrap:anywhere}
+.learning-tool .local-demonstration-values dd{margin:0;min-width:0;white-space:break-spaces;overflow-wrap:anywhere}
+.learning-tool .local-demonstration-step{min-width:0;padding-block:12px;border-block-start:1px solid var(--learning-line)}
+.learning-tool .local-demonstration-description{white-space:break-spaces;overflow-wrap:anywhere}
+.learning-tool .local-demonstration-step details{margin-block:8px}
+.learning-tool .local-demonstration-step h5{margin-block:4px}

@@ -1,3 +1,4 @@
+import {semanticHelper} from '../learning/semantic-helper';
 import {isTruthPredictionId,isTruthModuleId,readTruthBinding,parseBinaryAssignment,truthPredictionText} from '../learning/truth-table';
 import {truthTableGuard} from './truth-table-host';
 import {admitPickingAction} from './picking-helper-host';
@@ -22,12 +23,14 @@ export async function editModule(core: Companion, input: { taskId: string; artif
   if(isTruthPredictionId(module.id)&&existing?.state.selectedRowId!==undefined)throw Error('This saved prediction cannot be replaced in this version.');
   const isPicking=module.data.kind==='helper-studio'&&existing?.state.format==='semantic-table-v2';
   if((isPicking||action.kind==='begin-table-helper')&&task.status!=='active'&&action.kind!=='picking-inspect')throw Error('Resume the owning task before editing its local manifest.');
-  const updated=isPicking&&module.data.kind==='helper-studio'?admitPickingAction({taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version,helperId:module.data.id},existing!.state,action):updateModuleState(module.data, existing?.state ?? initialModuleState(module.data), action);
+  const isLocalDemonstration=action.kind.endsWith('semantic-demonstration')||action.kind==='perform-semantic-demonstration-step';
+  if(isLocalDemonstration&&task.status!=='active')throw Error('Resume the owning task before demonstrating local actions.');
+  const updated=isLocalDemonstration&&module.data.kind==='helper-studio'?semanticHelper.update(module.data.id,existing?.state??initialModuleState(module.data),action,{taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version,helperId:module.data.id}):isPicking&&module.data.kind==='helper-studio'?admitPickingAction({taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version,helperId:module.data.id},existing!.state,action):updateModuleState(module.data, existing?.state ?? initialModuleState(module.data), action);
   if(isPicking&&pickingCanonical(updated)===pickingCanonical(existing!.state))return session;
   const state = Schema.decodeUnknownSync(StoredModuleStateSchema,{onExcessProperty:'error'})(updated);
   const states = session.moduleStates.filter(state => state !== existing);
   const output={artifactId:artifact.id,revision:revision.revision,digest:revision.digest};
-  const guard=truthTableGuard(task,answer,output)??(module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):module.data.kind==='helper-studio'?{sourceRefs:[...revision.sourceRefs],artifactRefs:[output],...((isPicking||action.kind==='begin-table-helper')?{requireActive:true}:{})}:undefined);
+  const guard=truthTableGuard(task,answer,output)??(module.data.kind==='grounded-join'?groundedJoinCommitGuard(task,module.data,output):module.data.kind==='workflow-lab'?workflowCommitGuard(task,module.data,output):module.data.kind==='helper-studio'?{sourceRefs:[...revision.sourceRefs],artifactRefs:[output],...((isPicking||action.kind==='begin-table-helper'||isLocalDemonstration)?{requireActive:true}:{})}:undefined);
   return core.replaceSession(input.taskId, session.revision, { ...session, moduleStates: [...states, { artifactId: artifact.id, artifactRevision: revision.revision, moduleId: module.id, state }] },guard);
 }
 

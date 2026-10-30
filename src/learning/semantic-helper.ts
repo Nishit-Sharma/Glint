@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import {LocalDemonstrationWorkspaceSchema,LocalDemonstrationOriginSchema,LocalDemonstrationActionSchema,startLocalDemonstration,performLocalDemonstration,parseLocalDemonstration,assertLocalDemonstrationOwner,localDemonstrationProcedure,type LocalDemonstrationWorkspace,type LocalDemonstrationOrigin,type LocalDemonstrationOwner} from './local-demonstration';
 import {checkSemanticDemonstration,createSemanticRecording,parseSemanticRecording,semanticRecordingExpectations,type SemanticRecordingCorrection,type SemanticDemonstrationCandidate,type SemanticRecording} from './semantic-demonstration';
 import {SemanticExpectedSchema,parseSemanticProcedure,runSemanticProcedure,type SemanticProcedure,type SemanticRunResult,type SemanticPredicate,type SemanticStep} from './semantic-procedure';
 
@@ -17,6 +18,7 @@ const definitions=Schema.Array(Schema.Struct({procedure:Schema.Unknown})).pipe(S
 const versions=Schema.Array(Schema.Struct({version,procedureVersion:version,savedAtRevision:revision,changeNote:note,candidate:Schema.Unknown})).pipe(Schema.maxItems(20));
 export const SemanticHelperStateSchema=Schema.Struct({
  kind:Schema.Literal('helper-studio'),format:Schema.Literal('semantic-record-v1'),helperId:id,revision,
+ localWorkspace:Schema.optional(Schema.NullOr(LocalDemonstrationWorkspaceSchema)),localDemonstrations:Schema.optional(Schema.Array(LocalDemonstrationOriginSchema).pipe(Schema.maxItems(8))),
  definitions,draftVersion:Schema.NullOr(version),recordings:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(8)),
  rationales:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),corrections:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),examples:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(20)),recordingCorrections:Schema.optional(Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64))),
  evidenceHistory:Schema.Array(Schema.Struct({atRevision:revision,procedureVersion:version,candidate:Schema.Unknown})).pipe(Schema.maxItems(64)),
@@ -24,6 +26,7 @@ export const SemanticHelperStateSchema=Schema.Struct({
  lastBatchRun:Schema.optional(Schema.NullOr(Schema.Struct({version,rows:batchRows}))),
 });
 export const SemanticHelperActionSchema=Schema.Union(
+ LocalDemonstrationActionSchema,
  Schema.Struct({kind:Schema.Literal('correct-semantic-recording-expectation'),recordingId:id,expected:SemanticExpectedSchema,reason:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(500),Schema.filter(value=>value.trim().length>0)),expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('set-semantic-procedure'),procedure:Schema.Unknown,expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('replace-semantic-procedure'),procedure:Schema.Unknown,rationales:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),corrections:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),examples:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(20)),expectedRevision:revision}),
@@ -36,7 +39,7 @@ export const SemanticHelperActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('run-semantic-batch'),inputs:Schema.Array(batchInput).pipe(Schema.minItems(1),Schema.maxItems(semanticBatchLimit)),expectedVersion:version,expectedRevision:revision}),
 );
 export type SemanticHelperAction=typeof SemanticHelperActionSchema.Type;
-export type SemanticHelperState={kind:'helper-studio';format:'semantic-record-v1';helperId:string;revision:number;
+export type SemanticHelperState={kind:'helper-studio';format:'semantic-record-v1';helperId:string;revision:number;localWorkspace?:LocalDemonstrationWorkspace|null;localDemonstrations?:readonly LocalDemonstrationOrigin[];
  definitions:{procedure:SemanticProcedure}[];draftVersion:number|null;recordings:SemanticRecording[];
  recordingCorrections?:readonly SemanticRecordingCorrection[];rationales:SemanticDemonstrationCandidate['rationales'];corrections:SemanticDemonstrationCandidate['corrections'];examples:SemanticDemonstrationCandidate['examples'];
  evidenceHistory:{atRevision:number;procedureVersion:number;candidate:SemanticDemonstrationCandidate}[];
@@ -135,13 +138,33 @@ function parseState(helperId:string,value:unknown):SemanticHelperState{
  if(state.activeVersion!==null&&!state.versions.some(item=>item.version===state.activeVersion))fail('The active semantic helper version is unavailable.');
  if(state.lastRun){const saved=state.versions.find(item=>item.version===state.lastRun!.version);if(!saved||canonical(runSemanticProcedure(saved.candidate.procedure,state.lastRun.input))!==canonical(state.lastRun.result))fail('The saved semantic result differs from its input and version.');}
  if(state.lastBatchRun){const saved=state.versions.find(item=>item.version===state.lastBatchRun!.version);if(!saved||state.activeVersion!==saved.version||state.lastBatchRun.rows.some(row=>canonical(runSemanticProcedure(saved.candidate.procedure,row.input))!==canonical(row.result)))fail('The saved batch differs from its inputs and active version.');}
+ if(state.localWorkspace){
+  state.localWorkspace=parseLocalDemonstration(owner,state.revision,state.localWorkspace);
+  const last=state.localWorkspace.actions.at(-1)?.atRevision??state.localWorkspace.startedAtRevision;
+  if(last!==state.revision||state.definitions.length||state.recordings.length||state.versions.length)fail('Finish or cancel the active local demonstration before teaching this helper.');
+ }
+ let lastOrigin=-1;
+ for(const origin of state.localDemonstrations??[]){
+  const workspace=parseLocalDemonstration(owner,state.revision,origin.workspace),last=workspace.actions.at(-1)?.atRevision??workspace.startedAtRevision;
+  if(origin.finishedAtRevision!==last+1||origin.finishedAtRevision>state.revision||workspace.startedAtRevision<=lastOrigin)fail('Local demonstration history changed its revision order.');
+  lastOrigin=origin.finishedAtRevision;
+  if(origin.outcome==='cancelled'){if(origin.definitionVersion!==null)fail('A cancelled demonstration cannot authorize a definition.');continue;}
+  if(origin.definitionVersion!==1||!workspace.actions.length||workspace.actions.at(-1)?.result.status!=='completed'||canonical(localDemonstrationProcedure(workspace))!==canonical(state.definitions[0]?.procedure))fail('The original demonstrated procedure changed.');
+  const recorded=state.recordings.find(item=>item.recordingId==='demonstrated-original');
+  if(!recorded||recorded.atRevision!==origin.finishedAtRevision||canonical(recorded.input)!==canonical(workspace.input))fail('The original demonstration replay is unavailable.');
+ }
  return state;
 }
 function initial(helperId:string):SemanticHelperState{return {kind:'helper-studio',format:'semantic-record-v1',helperId:decode(id,helperId),revision:0,definitions:[],draftVersion:null,recordings:[],rationales:[],corrections:[],examples:[],evidenceHistory:[],versions:[],activeVersion:null,lastRun:null};}
-function update(helperId:string,stateValue:unknown,actionValue:unknown):SemanticHelperState{
+function update(helperId:string,stateValue:unknown,actionValue:unknown,demonstrationOwner?:LocalDemonstrationOwner):SemanticHelperState{
  const state=parseState(helperId,stateValue),action=decode(SemanticHelperActionSchema,actionValue);
  if(action.expectedRevision!==state.revision)fail('This semantic helper changed. Reload it before editing.');
  if(state.revision>=500)fail('The helper reached its local revision limit.');
+ const demonstrationAction=action.kind.endsWith('semantic-demonstration')||action.kind==='perform-semantic-demonstration-step';
+ if(state.localWorkspace&&!demonstrationAction)fail('Finish or cancel the local demonstration before changing this helper.');
+ if(demonstrationAction&&!demonstrationOwner)fail('Local demonstration actions require the current owned module authority.');
+ if(demonstrationOwner&&demonstrationOwner.helperId!==state.helperId)fail('This local demonstration belongs to another helper.');
+ if(state.localWorkspace&&demonstrationAction)assertLocalDemonstrationOwner(state.localWorkspace,demonstrationOwner);
  let next:SemanticHelperState={...state,revision:state.revision+1,lastRun:null,...(state.lastBatchRun!==undefined?{lastBatchRun:null}:{})};
  const archiveEvidence=()=>{
   if(!state.rationales.length&&!state.corrections.length&&!state.examples.length&&!state.recordingCorrections?.length)return state.evidenceHistory;
@@ -149,6 +172,26 @@ function update(helperId:string,stateValue:unknown,actionValue:unknown):Semantic
   return [...state.evidenceHistory,{atRevision:next.revision,procedureVersion:state.draftVersion!,candidate:candidate(state)}];
  };
  switch(action.kind){
+  case 'start-semantic-demonstration':{
+   if(state.localWorkspace)fail('Finish or cancel the current local demonstration first.');
+   if(state.revision+8>500)fail('Keep revision capacity for six local actions and finishing or cancelling the demonstration.');
+   if(state.definitions.length||state.recordings.length||state.versions.length)fail('Start a demonstration in a new local record helper. Existing drafts and versions stay unchanged.');
+   if((state.localDemonstrations?.length??0)>=8)fail('The local demonstration history limit was reached.');
+   next={...next,localWorkspace:startLocalDemonstration(demonstrationOwner,next.revision,{name:action.name,intent:action.intent,inputs:action.inputs,input:action.input})};break;
+  }
+  case 'perform-semantic-demonstration-step':{
+   if(!state.localWorkspace)fail('Start the owned local demonstration first.');
+   next={...next,localWorkspace:performLocalDemonstration(state.localWorkspace,state.revision,action.stage)};break;
+  }
+  case 'finish-semantic-demonstration':case 'cancel-semantic-demonstration':{
+   const workspace=state.localWorkspace;if(!workspace)fail('This local demonstration is no longer active.');
+   const finished=action.kind==='finish-semantic-demonstration';
+   if(finished&&(!workspace.actions.length||workspace.actions.at(-1)?.result.status!=='completed'))fail('Only a completed local demonstration can become an inactive procedure. Cancel a stopped demonstration.');
+   const origin:LocalDemonstrationOrigin={workspace,finishedAtRevision:next.revision,outcome:finished?'inactive-proposal':'cancelled',definitionVersion:finished?1:null};
+   next={...next,localWorkspace:null,localDemonstrations:[...(state.localDemonstrations??[]),origin]};
+   if(finished){const procedure=localDemonstrationProcedure(workspace);next={...next,definitions:[{procedure}],draftVersion:1,recordings:[createSemanticRecording({helperId:state.helperId,atRevision:next.revision},{recordingId:'demonstrated-original',procedure,input:workspace.input})]};}
+   break;
+  }
   case 'correct-semantic-recording-expectation':{
    if((state.recordingCorrections?.length??0)>=64)fail('The recorded-expectation correction limit was reached.');
    const current=candidate(state),entry=semanticRecordingExpectations({helperId:state.helperId,atRevision:state.revision},current.procedure,state.recordings,state.recordingCorrections??[]).find(item=>item.recordingId===action.recordingId);
@@ -205,7 +248,8 @@ export function semanticHelperText(helperId:string,stateValue:unknown):string{
  const assignment=(value:Extract<SemanticStep,{kind:'assign'}>['value']):string=>value.kind==='arithmetic'?`${operand(value.left)} ${{add:'plus',subtract:'minus',multiply:'times',divide:'divided by'}[value.operator]} ${operand(value.right)}`:value.kind==='text-transform'?`${value.operation.kind} on ${operand(value.input)}${value.operation.kind==='replace-literal'?` (${JSON.stringify(value.operation.find)} to ${JSON.stringify(value.operation.replacement)})`:''}`:operand(value);
  const steps=(value:SemanticStep):string[]=>{switch(value.kind){case 'assign':return [quote('Set output field',`${value.field} from ${assignment(value.value)}`),...steps(value.next)];case 'branch':return [quote('Branch when',predicate(value.predicate)),'When true:',...steps(value.then),'Otherwise:',...steps(value.else)];case 'abstain':return [quote('Stop for review',value.reason)];case 'return':return ['Return the checked local result.'];}};
  const resultText=(result:SemanticRunResult):string[]=>result.status==='invalid-input'?[quote('Input needs review',result.reason)]:[result.status==='completed'?'Computed local result.':quote('Stopped for review',result.reason),quote('Output fields',result.output),'Inspected steps:',...result.trace.map(item=>quote(item.kind,item.inspected.map(read=>`${read.field??'value'}: ${String(read.value)}`).join('; ')||item.reason||'Completed.'))];
- const parts=['# Local record helper','This helper computes local record values. It does not perform external actions.',`Active version: ${state.activeVersion??'none'}.`,'## Saved versions',...state.versions.map(item=>`Version ${item.version}: ${item.changeNote}`),...(!state.versions.length?['No saved versions.']:[]),'## Current definition'];
+ const demonstrationNotes=(state.localDemonstrations??[]).flatMap(origin=>[quote('Original local demonstration',origin),'The action receipts authorize local values only. Physical gestures and external apps were not observed.']);
+ const parts=[...demonstrationNotes,...(state.localWorkspace?[quote('Local demonstration in progress',state.localWorkspace)]:[]),'# Local record helper','This helper computes local record values. It does not perform external actions.',`Active version: ${state.activeVersion??'none'}.`,'## Saved versions',...state.versions.map(item=>`Version ${item.version}: ${item.changeNote}`),...(!state.versions.length?['No saved versions.']:[]),'## Current definition'];
  for(const saved of state.versions)if(saved.candidate.recordingCorrections?.length){parts.push(`## Saved version ${saved.version} expectation corrections`);for(const item of saved.candidate.recordingCorrections)parts.push(quote('Saved declared correction',{input:saved.candidate.recordings.find(recording=>recording.recordingId===item.recordingId)?.input,before:item.before,after:item.after,reason:item.reason}));}
  if(state.draftVersion!==null){const current=candidate(state);parts.push(quote('Purpose',current.procedure.intent),...current.procedure.input.fields.map(field=>quote('Input field',`${field.name} (${field.kind})`)),...current.procedure.output.fields.map(field=>quote('Output field',`${field.name} (${field.kind})`)),...current.procedure.preconditions.map(condition=>quote('Required condition',`${predicate(condition.predicate)} — ${condition.reason}`)),...steps(current.procedure.root),...current.procedure.postconditions.map(condition=>quote('Result condition',`${predicate(condition.predicate)} — ${condition.reason}`)));}
  if(state.recordings.length){parts.push('## Computed local replay','These values are computed from the supplied record; they are not an external observation.');for(const item of state.recordings)parts.push(quote('Input fields',item.input),...resultText(item.result));}
