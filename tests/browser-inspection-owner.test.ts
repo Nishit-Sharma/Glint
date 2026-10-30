@@ -129,7 +129,7 @@ it.each(['declined-consent','after-review'] as const)('Stop settles while the %s
  const f=await fixture(),b=browserFixture(),attempts=new BrowserInspectionAttempts(),scope={taskId:f.taskId,runId:'old',operationId:'action',attemptId:'held-read'},attempt=attempts.begin(scope);
  let release!:()=>void,entered!:()=>void,finished!:()=>void;const waiting=new Promise<void>(resolve=>{release=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;}),readFinished=new Promise<void>(resolve=>{finished=resolve;});
  const get=f.core.getTask.bind(f.core),replace=vi.spyOn(f.core,'replaceSession');let reads=0;
- const spy=vi.spyOn(f.core,'getTask').mockImplementation(async taskId=>{reads++;if(reads===(phase==='declined-consent'?1:2)){entered();await waiting;const result=await get(taskId);finished();return result;}return get(taskId);});
+ const spy=vi.spyOn(f.core,'getTask').mockImplementation(async taskId=>{reads++;if(reads===(phase==='declined-consent'?1:4)){entered();await waiting;const result=await get(taskId);finished();return result;}return get(taskId);});
  external.dialog.mockReset();if(phase==='declined-consent')external.dialog.mockResolvedValueOnce({response:0});else external.dialog.mockResolvedValueOnce({response:1}).mockResolvedValueOnce({response:1});external.launch.mockReset().mockResolvedValue(b.browser);
  const s=service(f.core,b.owner),pending=s.inspect(f.input,attempt),outcome=pending.then(()=> 'resolved',error=>error instanceof Error?error.message:String(error));
  try{
@@ -145,7 +145,7 @@ it.each(['declined-consent','after-review'] as const)('Stop settles while the %s
 it('reports finishing while the post-commit task read is still pending',async()=>{
  const f=await fixture(),b=browserFixture(),attempts=new BrowserInspectionAttempts(),scope={taskId:f.taskId,runId:'old',operationId:'action',attemptId:'after-commit'},attempt=attempts.begin(scope);
  let release!:()=>void,entered!:()=>void;const waiting=new Promise<void>(resolve=>{release=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;});const get=f.core.getTask.bind(f.core);let reads=0;
- const spy=vi.spyOn(f.core,'getTask').mockImplementation(async taskId=>{reads++;if(reads===3){entered();await waiting;}return get(taskId);});
+ const spy=vi.spyOn(f.core,'getTask').mockImplementation(async taskId=>{reads++;if(reads===5){entered();await waiting;}return get(taskId);});
  external.dialog.mockReset().mockResolvedValueOnce({response:1}).mockResolvedValueOnce({response:1});external.launch.mockReset().mockResolvedValue(b.browser);
  const s=service(f.core,b.owner),pending=s.inspect(f.input,attempt);
  try{await started;expect(attempts.stop(scope)).toEqual({kind:'finishing'});expect(attempt.signal.aborted).toBe(false);release();const result=await pending;expect(result.session?.runs[0].operations[0].status).toBe('observed');}
