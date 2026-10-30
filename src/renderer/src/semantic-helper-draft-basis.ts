@@ -1,7 +1,7 @@
 import {serializeLearningDraftJson} from '../../shared/learning-drafts';
 import type {SemanticHelperState} from '../../learning/semantic-helper';
 
-export type SemanticHelperDraftFamily='steps'|'record'|'checks'|'correction'|'run'|'typedsteps'|'typedrecord'|'typedcase'|'typedreason'|'typedversion'|'typedrun'|'typedexpectation'|'typedbatch';
+export type SemanticHelperDraftFamily='steps'|'record'|'checks'|'correction'|'run'|'stagedsteps'|'typedsteps'|'typedrecord'|'typedcase'|'typedreason'|'typedversion'|'typedrun'|'typedexpectation'|'typedbatch';
 
 /** Small exact identities; the cache independently compares all initial bytes. */
 export function semanticHelperDraftBasis(state:SemanticHelperState,family:SemanticHelperDraftFamily):string{
@@ -9,6 +9,7 @@ export function semanticHelperDraftBasis(state:SemanticHelperState,family:Semant
  const evidence=state.rationales.length>0||state.corrections.length>0||state.examples.length>0;
  const common=['semantic-record-v1',family] as const;
  switch(family){
+  case 'stagedsteps':return serializeLearningDraftJson(['staged-record-editor-v1',family,state.draftVersion]);
   case 'typedsteps':case 'typedrecord':return serializeLearningDraftJson(['typed-record-editor-v1',family,state.draftVersion]);
   case 'typedcase':return serializeLearningDraftJson(['typed-record-editor-v1',family,state.draftVersion,state.examples.length,state.recordings.length,...(state.recordingCorrections?.length?[state.recordingCorrections.length]:[])]);
   case 'typedreason':return serializeLearningDraftJson(['typed-record-editor-v1',family,state.draftVersion,state.corrections.length,state.rationales.length]);
