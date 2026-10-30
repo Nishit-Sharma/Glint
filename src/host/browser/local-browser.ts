@@ -328,14 +328,14 @@ export class LocalBrowser {
     this.grants.delete(proposalId);
     const target = await this.validateTarget(proposal.intent);
     proposal.status = 'executing'; this.busy = true; this.active = grant;
-    const redirectsBefore=this.blockedRedirects;
+    const redirectsBefore=this.blockedRedirects;let attempted=false;
     try {
-      if (proposal.intent.kind === 'fill') await target.handle.fill(proposal.intent.value, { timeout: 5_000 });
+      if (proposal.intent.kind === 'fill') {attempted=true;await target.handle.fill(proposal.intent.value, { timeout: 5_000 });}
       else if(proposal.intent.kind==='select'){
         const intent=proposal.intent,option=this.snapshot!.targets.find(target=>target.id===intent.targetId)!.options!.find(option=>option.value===intent.value)!;
-        await target.handle.selectOption({value:option.value,label:option.label},{timeout:5_000});
+        attempted=true;await target.handle.selectOption({value:option.value,label:option.label},{timeout:5_000});
       }
-      else await target.handle.click({ timeout: 5_000 });
+      else {attempted=true;await target.handle.click({ timeout: 5_000 });}
       if (grant.write) {
         for (let count = 0; count < 100 && !grant.receipt; count++) await new Promise(resolve => setTimeout(resolve, 20));
         if (!grant.receipt || grant.receipt.status >= 400) throw Error('The requested write has no successful receipt. Inspect its outcome before another attempt.');
@@ -346,8 +346,8 @@ export class LocalBrowser {
       proposal.status = 'completed';
     } catch (error) {
       const failure=this.blockedRedirects>redirectsBefore?new BrowserRedirectError():error;
-      // Selection can trigger website behavior even without an authorized write.
-      proposal.status = grant.used || proposal.intent.kind==='select' ? 'uncertain' : 'failed'; proposal.error = failure instanceof Error ? failure.message : 'Browser operation failed.';
+      // Any attempted interaction can trigger same-site effects before its result is lost.
+      proposal.status = grant.used || attempted ? 'uncertain' : 'failed'; proposal.error = proposal.status==='uncertain'?'The website action may have completed. Inspect its outcome before another attempt.':failure instanceof Error ? failure.message : 'Browser operation failed.';
       throw failure;
     } finally { this.busy = false; this.active = undefined; }
     return { proposal: structuredClone(proposal), ...(grant.receipt ? { receipt: structuredClone(grant.receipt) } : {}) };
