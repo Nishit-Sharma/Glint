@@ -2,6 +2,7 @@ import type {Companion} from '../core/companion';
 import type {Task} from '../core/types';
 import {documentStampChange,persistedDocumentStamp,type DocumentBinding,type DocumentObservation,type RuntimeDocumentStamp,type DocumentCapture} from '../shared/document-source';
 import type {NativeWindow} from './native';
+import {sameWindowIdentity} from './context-target';
 
 type Selection={task:Task;sourceId:string;target:NativeWindow;capture?:DocumentCapture};
 type Bound={binding:DocumentBinding;target:NativeWindow;stamp?:RuntimeDocumentStamp};
@@ -39,8 +40,15 @@ export class DocumentSourceFollow{
   this.selected=undefined;this.granted=false;this.running=undefined;this.reviewing=undefined;this.status={kind:'off',capabilityVersion:1,reason};
  }
  bind(selection:Selection){
-  const next=bindingFor(selection);this.stop('Source binding replaced.');this.selected=next;
-  this.present('off',next.stamp?'Document metadata is followed for this selected window. Snapshots need a separate follow choice.':'Document identity is unavailable. The captured window remains a frozen snapshot.');
+  let next:Bound;try{next=bindingFor(selection);}catch(error){this.stop('The selected snapshot could not be verified. Bind the window again explicitly.');throw error;}
+  const previous=this.selected,source=selection.task.sources.find(source=>source.id===next.binding.ref.sourceId),version=source?.versions.at(-1);
+  const retained=this.granted&&!!previous&&!!selection.capture&&selection.task.status==='active'&&source?.freshness==='fresh'&&source.currentVersion===next.binding.ref.version&&version?.id===source.id&&version.documentToken===next.target.documentToken&&
+   previous.binding.taskId===next.binding.taskId&&previous.binding.ref.sourceId===next.binding.ref.sourceId&&next.binding.ref.version===previous.binding.ref.version+1&&
+   source.versions.some(version=>version.id===source.id&&version.version===previous.binding.ref.version&&version.digest===previous.binding.ref.digest&&version.kind==='window'&&version.windowId===previous.binding.windowId&&version.windowProcessId===previous.binding.processId&&version.documentToken===previous.target.documentToken)&&
+   sameWindowIdentity(previous.target,next.target)&&previous.target.osId===next.target.osId&&!previous.target.knownProtected&&!next.target.knownProtected&&previous.target.owner.path===next.target.owner.path&&previous.target.owner.bundleId===next.target.owner.bundleId;
+  // A verified immediate refresh advances the existing scope; old in-flight work still retires.
+  this.stop('Source binding replaced.');this.selected=next;this.granted=retained;
+  this.present(retained?'on':'off',retained?'Snapshot refreshed. The existing session follow choice continues for document-address changes in this same selected window.':next.stamp?'Document metadata is followed for this selected window. Snapshots need a separate follow choice.':'Document identity is unavailable. The captured window remains a frozen snapshot.');
   return this.read();
  }
  private present(mode:'off'|'on'|'paused',reason:string){

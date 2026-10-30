@@ -219,6 +219,23 @@ it('explicit refresh resets the dirty-state baseline and old observations cannot
  expect((await f.core.reconcileDocumentSource({taskId:f.task.id,ref:{sourceId:original.id,version:old.version,digest:old.digest},windowId:f.target.id,processId:88},{kind:'document',stamp:{...old.documentStamp!,edited:true}})).kind).toBe('superseded');
  await f.host.documentFollow.poll();expect(await f.core.getTask(f.task.id)).toEqual(fresh);expect(f.host.captureCache.size).toBe(1);f.state.edited=false;await f.host.documentFollow.poll();expect((await f.core.getTask(f.task.id)).sources[0].freshness).toBe('refresh-required');expect(f.calls.pixels).toBe(2);expect(f.calls.transports).toBe(0);
 });
+
+it('a verified same-source explicit refresh continues the approved session follow without another follow review',async()=>{
+ const f=await fixture();f.state.edited=false;await f.host.dispatch({type:'windows.capture',taskId:f.task.id,windowId:f.target.id});await f.host.dispatch({type:'source.follow.enable'});
+ const original=(await f.core.getTask(f.task.id)).sources[0];await f.core.saveComposerDraft(f.task.id,0,{text:'Keep this unsent correction',kind:'explain'});await f.core.saveArtifact(f.task.id,{title:'Original result',content:'Keep original reasoning',sourceRefs:[{sourceId:original.id,version:1,digest:original.versions[0].digest}]});
+ f.state.edited=true;await f.host.documentFollow.poll();expect(f.host.documentFollow.read()).toMatchObject({automaticSnapshots:'paused'});
+ await f.host.dispatch({type:'windows.capture',taskId:f.task.id,windowId:f.target.id,sourceId:original.id});expect(f.host.documentFollow.read()).toMatchObject({automaticSnapshots:'on'});
+ await f.host.dispatch({type:'source.follow.enable'});f.state.digest='b'.repeat(64);await f.host.documentFollow.poll();
+ const saved=await f.core.getTask(f.task.id);expect(saved.sources[0]).toMatchObject({currentVersion:3,freshness:'fresh'});expect(f.calls.pixels).toBe(3);expect(f.calls.transports).toBe(0);expect(f.calls.confirmations.map(confirmation=>confirmation.message)).toEqual(['Capture this window?','Follow this selected window for this session?','Capture this window?']);
+ expect(saved.session?.draft).toBe('Keep this unsent correction');expect(saved.artifacts[0].revisions[0].sourceRefs[0].version).toBe(1);
+ const reads=f.calls.metadata;f.state.foreground={...f.target,id:'window:99',osId:99};await f.host.documentFollow.poll();expect(f.calls.metadata).toBe(reads);expect(f.calls.pixels).toBe(3);
+});
+
+it('stop during a held explicit refresh cannot restore the earlier session follow choice',async()=>{
+ const f=await fixture();await f.capture();await f.host.dispatch({type:'source.follow.enable'});const sourceId=(await f.core.getTask(f.task.id)).sources[0].id,gate=hold();f.state.pixelGate=gate;
+ const pending=f.host.dispatch({type:'windows.capture',taskId:f.task.id,windowId:f.target.id,sourceId});await gate.started;await f.host.dispatch({type:'source.follow.stop'});gate.release();await pending;
+ expect(f.host.documentFollow.read().kind).toBe('off');const pixels=f.calls.pixels;f.state.digest='b'.repeat(64);await f.host.documentFollow.poll();expect(f.calls.pixels).toBe(pixels);expect(f.calls.transports).toBe(0);
+});
 it.each(['manual','follow'] as const)('refuses a known edited-state transition during %s pixel preparation',async mode=>{
  const f=await fixture();f.state.edited=false;await f.capture();const source=(await f.core.getTask(f.task.id)).sources[0];
  if(mode==='follow'){await f.host.dispatch({type:'source.follow.enable'});f.state.digest='b'.repeat(64);}
