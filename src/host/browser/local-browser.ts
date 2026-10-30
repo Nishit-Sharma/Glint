@@ -7,9 +7,10 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 const Intent = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('click'), snapshotId: Schema.String, targetId: Schema.String }),
   Schema.Struct({ kind: Schema.Literal('fill'), snapshotId: Schema.String, targetId: Schema.String, value: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal('select'), snapshotId: Schema.String, targetId: Schema.String, value: Schema.String.pipe(Schema.maxLength(10_000)) }),
 );
 export type BrowserIntent = typeof Intent.Type;
-export type BrowserSnapshot = { id: string; taskId: string; browserId: string; documentId: string; url: string; title: string; text: string; digest: string; targets: { id: string; role: string; label: string; href?: string; value?: string }[] };
+export type BrowserSnapshot = { id: string; taskId: string; browserId: string; documentId: string; url: string; title: string; text: string; digest: string; targets: { id: string; role: string; label: string; href?: string; value?: string; options?: {value:string;label:string;disabled:boolean}[] }[] };
 export type BrowserProposal = { id: string; intent: BrowserIntent; digest: string; status: 'proposed' | 'executing' | 'completed' | 'uncertain' | 'failed'; result?: BrowserSnapshot; error?: string };
 export type WriteScope = { method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; url: string; body: string };
 export const ExpectedFormFields = Schema.Array(Schema.Struct({ targetId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)), value: Schema.String.pipe(Schema.maxLength(10_000)) })).pipe(Schema.maxItems(100));
@@ -24,8 +25,55 @@ export class BrowserRedirectError extends Error{
 export class BrowserObservationChangedError extends Error {
   constructor(part:'page'|'target') { super(part==='page'?'The page changed. Observe it again before proposing an action.':'The target changed. Observe it again before proposing an action.');this.name='BrowserObservationChangedError'; }
 }
-type Target = { handle: ElementHandle<HTMLElement | SVGElement>; fingerprint: string };
+type Target = { handle: ElementHandle<HTMLElement | SVGElement>; fingerprint: string; label:string };
 type Grant = { token: string; write?: { method: string; url: string; digest: string }; used: boolean; receipt?: { status: number; url: string; body: string } };
+
+/** Serialized into the page; read only, with no DOM clones or mutations. */
+export function browserPageState(target?:Element|void){
+  const roots:Array<Document|ShadowRoot>=[document];
+  for(const root of roots){
+    if(root!==document&&root.querySelector('select'))throw Error('Choice lists in open shadow roots cannot be observed safely yet. Choose another page.');
+    for(const element of Array.from(root.querySelectorAll('*')))if(element.shadowRoot)roots.push(element.shadowRoot);
+  }
+  const rendered=(element:Element)=>{
+    if(!element.isConnected)return false;
+    for(let parent:Element|null=element;parent;parent=parent.parentElement??((parent.getRootNode() as ShadowRoot).host??null)){
+      const style=getComputedStyle(parent);
+      if(style.contentVisibility==='auto')throw Error('This page uses deferred rendering that cannot be observed safely. Choose a narrower page.');
+      if(['SCRIPT','STYLE','TEMPLATE','NOSCRIPT'].includes(parent.tagName.toUpperCase())||parent.hasAttribute('hidden')||style.display==='none'||style.contentVisibility==='hidden'||['hidden','collapse'].includes(style.visibility))return false;
+    }
+    return true;
+  };
+  const optionVisible=(option:HTMLOptionElement)=>rendered(option);
+  const text=(element:Element,omitSelects=false):string=>{
+    if(!rendered(element))return '';
+    if(element instanceof HTMLSelectElement){
+      if(omitSelects)return '';
+      const parts:string[]=[];let group:HTMLOptGroupElement|undefined;
+      for(const option of Array.from(element.options).filter(optionVisible)){
+        const parent=option.parentElement instanceof HTMLOptGroupElement?option.parentElement:undefined;
+        if(parent&&parent!==group&&parent.label)parts.push(parent.label);
+        group=parent;parts.push(option.label);
+      }
+      return parts.join('\n');
+    }
+    const display=getComputedStyle(element).display;
+    if(element instanceof HTMLElement&&display!=='contents'&&!element.querySelector('select'))return element.innerText;
+    return Array.from(element.childNodes).map(node=>{
+      if(node.nodeType===Node.TEXT_NODE)return node.textContent??'';
+      if(!(node instanceof Element)||!rendered(node))return '';
+      if(node.tagName==='BR')return '\n';
+      const value=text(node,omitSelects),childDisplay=getComputedStyle(node).display;
+      return value&&/^(block|flex|grid|table|list-item|flow-root)/.test(childDisplay)?'\n'+value+'\n':value;
+    }).join('');
+  };
+  const name=(element:Element)=>{
+    if(!rendered(element))return '';
+    const associated=element instanceof HTMLInputElement||element instanceof HTMLTextAreaElement||element instanceof HTMLSelectElement?Array.from(element.labels??[]).map(label=>text(label,true)).join(' '):'';
+    return (element.getAttribute('aria-label')??(associated||text(element,!(element instanceof HTMLSelectElement)))).trim().slice(0,500);
+  };
+  return target?{text:'',title:'',url:'',label:name(target)}:{text:document.body?text(document.body):'',title:document.title,url:location.href,label:''};
+}
 
 /** Isolated browser only. The caller owns durable operations and trusted approval UI. */
 export class LocalBrowser {
@@ -139,7 +187,7 @@ export class LocalBrowser {
     if (!proposal || proposal.status !== 'proposed') throw Error('Observe and propose a current target before reviewing it.');
     const target = await this.validateTarget(proposal.intent), descriptor = this.snapshot?.targets.find(target => target.id === proposal.intent.targetId);
     if (!descriptor) throw Error('Target is no longer available.');
-    if (proposal.intent.kind === 'fill') return { target: structuredClone(descriptor) };
+    if (proposal.intent.kind === 'fill' || proposal.intent.kind === 'select') return { target: structuredClone(descriptor) };
     const form = await target.handle.evaluate((element, observed) => {
       if (!(element instanceof HTMLButtonElement || element instanceof HTMLInputElement) || !element.form || !['submit', 'image'].includes(element.type)) return undefined;
       const owner = element.form, method = (element.hasAttribute('formmethod') ? element.formMethod : owner.method).toUpperCase();
@@ -176,7 +224,7 @@ export class LocalBrowser {
   private async read() {
     this.assertOpen();
     const documentId = this.documentId;
-    const state = await this.page.evaluate(() => ({ text: document.body?.innerText ?? '', title: document.title, url: location.href }));
+    const {label:_label,...state} = await this.page.evaluate(browserPageState);
     if (documentId !== this.documentId) throw Error('The document changed during observation. Observe it again.');
     if (new URL(state.url).origin !== this.origin) throw Error('Browser left its authorized origin.');
     if (state.text.length > 100_000) throw Error('This page exceeds the observation limit; choose a narrower page.');
@@ -185,7 +233,9 @@ export class LocalBrowser {
   private fingerprint(handle: ElementHandle<HTMLElement | SVGElement>) {
     return handle.evaluate(element => {
       const control = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement;
-      return JSON.stringify({ tag: element.tagName, name: element.getAttribute('name'), type: element.getAttribute('type'), role: element.getAttribute('role'), label: element.getAttribute('aria-label'), text: element.textContent, href: element.getAttribute('href'), value: control ? element.value : null, disabled: element.getAttribute('disabled'), connected: element.isConnected });
+      const visible=(option:HTMLOptionElement)=>[option,...(option.parentElement instanceof HTMLOptGroupElement?[option.parentElement]:[])].every(item=>{const style=getComputedStyle(item);return !item.hidden&&style.display!=='none'&&!['hidden','collapse'].includes(style.visibility);});
+      const choices = element instanceof HTMLSelectElement ? { multiple:element.multiple, options:Array.from(element.options).filter(visible).map(option=>({value:option.value,label:option.label,disabled:option.disabled||option.parentElement instanceof HTMLOptGroupElement&&option.parentElement.disabled})) } : undefined;
+      return JSON.stringify({ tag: element.tagName, name: element.getAttribute('name'), type: element.getAttribute('type'), role: element.getAttribute('role'), label: element.getAttribute('aria-label'), text: element.textContent, href: element.getAttribute('href'), value: control ? element.value : null, disabled: element.getAttribute('disabled'), connected: element.isConnected, choices });
     });
   }
   async observe(): Promise<BrowserSnapshot> {
@@ -204,20 +254,27 @@ export class LocalBrowser {
       if (!handle) continue;
       const captured = await handle.evaluate(element => {
         const input = element instanceof HTMLInputElement;
-        const labels = input || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement ? Array.from(element.labels ?? []).map(label => label.textContent ?? '').join(' ') : '';
         const role = element.getAttribute('role') ?? (element.tagName === 'A' ? 'link' : element.tagName === 'BUTTON' ? 'button' : input ? element.type : element.tagName.toLowerCase());
         const control = input || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement;
         const sensitive = input && (['password', 'file', 'hidden'].includes(element.type) || /password|one-time-code|cc-/.test(element.autocomplete));
-        return { sensitive, info: { role, label: (element.getAttribute('aria-label') ?? (labels || element.textContent || '')).trim().slice(0, 500), href: element instanceof HTMLAnchorElement ? element.href : undefined, value: control && !sensitive ? element.value.slice(0, 10_000) : undefined }, fingerprint: JSON.stringify({ tag: element.tagName, name: element.getAttribute('name'), type: element.getAttribute('type'), role: element.getAttribute('role'), label: element.getAttribute('aria-label'), text: element.textContent, href: element.getAttribute('href'), value: control && !sensitive ? element.value : null, disabled: element.getAttribute('disabled'), connected: element.isConnected }) };
+        const visible=(option:HTMLOptionElement)=>[option,...(option.parentElement instanceof HTMLOptGroupElement?[option.parentElement]:[])].every(item=>{const style=getComputedStyle(item);return !item.hidden&&style.display!=='none'&&!['hidden','collapse'].includes(style.visibility);});
+        const choices = element instanceof HTMLSelectElement ? { multiple:element.multiple, options:Array.from(element.options).filter(visible).map(option=>({value:option.value,label:option.label,disabled:option.disabled||option.parentElement instanceof HTMLOptGroupElement&&option.parentElement.disabled})) } : undefined;
+        const selectedVisible=!(element instanceof HTMLSelectElement)||Array.from(element.selectedOptions).every(visible);
+        if(choices&&!choices.multiple&&(choices.options.length>100||choices.options.some(option=>option.value.length>10_000||option.label.length>500)))throw Error('This choice list exceeds the observation limit; choose a narrower page.');
+        return { sensitive, info: { role, label:'', href: element instanceof HTMLAnchorElement ? element.href : undefined, value: control && !sensitive && selectedVisible ? element.value.slice(0, 10_000) : undefined, ...(choices&&!choices.multiple?{options:choices.options}:{}) }, fingerprint: JSON.stringify({ tag: element.tagName, name: element.getAttribute('name'), type: element.getAttribute('type'), role: element.getAttribute('role'), label: element.getAttribute('aria-label'), text: element.textContent, href: element.getAttribute('href'), value: control && !sensitive ? element.value : null, disabled: element.getAttribute('disabled'), connected: element.isConnected, choices }) };
       });
       const info = captured.info;
       // Password/file/hidden controls are never exposed as tools or observations.
       if (captured.sensitive || ['password', 'file', 'hidden'].includes(info.role)) { await handle.dispose(); continue; }
       const id = randomUUID();
-      this.targets.set(id, { handle, fingerprint: captured.fingerprint });
-      snapshot.targets.push({ id, ...info });
+      const label=(await handle.evaluate(browserPageState)).label;
+      if(typeof label!=='string')throw Error('The current control name could not be observed.');
+      this.targets.set(id, { handle, fingerprint: captured.fingerprint, label });
+      snapshot.targets.push({ id, ...info, label });
+      if(JSON.stringify(snapshot).length>120_000)throw Error('This page exceeds the combined observation limit; choose a narrower page.');
     }
     if ((await this.read()).digest !== state.digest) throw Error('The page changed while its controls were measured. Observe it again.');
+    if(JSON.stringify(snapshot).length>120_000)throw Error('This page exceeds the combined observation limit; choose a narrower page.');
     this.snapshot = snapshot;
     return structuredClone(snapshot);
   }
@@ -235,13 +292,24 @@ export class LocalBrowser {
     if ((await this.read()).digest !== this.snapshot.digest || this.snapshot.documentId !== this.documentId) throw new BrowserObservationChangedError('page');
     const target = this.targets.get(intent.targetId);
     if (!target) throw Error('The target changed. Observe it again before proposing an action.');
-    if (await this.fingerprint(target.handle) !== target.fingerprint || !(await target.handle.isVisible())) throw new BrowserObservationChangedError('target');
+    if (await this.fingerprint(target.handle) !== target.fingerprint || (await target.handle.evaluate(browserPageState)).label!==target.label || !(await target.handle.isVisible())) throw new BrowserObservationChangedError('target');
+    if(intent.kind==='select'){
+      const descriptor=this.snapshot.targets.find(target=>target.id===intent.targetId),options=descriptor?.options?.filter(option=>option.value===intent.value);
+      if(options?.length!==1||options[0].disabled)throw Error('Choose one enabled, unambiguous value from the observed choice list.');
+      if(descriptor?.value===intent.value)throw Error('This option is already selected. Observe its result instead of selecting it again.');
+      await target.handle.evaluate((element,value)=>{
+        if(!(element instanceof HTMLSelectElement)||element.multiple||element.matches(':disabled'))throw Error('Only an enabled single-choice list can be selected.');
+        const options=Array.from(element.options).filter(option=>option.value===value);
+        if(options.length!==1||[options[0],...(options[0].parentElement instanceof HTMLOptGroupElement?[options[0].parentElement]:[])].some(item=>{const style=getComputedStyle(item);return item.hidden||style.display==='none'||['hidden','collapse'].includes(style.visibility);}))throw Error('Choose one visible, unambiguous option from the current list.');
+      },intent.value);
+    }
     return target;
   }
   /** Trusted host only: never wire this method to a model-generated approval. */
   approve(proposalId: string, write?: WriteScope): string {
     const proposal = this.proposals.get(proposalId);
     if (!proposal || proposal.status !== 'proposed') throw Error('Proposal is missing or already executed.');
+    if(proposal.intent.kind==='select'&&write)throw Error('Selecting a choice cannot authorize a POST, PUT, PATCH or DELETE request. Review a form submission separately.');
     if (write && (new URL(write.url).origin !== this.origin || new URL(write.url).username || new URL(write.url).password || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(write.method) || write.body.length > 100_000)) throw Error('Write scope is outside this browser authority.');
     const token = randomUUID(); this.grants.set(proposalId, { token, used: false, ...(write ? { write: { method: write.method, url: write.url, digest: digest(write.body) } } : {}) }); return token;
   }
@@ -255,6 +323,10 @@ export class LocalBrowser {
     const redirectsBefore=this.blockedRedirects;
     try {
       if (proposal.intent.kind === 'fill') await target.handle.fill(proposal.intent.value, { timeout: 5_000 });
+      else if(proposal.intent.kind==='select'){
+        const intent=proposal.intent,option=this.snapshot!.targets.find(target=>target.id===intent.targetId)!.options!.find(option=>option.value===intent.value)!;
+        await target.handle.selectOption({value:option.value,label:option.label},{timeout:5_000});
+      }
       else await target.handle.click({ timeout: 5_000 });
       if (grant.write) {
         for (let count = 0; count < 100 && !grant.receipt; count++) await new Promise(resolve => setTimeout(resolve, 20));
@@ -266,7 +338,8 @@ export class LocalBrowser {
       proposal.status = 'completed';
     } catch (error) {
       const failure=this.blockedRedirects>redirectsBefore?new BrowserRedirectError():error;
-      proposal.status = grant.used ? 'uncertain' : 'failed'; proposal.error = failure instanceof Error ? failure.message : 'Browser operation failed.';
+      // Selection can trigger website behavior even without an authorized write.
+      proposal.status = grant.used || proposal.intent.kind==='select' ? 'uncertain' : 'failed'; proposal.error = failure instanceof Error ? failure.message : 'Browser operation failed.';
       throw failure;
     } finally { this.busy = false; this.active = undefined; }
     return { proposal: structuredClone(proposal), ...(grant.receipt ? { receipt: structuredClone(grant.receipt) } : {}) };

@@ -29,6 +29,7 @@ export class BrowserService {
       get endpointKey() { return service.options.route().key; },
       async plan(input) {
         const content = JSON.stringify({ context: input.context, currentObservation: input.observation });
+        if(content.length>200_000)throw Error('This task and page exceed the browser planning limit. Save a checkpoint or choose a narrower page.');
         const response = await route.provider.run({ prompt: browserPlannerPrompt(input.goal), sources: [{ id: 'browser-task-context', version: 1, kind: 'text', role: 'fact', label: 'This task and its isolated browser page', content, digest: createHash('sha256').update(content).digest('hex'), capturedAt: new Date().toISOString() }], signal: input.signal });
         return parseBrowserPlan(response);
       },
@@ -55,8 +56,10 @@ export class BrowserService {
       approveAction: async current => {
         if (this.lifetime.signal.aborted||current.signal.aborted || this.options.route().key !== route.key) return { approved: false };
         const action = current.proposal.intent, target = current.review.target;
+        const choice=action.kind==='select'?target.options?.find(option=>option.value===action.value):undefined;
+        if(action.kind==='select'&&!choice)throw Error('The reviewed choice is no longer available. Observe it again.');
         const fields = current.review.write ? [...new URLSearchParams(current.review.write.body)].map(([key, value]) => `${key}: ${/token|csrf|secret|password/i.test(key) ? '(website verification field)' : value}`).join('\n') : '';
-        const decision = await dialog.showMessageBox(this.options.panel(), { type: 'question', signal:current.signal, message: current.review.write ? 'Submit this form?' : action.kind === 'fill' ? 'Enter this text?' : 'Allow this browser interaction?', detail: `Page: ${current.observation.url}\nControl: ${target.label || target.role}\n\n${current.reason}\n\n${action.kind === 'fill' ? `Text: ${action.value}` : current.review.write ? `Destination: ${current.review.write.url}\n${fields}\n\nThis approval is for this exact form and these values once.` : target.href ? `Open: ${target.href}` : 'This approval does not permit unknown network writes.'}`, buttons: ['Cancel', current.review.write ? 'Submit once' : 'Allow once'], defaultId: 0, cancelId: 0 });
+        const decision = await dialog.showMessageBox(this.options.panel(), { type: 'question', signal:current.signal, message: current.review.write ? 'Submit this form?' : action.kind === 'fill' ? 'Enter this text?' : action.kind==='select'?'Select this option?':'Allow this browser interaction?', detail: `Page: ${current.observation.url}\nControl: ${target.label || target.role}\n\n${current.reason}\n\n${action.kind === 'select' ? `Option: ${choice!.label}\nValue: ${action.value}\n\nSelecting this option can change the website through same-site GET or HEAD requests. Select once approves this exact choice once and the same-site GET or HEAD requests it causes; their effects may be unknown. POST, PUT, PATCH and DELETE requests are blocked. A form submission using those methods needs separate review. An observed selection does not verify a website effect.` : action.kind === 'fill' ? `Text: ${action.value}` : current.review.write ? `Destination: ${current.review.write.url}\n${fields}\n\nThis approval is for this exact form and these values once.` : target.href ? `Open: ${target.href}` : 'This approval does not permit unknown network writes.'}`, buttons: ['Cancel', current.review.write ? 'Submit once' : action.kind==='select'?'Select once':'Allow once'], defaultId: 0, cancelId: 0 });
         if (decision.response !== 1 || current.signal.aborted || this.options.route().key !== route.key) return { approved: false };
         return { approved: true, ...(current.review.write ? { write: current.review.write } : {}) };
       },

@@ -17,6 +17,7 @@ function ownedBrowser(taskId:string,write=false,failAfterDispatch=false){
  const fingerprint=()=>JSON.stringify({targetVersion});
  const handle={dispose:async()=>{},isVisible:async()=>true,click:async()=>{clicks++;if(failAfterDispatch){(browser as any).active.used=true;throw Error('Scripted transport lost after dispatch.');}pageVersion++;targetVersion++;},evaluate:async(fn:Function)=>{
   const source=String(fn);
+  if(source.includes('Choice lists in open shadow roots'))return {label:'Current control '+targetVersion};
   if(source.includes('new FormData'))return write?{method:'POST',url:origin+'/save',body:'',formFields:[]}:undefined;
   if(source.includes('sensitive'))return {sensitive:false,info:{role:'button',label:'Current control '+targetVersion},fingerprint:fingerprint()};
   return fingerprint();

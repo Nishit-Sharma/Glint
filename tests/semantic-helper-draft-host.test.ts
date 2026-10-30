@@ -1,3 +1,4 @@
+import {oldTaskLookup} from './pinned-old-task-lookup';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -85,7 +86,7 @@ test('pinned old sidecar reads helper raw fields and preserves them through an u
   await current.save(owner,'helper:text:run','initial',0,value);
   const joinTask=await core.createTask({title:'Join owner'}),joined=await core.saveArtifact(joinTask.id,{title:'Join',mimeType:MODULE_MIME,sourceRefs:[],content:JSON.stringify({schemaVersion:1,markdown:'Join.',modules:[{id:'join',version:1,data:exampleLesson,provenance:[]}]})});
   const joinOwner:LearningDraftOwner={taskId:joinTask.id,artifactId:joined.artifactId,artifactRevision:joined.revision.revision,artifactDigest:joined.revision.digest,moduleId:'join',moduleVersion:1};
-  const old=new OldDraftStore({directory,lookupTask});const prior=await old.read();expect(prior.kind==='available'&&prior.records.some(record=>record.slot==='helper:text:run'&&record.value?.value===value.value)).toBe(true);
+  const old=new OldDraftStore({directory,lookupTask:oldTaskLookup(directory)});const prior=await old.read();expect(prior.kind==='available'&&prior.records.some(record=>record.slot==='helper:text:run'&&record.value?.value===value.value)).toBe(true);
   await old.save(joinOwner,'prediction','initial',0,{initial:'""',value:'"0"',basis:'join'});
   const reopened=await current.read();expect(reopened.kind==='available'&&reopened.records.some(record=>record.slot==='helper:text:run'&&record.value?.value===value.value)).toBe(true);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}

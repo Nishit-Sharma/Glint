@@ -8,12 +8,13 @@ const id = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200));
 export const ComposerKindSchema=Schema.Literal(...composerKinds);
 export const BrowserObservationSchema = Schema.Struct({
   id, taskId: id, browserId: id, documentId: id, url: text, title: text, text, digest: id,
-  targets: Schema.Array(Schema.Struct({ id, role: text, label: text, href: Schema.optional(text), value: Schema.optional(text) })).pipe(Schema.maxItems(100)),
+  targets: Schema.Array(Schema.Struct({ id, role: text, label: text, href: Schema.optional(text), value: Schema.optional(text), options: Schema.optional(Schema.Array(Schema.Struct({ value: Schema.String.pipe(Schema.maxLength(10_000)), label: Schema.String.pipe(Schema.maxLength(500)), disabled: Schema.Boolean })).pipe(Schema.maxItems(100))) })).pipe(Schema.maxItems(100)),
 });
 export type BrowserObservation = typeof BrowserObservationSchema.Type;
 export const BrowserIntentSchema = Schema.Union(
   Schema.Struct({ kind: Schema.Literal('click'), snapshotId: id, targetId: id }),
   Schema.Struct({ kind: Schema.Literal('fill'), snapshotId: id, targetId: id, value: text }),
+  Schema.Struct({ kind: Schema.Literal('select'), snapshotId: id, targetId: id, value: Schema.String.pipe(Schema.maxLength(10_000)) }),
 );
 export const BrowserOperationSchema = Schema.Struct({
   id, intent: BrowserIntentSchema,
