@@ -69,8 +69,13 @@ export function browserPageState(target?:Element|void){
   };
   const name=(element:Element)=>{
     if(!rendered(element))return '';
+    const root=element.getRootNode() as Document|ShadowRoot;
+    const references=(element.getAttribute('aria-labelledby')??'').trim().split(/\s+/,101).filter(Boolean);
+    if(references.length>100)throw Error('This page exceeds the observation limit; choose a narrower page.');
+    // Use visible labels in this tree only; hidden references are outside the observation scope.
+    const referenced=references.map(id=>root.getElementById(id)).filter(label=>label!==null).map(label=>text(label,true)).join(' ').trim();
     const associated=element instanceof HTMLInputElement||element instanceof HTMLTextAreaElement||element instanceof HTMLSelectElement?Array.from(element.labels??[]).map(label=>text(label,true)).join(' '):'';
-    return (element.getAttribute('aria-label')??(associated||text(element,!(element instanceof HTMLSelectElement)))).trim().slice(0,500);
+    return (referenced||(element.getAttribute('aria-label')??(associated||text(element,!(element instanceof HTMLSelectElement))))).trim().slice(0,500);
   };
   return target?{text:'',title:'',url:'',label:name(target)}:{text:document.body?text(document.body):'',title:document.title,url:location.href,label:''};
 }
