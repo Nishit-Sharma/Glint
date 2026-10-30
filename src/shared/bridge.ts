@@ -16,6 +16,7 @@ import type {ComposerDraft} from '../core/task-session'
 import type {SourceDragState} from './source-drag'
 import type {SourceTextExpected} from './source-text-draft'
 import type {SourceTextSaveInspectionInput} from './source-text-save'
+import type {SavedDocumentSourceInput} from './saved-document-source';
 
 export type Command =
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
@@ -42,6 +43,7 @@ export type Command =
   | {type:'learning-drafts.save';owner:LearningDraftOwner;slot:string;expectedEpoch:string;expectedRevision:number;value:LearningDraftValue|null}
   | {type:'source.text';taskId:string;source:SourceInput;expectedSource?:SourceTextExpected;edit?:{intentId:string;binding:string}}
   | ({type:'source.text.inspect'} & SourceTextSaveInspectionInput)
+  | ({type:'source.document'} & SavedDocumentSourceInput)
   | {type:'source.image';taskId:string;role:SourceInput['role'];sourceId?:string}
   | {type:'source.follow.get'|'source.follow.enable'|'source.follow.stop'}
   | {type:'source.drag.cancel'} | {type:'source.choose'}

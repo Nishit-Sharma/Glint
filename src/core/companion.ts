@@ -10,6 +10,7 @@ import {sourceResumeContext} from './source-resume';
 import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
 import { projectTaskDialogue } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
+import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
 import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
 import {encodeBrowserReviewNotesReceipt,findBrowserReviewNotesReceipt} from './browser-review-notes-receipt';
 import {parseModuleAnswer} from './interactive-modules';
@@ -439,6 +440,29 @@ export class Companion {
       const task=this.task(this.state,value.taskId),source=task.sources.find(source=>source.id===value.sourceId),current=source?.versions.at(-1),expected=value.expectedSource;
       if(!source||!current)return reject('not-found','The selected text source was not found.');
       return clone({kind:'uncommitted',task,expectedUnchanged:current.kind==='text'&&source.currentVersion===expected.version&&current.version===expected.version&&current.digest===expected.digest&&source.freshness===expected.freshness,intentId:value.intentId,binding:value.binding});
+    });
+  }
+  async copySavedDocumentSource(input:unknown,assertCurrent:()=>void=()=>{}):Promise<SavedDocumentSourceResult>{
+    const value=readSavedDocumentSourceInput(input);
+    return this.exclusive(async()=>{
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),owner=this.task(state,value.ownerTaskId);
+        if(task.status!=='active')return reject('conflict','Resume the destination task before adding a source.');
+        const preview=savedDocumentSourcePreview(owner,value.artifact,value.role);
+        if(preview.snapshot!==value.expectedSnapshot)return reject('conflict','The selected document or its source freshness changed. Review the copy again.');
+        const sourceId='saved-document-'+hash(JSON.stringify({taskId:value.taskId,ownerTaskId:value.ownerTaskId,artifact:{artifactId:value.artifact.artifactId,revision:value.artifact.revision,digest:value.artifact.digest},role:value.role,expectedSnapshot:value.expectedSnapshot})),existing=task.sources.find(source=>source.id===sourceId);
+        if(existing){
+          const version=existing.versions[0];
+          if(existing.currentVersion!==1||existing.versions.length!==1||existing.freshness!=='fresh'||version.content!==preview.content||version.label!==preview.label||version.role!==value.role)return reject('conflict','This copied source already exists and has changed. Open it in Context; no edits were replaced.');
+          return {task,reference:{sourceId,version:1,digest:version.digest},alreadyAdded:true};
+        }
+        const browserContext=task.session?.browserContext;
+        const reference=this.appendSource(task,{id:sourceId,kind:'text',label:preview.label,content:preview.content,role:value.role});
+        // Adding an unselected saved snapshot does not detach the current browser route.
+        if(browserContext)task.session={...task.session!,browserContext};
+        return {task,reference,alreadyAdded:false};
+      });
+      this.abortCancelled(result.task);return result;
     });
   }
   putSource(taskId: string, sourceInput: SourceInput, expectedTask?:Task, expectedSource?:SourceRef&{freshness?:Source['freshness']}, assertCurrent:()=>void=()=>{}): Promise<Task> {

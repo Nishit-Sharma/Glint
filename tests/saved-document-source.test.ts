@@ -1,0 +1,51 @@
+import {afterEach,expect,it} from 'vitest';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createCompanion} from '../src/core/companion';
+import {LearningDraftStore} from '../src/host/learning-drafts';
+import {createLearningDrafts} from '../src/renderer/src/learning-drafts';
+import {SAVED_DOCUMENT_DRAFT_SLOT,emptySavedDocumentDraft,savedDocumentDraftBasis,savedDocumentDraftOwner} from '../src/shared/saved-document-draft';
+import {savedDocumentSourcePreview,readSavedDocumentSourceInput} from '../src/shared/saved-document-source';
+const cleanups:Array<()=>Promise<void>>=[];
+afterEach(async()=>{for(const close of cleanups.splice(0))await close();});
+async function fixture(){
+ const directory=await mkdtemp(join(tmpdir(),'saved-document-source-')),core=await createCompanion({dataDir:directory});cleanups.push(async()=>{await core.close();await rm(directory,{recursive:true,force:true});});
+ const first=await core.createTask({title:'Original research'}),owner=await core.putSource(first.id,{kind:'text',role:'fact',label:'Requirements',content:'PRIVATE_ORIGINAL_SOURCE_BODY'}),source=owner.sources[0],ref={sourceId:source.id,version:1,digest:source.versions[0].digest},saved=await core.saveArtifact(owner.id,{title:'Saved visit plan',content:'\n  Exact saved text.  \n',mimeType:'text/markdown',sourceRefs:[ref]}),original=await core.getTask(owner.id),target=await core.createTask({title:'A new task'}),artifact={artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest},preview=savedDocumentSourcePreview(original,artifact),input={taskId:target.id,ownerTaskId:owner.id,artifact,role:'fact' as const,expectedSnapshot:preview.snapshot};
+ return {directory,core,owner:original,target,artifact,preview,input,sourceRef:ref};
+}
+it('copies only the reviewed saved revision with provenance and keeps both unsent drafts and original source bodies private',async()=>{
+ const f=await fixture();await f.core.saveComposerDraft(f.owner.id,0,{kind:'create',text:'PRIVATE_OWNER_COMPOSER'});await f.core.saveComposerDraft(f.target.id,0,{kind:'explain',text:'PRIVATE_TARGET_COMPOSER'});
+ const store=new LearningDraftStore({directory:f.directory,lookupTask:async id=>(await f.core.listTasks()).find(task=>task.id===id)}),cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();const owner=await f.core.getTask(f.owner.id);expect(cache.tryEdit(savedDocumentDraftOwner(owner.id,f.artifact.artifactId),SAVED_DOCUMENT_DRAFT_SLOT,emptySavedDocumentDraft,savedDocumentDraftBasis(owner,f.artifact.artifactId,owner.artifacts[0].revisions[0]),()=>({present:true,title:'PRIVATE_DRAFT_TITLE',content:'PRIVATE_DOCUMENT_DRAFT',sourceRefs:[f.sourceRef]})).kind).toBe('accepted');await cache.flush();
+ const original=await f.core.getTask(f.owner.id),target=await f.core.getTask(f.target.id),sidecar=await readFile(join(f.directory,'learning-drafts.json')),result=await f.core.copySavedDocumentSource(f.input),version=result.task.sources[0].versions[0];
+ expect(result.alreadyAdded).toBe(false);expect(version.content).toBe(f.preview.content);expect(version.content).toContain('Original task: Original research');expect(version.content).toContain('Revision: 1');expect(version.content).toContain('current saved version');expect(version.content.endsWith('\n  Exact saved text.  \n')).toBe(true);expect(version.content).not.toContain('PRIVATE_');expect(await f.core.getTask(f.owner.id)).toEqual(original);expect(result.task.session?.draft).toBe(target.session?.draft);expect(result.task.session?.draftKind).toBe(target.session?.draftKind);expect(result.task.session?.draftRevision).toBe(target.session?.draftRevision);expect(result.task.requests).toEqual([]);expect(result.task.artifacts).toEqual([]);expect(result.task.actions).toEqual([]);expect(version.kind).toBe('text');expect(version.documentToken).toBeUndefined();expect(version.windowId).toBeUndefined();expect(await readFile(join(f.directory,'learning-drafts.json'))).toEqual(sidecar);
+ await f.core.deleteTask(f.owner.id);expect((await f.core.getTask(f.target.id)).sources[0].versions[0]).toEqual(version);
+});
+it('deduplicates concurrent/reordered confirmations and never replaces later edits to the copied source',async()=>{
+ const f=await fixture(),reordered={expectedSnapshot:f.input.expectedSnapshot,role:f.input.role,artifact:{digest:f.artifact.digest,revision:f.artifact.revision,artifactId:f.artifact.artifactId},ownerTaskId:f.owner.id,taskId:f.target.id},[a,b]=await Promise.all([f.core.copySavedDocumentSource(f.input),f.core.copySavedDocumentSource(reordered)]);expect(a.reference).toEqual(b.reference);expect(b.alreadyAdded).toBe(true);expect(b.task.sources).toHaveLength(1);expect(b.task.sources[0].versions).toHaveLength(1);
+ await f.core.putSource(f.target.id,{kind:'text',id:a.reference.sourceId,label:'User changed name',content:'User edited copy',role:'style'});const before=await f.core.getTask(f.target.id);await expect(f.core.copySavedDocumentSource(f.input)).rejects.toThrow('no edits were replaced');expect(await f.core.getTask(f.target.id)).toEqual(before);
+});
+it('reconciles the same copy after store recreation without appending a source or version',async()=>{
+ const f=await fixture(),first=await f.core.copySavedDocumentSource(f.input),before=await f.core.listTasks();await f.core.close();const reopened=await createCompanion({dataDir:f.directory});try{const reopenedBefore=await reopened.listTasks();expect(reopenedBefore.map(task=>task.sources)).toEqual(before.map(task=>task.sources));const result=await reopened.copySavedDocumentSource(f.input);expect(result.reference).toEqual(first.reference);expect(result.alreadyAdded).toBe(true);expect(await reopened.listTasks()).toEqual(reopenedBefore);}finally{await reopened.close();}
+});
+it('retains the destination browser route and unsent message while adding an unselected document snapshot',async()=>{
+ const f=await fixture();await f.core.saveComposerDraft(f.target.id,0,{text:'PRIVATE_BROWSER_DRAFT',kind:'explain'});const task=await f.core.getTask(f.target.id),context={origin:'https://owned.invalid',url:'https://owned.invalid/current',requestId:'prior-browser'};await f.core.replaceSession(task.id,task.session!.revision,{...task.session!,browserContext:context});const before=await f.core.getTask(task.id),result=await f.core.copySavedDocumentSource(f.input);expect(result.task.session?.browserContext).toEqual(context);expect(result.task.session?.draft).toBe(before.session?.draft);expect(result.task.session?.draftRevision).toBe(before.session?.draftRevision);expect(result.task.requests).toEqual([]);expect(result.task.sources).toHaveLength(1);
+});
+it.each(['refresh','invalidate'] as const)('atomically refuses a copy reviewed before a queued %s changes linked-source freshness',async kind=>{
+ const f=await fixture(),update=kind==='refresh'?f.core.putSource(f.owner.id,{kind:'text',id:f.sourceRef.sourceId,label:'Requirements',content:'Changed requirements',role:'fact'}):f.core.invalidateSource(f.owner.id,f.sourceRef.sourceId,'Needs review'),copy=f.core.copySavedDocumentSource(f.input),refused=expect(copy).rejects.toThrow('freshness changed');await update;await refused;expect(await f.core.getTask(f.target.id)).toEqual(f.target);
+ const current=await f.core.getTask(f.owner.id),reviewed=savedDocumentSourcePreview(current,f.artifact);expect(reviewed.content).toContain(kind==='refresh'?'superseded':'refresh-required');const result=await f.core.copySavedDocumentSource({...f.input,expectedSnapshot:reviewed.snapshot});expect(result.task.sources[0].versions[0].content).toBe(reviewed.content);
+});
+it.each(['owner','target','paused','guard'] as const)('keeps the destination intact when the %s is unavailable or no longer admitted',async kind=>{
+ const f=await fixture();if(kind==='owner')await f.core.deleteTask(f.owner.id);if(kind==='target')await f.core.deleteTask(f.target.id);if(kind==='paused')await f.core.pause(f.target.id);const before=await f.core.listTasks(),bytes=await readFile(join(f.directory,'tasks.json'));await expect(f.core.copySavedDocumentSource(f.input,()=>{if(kind==='guard')throw Error('Retired owner scope');})).rejects.toThrow();expect(await f.core.listTasks()).toEqual(before);expect(await readFile(join(f.directory,'tasks.json'))).toEqual(bytes);
+});
+it('copies the explicitly reviewed historical revision after later saved edits, without silently upgrading it',async()=>{
+ const f=await fixture();await f.core.saveArtifact(f.owner.id,{artifactId:f.artifact.artifactId,expectedRevision:1,title:'New revision',content:'LATER SAVED TEXT',mimeType:'text/markdown',sourceRefs:[f.sourceRef]});const result=await f.core.copySavedDocumentSource(f.input);expect(result.task.sources[0].versions[0].content).toBe(f.preview.content);expect(result.task.sources[0].versions[0].content).not.toContain('LATER SAVED TEXT');
+});
+it('rejects forged revisions, copied text, source roles and unknown input without writing a partial source',async()=>{
+ const f=await fixture(),before=await f.core.listTasks(),bytes=await readFile(join(f.directory,'tasks.json'));
+ for(const input of [{...f.input,artifact:{...f.artifact,digest:'b'.repeat(64)}},{...f.input,expectedSnapshot:f.input.expectedSnapshot+'forged'},{...f.input,content:'FORGED_RAW_COPY'},{...f.input,role:'system'},{...f.input,artifact:{...f.artifact,taskId:f.owner.id}}]){await expect(f.core.copySavedDocumentSource(input)).rejects.toThrow();}
+ expect(()=>readSavedDocumentSourceInput({...f.input,role:'system'})).toThrow();expect(await f.core.listTasks()).toEqual(before);expect(await readFile(join(f.directory,'tasks.json'))).toEqual(bytes);
+});
+it('excludes image/structured/oversized and embedded-image documents from ordinary-text copying',async()=>{
+ const f=await fixture();for(const patch of [{mimeType:'application/json'},{content:'x'.repeat(100_001)},{content:'![image](data:image/png;base64,c2VjcmV0)'},{content:'\0private'},{encoding:'base64' as const}]){const owner=structuredClone(f.owner);Object.assign(owner.artifacts[0].revisions[0],patch);expect(()=>savedDocumentSourcePreview(owner,f.artifact)).toThrow();}
+});

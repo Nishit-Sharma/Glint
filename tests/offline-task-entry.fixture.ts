@@ -36,6 +36,10 @@ export async function offlineTaskEntry(page:Page,port=4180,options:{ready?:boole
   if(command.type==='source.text'){
    fixture.commands.push(structuredClone(command));if(command.edit){const result=await fixture.core.saveTextSource({taskId:command.taskId,source:command.source,expectedSource:command.expectedSource,...command.edit});await fixture.emit({type:'changed',taskId:command.taskId});return {...result,task:await fixture.core.getTask(command.taskId)};}const task=await fixture.core.putSource(command.taskId,command.source,undefined,command.expectedSource);await fixture.emit({type:'changed',taskId:command.taskId});return task;
   }
+  if(command.type==='source.document'){
+   fixture.commands.push(structuredClone(command));const {type,...input}=command;
+   const result=await fixture.core.copySavedDocumentSource(input);await fixture.emit({type:'changed',taskId:command.taskId});return result;
+  }
   if(command.type==='artifact.save'){
    fixture.commands.push(structuredClone(command));await fixture.core.saveArtifact(command.taskId,command.artifact);await fixture.emit({type:'changed',taskId:command.taskId});return fixture.core.getTask(command.taskId);
   }
