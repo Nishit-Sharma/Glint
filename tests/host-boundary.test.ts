@@ -1165,10 +1165,23 @@ describe('Capture result serialized publication boundary',()=>{
   const provider=hold(),saving=hold();let runs=0;f.seams.run=async()=>{runs++;provider.enter();await provider.wait;return 'A stale queued answer';};
   const command={type:'model.run',taskId,requestId:'queued-capture-result',kind:'explain',prompt:'Synthetic captured question',sourceIds:[captured.sourceId]};
   const pending=f.command(command).then(()=> 'completed',()=> 'blocked');await provider.started;let once=true;f.seams.storeBeforeRename=async()=>{if(once){once=false;saving.enter();await saving.wait;}};
-  const manualSave=f.command({type:'draft.save',taskId,expectedRevision:0,draft:{text:'Keep this queued manual edit.',kind:'explain'}});await saving.started;provider.release();await new Promise<void>(resolve=>setImmediate(resolve));
+  const manualSave=f.command({type:'draft.save',taskId,expectedRevision:0,draft:{text:'Keep this queued manual edit.',kind:'explain'}});await saving.started;
+  // Observe the actual finalization enqueue while the independent save holds the core queue.
+  const queued=hold(),exclusive=(f.core as any).exclusive.bind(f.core);(f.core as any).exclusive=(operation:unknown)=>{const result=exclusive(operation);queued.enter();return result;};
+  provider.release();await queued.started;
   await f.command({type:'capture.settings.revoke',expectedRevision:1});saving.release();await manualSave;const outcome=await pending,state=await f.core.getTask(taskId);
   expect(state.artifacts.map(item=>item.revisions.at(-1)?.content)).toEqual(['Keep this independent document.']);expect(outcome).toBe('blocked');expect(state.requests[0]).toMatchObject({status:'cancelled'});expect(state.requests[0].finishedAt).toBeDefined();expect(state.actions[0].status).toBe('approved');expect(state.session?.draft).toBe('Keep this queued manual edit.');expect(state.sources).toHaveLength(1);
   await expect(f.command(command)).rejects.toThrow();expect(runs).toBe(1);const persisted=await readFile(join(f.directory,'store','tasks.json'),'utf8');expect(persisted).not.toContain('assertCurrent');expect(JSON.parse(persisted).tasks[0].requests[0].status).toBe('cancelled');
+ });
+ it('records a privacy failure if revocation precedes provider completion',async()=>{
+  const f=await fixture(captureRecord()),captured=await takeShortcut(f),provider=hold();let runs=0;
+  f.seams.run=async()=>{runs++;provider.enter();await provider.wait;return 'A stale provider answer';};
+  const command={type:'model.run',taskId:captured.task.id,requestId:'pre-enqueue-revocation',kind:'explain',prompt:'Synthetic captured question',sourceIds:[captured.sourceId]};
+  const pending=f.command(command).then(()=> 'completed',()=> 'blocked');await provider.started;
+  await f.command({type:'capture.settings.revoke',expectedRevision:1});provider.release();
+  expect(await pending).toBe('blocked');const state=await f.core.getTask(captured.task.id);
+  expect(state.requests[0]).toMatchObject({status:'failed',error:'Capture privacy changed during the request.'});expect(state.requests[0].finishedAt).toBeDefined();expect(state.artifacts).toEqual([]);expect(f.cache.size).toBe(0);
+  await expect(f.command(command)).rejects.toThrow();expect(runs).toBe(1);
  });
  it('keeps a result already admitted by the serialized commit when revocation follows that linearization',async()=>{
   const f=await fixture(captureRecord()),captured=await takeShortcut(f),saving=hold();let once=true;f.seams.storeBeforeRename=async()=>{if(once){once=false;return;}saving.enter();await saving.wait;};
