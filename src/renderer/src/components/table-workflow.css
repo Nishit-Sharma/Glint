@@ -8,3 +8,8 @@
 .table-workflow .table-workflow-exact { white-space:pre-wrap; overflow-wrap:anywhere; }
 .table-workflow input,.table-workflow select,.table-workflow textarea { max-width:100%; min-width:0; }
 .table-workflow [hidden] { display:none!important; }
+
+.table-workflow .table-workflow-input-values { min-width:0; margin:.75rem 0; }
+.table-workflow dl { margin:.75rem 0; }
+.table-workflow dt { font-weight:600; overflow-wrap:anywhere; }
+.table-workflow dd { margin:0 0 .6rem; white-space:pre-wrap; overflow-wrap:anywhere; }

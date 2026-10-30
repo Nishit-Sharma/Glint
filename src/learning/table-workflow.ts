@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import {TableInputBindingsSchema,TableInputValuesSchema,TableInputNameSchema,TableInputSlotSchema,tableInputTargets,tableInputContract,tableInputIdentity,resolvedTableInputIdentity,bindTableInputs,type TableInputValues} from './table-workflow-inputs';
 import {parseSourceTable,sourceTableLimits} from './source-table-helper';
 import {LocalDemonstrationOwnerSchema,type LocalDemonstrationOwner} from './local-demonstration';
 import {pickingCanonical,pickingDigest} from '../shared/picking-digest';
@@ -26,17 +27,18 @@ const failed=Schema.Struct({atRevision:revision,step:TableWorkflowStepSchema,rea
 const workspace=Schema.Struct({owner:LocalDemonstrationOwnerSchema,source:TableWorkflowSourceSchema,name:note,intent:note,startedAtRevision:revision,actions:Schema.Array(receipt).pipe(Schema.maxItems(8)),failure:Schema.NullOr(failed)});
 export type TableWorkflowWorkspace=typeof workspace.Type;
 const exception=Schema.Struct({contains:text(160).pipe(Schema.minLength(1)),reason:note});
-const expected=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),csv:text(32000)}),Schema.Struct({kind:Schema.Literal('stopped')}));
-const check=Schema.Struct({input:text(32000),expected});
-const definition=Schema.Struct({name:note,intent:note,steps:Schema.Array(TableWorkflowStepSchema).pipe(Schema.maxItems(8)),exceptions:Schema.Array(exception).pipe(Schema.maxItems(6)),checks:Schema.Array(check).pipe(Schema.maxItems(6)),observation:Schema.NullOr(workspace)});
+const expected=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),csv:text(32000)}),Schema.Struct({kind:Schema.Literal('stopped')}),Schema.Struct({kind:Schema.Literal('invalid-input')}));
+const check=Schema.Struct({input:text(32000),expected,inputs:Schema.optional(TableInputValuesSchema)});
+const definition=Schema.Struct({name:note,intent:note,steps:Schema.Array(TableWorkflowStepSchema).pipe(Schema.maxItems(8)),exceptions:Schema.Array(exception).pipe(Schema.maxItems(6)),checks:Schema.Array(check).pipe(Schema.maxItems(6)),bindings:Schema.optional(TableInputBindingsSchema),observation:Schema.NullOr(workspace)});
 export type TableWorkflowDefinition=typeof definition.Type;
 const result=Schema.Union(
+ Schema.Struct({status:Schema.Literal('invalid-input'),reason:note,trace:Schema.Tuple()}),
  Schema.Struct({status:Schema.Literal('completed'),table,trace:Schema.Array(Schema.Struct({step:TableWorkflowStepSchema,before:table,after:table})).pipe(Schema.maxItems(8))}),
  Schema.Struct({status:Schema.Literal('stopped'),reason:note,exception:Schema.Int.pipe(Schema.between(0,5)),trace:Schema.Tuple()}),
  Schema.Struct({status:Schema.Literal('invalid'),reason:note,trace:Schema.Array(Schema.Struct({step:TableWorkflowStepSchema,before:table,after:table})).pipe(Schema.maxItems(8))}),
 );
 export type TableWorkflowResult=typeof result.Type;
-const Shape=Schema.Struct({kind:Schema.Literal('helper-studio'),format:Schema.Literal('table-workflow-v1'),helperId:text(80),owner:Schema.NullOr(LocalDemonstrationOwnerSchema),revision,draft:definition,workspace:Schema.NullOr(workspace),demonstrations:Schema.Array(Schema.Struct({outcome:Schema.Literal('cancelled','inactive-proposal'),workspace})).pipe(Schema.maxItems(4)),versions:Schema.Array(Schema.Struct({version,definition})).pipe(Schema.maxItems(10)),activeVersion:Schema.NullOr(version),activationHistory:Schema.Array(version).pipe(Schema.maxItems(40)),lastRun:Schema.NullOr(Schema.Struct({atRevision:revision,owner:LocalDemonstrationOwnerSchema,version,definitionDigest:Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),source:TableWorkflowSourceSchema,result}))});
+const Shape=Schema.Struct({kind:Schema.Literal('helper-studio'),format:Schema.Literal('table-workflow-v1'),helperId:text(80),owner:Schema.NullOr(LocalDemonstrationOwnerSchema),revision,draft:definition,workspace:Schema.NullOr(workspace),demonstrations:Schema.Array(Schema.Struct({outcome:Schema.Literal('cancelled','inactive-proposal'),workspace})).pipe(Schema.maxItems(4)),versions:Schema.Array(Schema.Struct({version,definition})).pipe(Schema.maxItems(10)),activeVersion:Schema.NullOr(version),activationHistory:Schema.Array(version).pipe(Schema.maxItems(40)),lastRun:Schema.NullOr(Schema.Struct({atRevision:revision,owner:LocalDemonstrationOwnerSchema,version,definitionDigest:Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),source:TableWorkflowSourceSchema,inputs:Schema.optional(TableInputValuesSchema),result}))});
 export type TableWorkflowState=typeof Shape.Type;
 const common={expectedRevision:revision};
 export const TableWorkflowActionSchema=Schema.Union(
@@ -48,9 +50,11 @@ export const TableWorkflowActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('table-workflow-edit'),name:note,intent:note,steps:Schema.Array(TableWorkflowStepSchema).pipe(Schema.maxItems(8)),...common}),
  Schema.Struct({kind:Schema.Literal('table-workflow-exception'),...exception.fields,...common}),
  Schema.Struct({kind:Schema.Literal('table-workflow-remove-exception','table-workflow-remove-check'),index:Schema.Int.pipe(Schema.between(0,5)),...common}),
- Schema.Struct({kind:Schema.Literal('table-workflow-check'),...check.fields,...common}),
+ Schema.Struct({kind:Schema.Literal('table-workflow-check'),...check.fields,replaces:Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),...common}),
+ Schema.Struct({kind:Schema.Literal('table-workflow-bind-input'),name:TableInputNameSchema,stepIndex:Schema.Int.pipe(Schema.between(0,7)),slot:TableInputSlotSchema,expectedStepDigest:Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),...common}),
+ Schema.Struct({kind:Schema.Literal('table-workflow-remove-input'),index:Schema.Int.pipe(Schema.between(0,5)),...common}),
  Schema.Struct({kind:Schema.Literal('table-workflow-activate','table-workflow-restore'),version,...common}),
- Schema.Struct({kind:Schema.Literal('table-workflow-run'),activeVersion:version,sourceRef:ref,...common}),
+ Schema.Struct({kind:Schema.Literal('table-workflow-run'),activeVersion:version,sourceRef:ref,inputs:Schema.optional(TableInputValuesSchema),...common}),
 );
 export type TableWorkflowAction=typeof TableWorkflowActionSchema.Type;
 /** Bound inert copying before schema traversal; no getters, prototypes or executable values. */
@@ -91,10 +95,11 @@ export function applyTableWorkflowStep(input:WorkflowTable,value:unknown):Workfl
  }
  return decode(table,output);
 }
-export function runTableWorkflow(program:{steps:readonly TableWorkflowStep[];exceptions:TableWorkflowDefinition['exceptions']},csv:string):TableWorkflowResult{
+export function runTableWorkflow(program:{steps:readonly TableWorkflowStep[];exceptions:TableWorkflowDefinition['exceptions'];bindings?:TableWorkflowDefinition['bindings']},csv:string,values:TableInputValues=[]):TableWorkflowResult{
  const trace:Array<{step:TableWorkflowStep;before:WorkflowTable;after:WorkflowTable}>=[];
  try{
-  const steps=decode(Schema.Array(TableWorkflowStepSchema).pipe(Schema.minItems(1),Schema.maxItems(8)),program.steps),exceptions=decode(Schema.Array(exception).pipe(Schema.maxItems(6)),program.exceptions);let current=tableWorkflowInput(csv);
+  const originalSteps=decode(Schema.Array(TableWorkflowStepSchema).pipe(Schema.minItems(1),Schema.maxItems(8)),program.steps),exceptions=decode(Schema.Array(exception).pipe(Schema.maxItems(6)),program.exceptions);let current=tableWorkflowInput(csv),steps:TableWorkflowStep[];
+  try{steps=bindTableInputs(originalSteps,decode(TableInputBindingsSchema,program.bindings??[]),decode(TableInputValuesSchema,values));}catch(cause){return {status:'invalid-input',reason:problem(cause),trace:[]};}
   const exceptionIndex=exceptions.findIndex(item=>csv.includes(item.contains));if(exceptionIndex>=0)return {status:'stopped',exception:exceptionIndex,reason:exceptions[exceptionIndex].reason,trace:[]};
   for(const step of steps){const before=current;current=applyTableWorkflowStep(before,step);trace.push({step,before,after:current});}return {status:'completed',table:current,trace};
  }catch(cause){return {status:'invalid',reason:problem(cause),trace};}
@@ -113,11 +118,17 @@ function replayWorkspace(value:TableWorkflowWorkspace){
  return current;
 }
 export function tableWorkflowSuite(draft:TableWorkflowDefinition){
- const cases=draft.checks.map(item=>{const result=runTableWorkflow(draft,item.input);let passed=false;try{passed=item.expected.kind==='stopped'?result.status==='stopped':result.status==='completed'&&same(cells(result.table),cells(tableWorkflowInput(item.expected.csv)));}catch{}return {...item,result,passed};});let issue='';
+ const cases=draft.checks.map(item=>{const result=runTableWorkflow(draft,item.input,item.inputs??[]);let passed=false;try{passed=item.expected.kind==='invalid-input'?result.status==='invalid-input':item.expected.kind==='stopped'?result.status==='stopped':result.status==='completed'&&same(cells(result.table),cells(tableWorkflowInput(item.expected.csv)));}catch{}return {...item,result,passed};});let issue='';
  try{
   if(!draft.observation||draft.observation.failure||draft.observation.actions.length<2)throw Error('Finish a successful multi-step local table demonstration first.');replayWorkspace(draft.observation);
   if(draft.steps.length<2||new Set(draft.steps.map(step=>step.kind)).size<2)throw Error('Use at least two different supported table step kinds.');
   if(!draft.exceptions.length)throw Error('Declare an explicit stop exception and check it separately.');
+  const inputs=tableInputContract(draft.steps,draft.bindings??[]);
+  if(inputs.length){
+   const successful=cases.filter(item=>item.expected.kind==='output'&&item.passed);
+   if(new Set(successful.map(item=>resolvedTableInputIdentity(item.inputs??[],inputs))).size<2)throw Error('Check at least two different complete named-input sets with exact successful output tables.');
+   if(!cases.some(item=>item.expected.kind==='invalid-input'&&item.passed))throw Error('Declare a missing or invalid named-input check; no table may be produced.');
+  }
   const original=cells(tableWorkflowInput(draft.observation.source.content));if(!cases.some(item=>item.expected.kind==='output'&&!same(cells(tableWorkflowInput(item.input)),original)))throw Error('Declare a distinct-input success check with its exact expected table.');
   for(let i=0;i<draft.exceptions.length;i++)if(!cases.some(item=>item.expected.kind==='stopped'&&item.result.status==='stopped'&&item.result.exception===i))throw Error('Each exception needs its own passing stopped-input check.');
   if(cases.some(item=>!item.passed))throw Error('Every declared check must pass before saving or activation.');
@@ -126,10 +137,10 @@ export function tableWorkflowSuite(draft:TableWorkflowDefinition){
 function validate(state:TableWorkflowState){
  if(state.owner&&state.owner.helperId!==state.helperId)throw Error('This workflow belongs to another helper.');
  for(const w of [state.workspace,state.draft.observation,...state.demonstrations.map(item=>item.workspace),...state.versions.map(item=>item.definition.observation)].filter((x):x is TableWorkflowWorkspace=>!!x)){if(!state.owner||!same(w.owner,state.owner)||w.startedAtRevision>state.revision||w.actions.some(item=>item.atRevision>state.revision)||w.failure&&w.failure.atRevision>state.revision)throw Error('The demonstrated source owner or revision changed.');replayWorkspace(w);}
- if(new Set(state.draft.checks.map(item=>item.input)).size!==state.draft.checks.length)throw Error('Use distinct exact check inputs.');
+ if(new Set(state.draft.checks.map(item=>pickingCanonical({input:item.input,inputs:tableInputIdentity(item.inputs??[])}))).size!==state.draft.checks.length)throw Error('Use distinct exact check inputs.');
  state.versions.forEach((v,i)=>{if(v.version!==i+1||!tableWorkflowSuite(v.definition).ready)throw Error('Saved workflow versions must retain their original passing checks.');});
  for(const v of [state.activeVersion,...state.activationHistory])if(v!==null&&!state.versions.some(item=>item.version===v))throw Error('The checked workflow version is unavailable.');
- if(state.lastRun){const saved=state.versions.find(item=>item.version===state.lastRun!.version);if(!saved||!same(state.lastRun.owner,state.owner)||state.lastRun.atRevision>state.revision||state.lastRun.definitionDigest!==pickingDigest(saved.definition)||!same(state.lastRun.result,runTableWorkflow(saved.definition,state.lastRun.source.content)))throw Error('The saved local run or exact checked version changed.');}
+ if(state.lastRun){const saved=state.versions.find(item=>item.version===state.lastRun!.version);if(!saved||!same(state.lastRun.owner,state.owner)||state.lastRun.atRevision>state.revision||state.lastRun.definitionDigest!==pickingDigest(saved.definition)||!same(state.lastRun.result,runTableWorkflow(saved.definition,state.lastRun.source.content,state.lastRun.inputs??[])))throw Error('The saved local run or exact checked version changed.');}
  return state;
 }
 export const TableWorkflowStateSchema=Shape.pipe(Schema.filter(s=>{try{validate(s);return true;}catch{return false;}}));
@@ -158,14 +169,16 @@ function update(helperId:string,value:unknown,actionValue:unknown,admission?:Tab
   case 'table-workflow-edit':next={...next,draft:{...state.draft,name:action.name,intent:action.intent,steps:action.steps}};break;
   case 'table-workflow-exception':if(state.draft.exceptions.length>=6)throw Error('Keep at most six exceptions.');next={...next,draft:{...state.draft,exceptions:[...state.draft.exceptions,{contains:action.contains,reason:action.reason}]}};break;
   case 'table-workflow-remove-exception':next={...next,draft:{...state.draft,exceptions:state.draft.exceptions.filter((_,i)=>i!==action.index)}};break;
-  case 'table-workflow-check':{const checks=state.draft.checks.filter(item=>item.input!==action.input);if(checks.length>=6)throw Error('Keep at most six declared checks.');next={...next,draft:{...state.draft,checks:[...checks,{input:action.input,expected:action.expected}]}};break;}
+  case 'table-workflow-check':{const identity=(item:{input:string;inputs?:TableInputValues})=>pickingCanonical({input:item.input,inputs:tableInputIdentity(item.inputs??[])}),replace=action.replaces&&state.draft.checks.find(item=>pickingDigest(item)===action.replaces);if(action.replaces&&!replace)throw Error('The original declared check changed. Review it again.');const checks=state.draft.checks.filter(item=>item!==replace&&identity(item)!==identity(action));if(checks.length>=6)throw Error('Keep at most six declared checks.');next={...next,draft:{...state.draft,checks:[...checks,{input:action.input,expected:action.expected,...(action.inputs?{inputs:action.inputs}:{})}]}};break;}
+  case 'table-workflow-bind-input':{if(!state.draft.observation)throw Error('Review a successful demonstration before declaring run inputs.');const target=tableInputTargets(state.draft.steps).find(item=>item.stepIndex===action.stepIndex&&item.slot===action.slot);if(!target||target.stepDigest!==action.expectedStepDigest)throw Error('This literal target changed or is unsupported. Review the applied step.');const bindings=[...(state.draft.bindings??[])];if(bindings.length>=6)throw Error('Keep at most six explicit literal bindings.');bindings.push({name:action.name,kind:target.kind,stepIndex:target.stepIndex,slot:target.slot,stepDigest:target.stepDigest});tableInputContract(state.draft.steps,bindings);next={...next,draft:{...state.draft,bindings}};break;}
+  case 'table-workflow-remove-input':{if(!state.draft.bindings?.[action.index])throw Error('This input binding changed.');next={...next,draft:{...state.draft,bindings:state.draft.bindings.filter((_,i)=>i!==action.index)}};break;}
   case 'table-workflow-remove-check':next={...next,draft:{...state.draft,checks:state.draft.checks.filter((_,i)=>i!==action.index)}};break;
   case 'table-workflow-save-version':{const suite=tableWorkflowSuite(state.draft);if(!suite.ready)throw Error(suite.issue);if(state.versions.length>=10)throw Error('Keep at most ten checked versions.');if(state.versions.some(item=>same(item.definition,state.draft)))throw Error('This exact checked workflow is already saved.');next={...next,versions:[...state.versions,{version:state.versions.length+1,definition:structuredClone(state.draft)}]};break;}
   case 'table-workflow-activate':{const saved=state.versions.find(item=>item.version===action.version);if(!saved||!tableWorkflowSuite(saved.definition).ready)throw Error('Activate a checked immutable version first.');if(state.activeVersion===action.version)throw Error('This version is already active.');if(state.activationHistory.length>=40)throw Error('This helper reached its activation limit.');next={...next,activeVersion:action.version,activationHistory:[...state.activationHistory,...(state.activeVersion===null?[]:[state.activeVersion])]};break;}
   case 'table-workflow-rollback':{const prior=state.activationHistory.at(-1);if(prior===undefined)throw Error('No previous active version is available.');next={...next,activeVersion:prior,activationHistory:state.activationHistory.slice(0,-1)};break;}
   case 'table-workflow-restore':{const saved=state.versions.find(item=>item.version===action.version);if(!saved)throw Error('Choose a checked saved version.');next={...next,draft:structuredClone(saved.definition)};break;}
   case 'table-workflow-run':{
-   if(!admission?.source||!same(admission.source.ref,action.sourceRef)||state.activeVersion!==action.activeVersion)throw Error('The selected source or active workflow changed. Review the current version.');const saved=state.versions.find(item=>item.version===state.activeVersion);if(!saved)throw Error('Activate a checked version first.');next={...next,lastRun:{atRevision:next.revision,owner:admission.owner,version:saved.version,definitionDigest:pickingDigest(saved.definition),source:admission.source,result:runTableWorkflow(saved.definition,admission.source.content)}};break;
+   if(!admission?.source||!same(admission.source.ref,action.sourceRef)||state.activeVersion!==action.activeVersion)throw Error('The selected source or active workflow changed. Review the current version.');const saved=state.versions.find(item=>item.version===state.activeVersion);if(!saved)throw Error('Activate a checked version first.');next={...next,lastRun:{atRevision:next.revision,owner:admission.owner,version:saved.version,definitionDigest:pickingDigest(saved.definition),source:admission.source,...(action.inputs?{inputs:action.inputs}:{}),result:runTableWorkflow(saved.definition,admission.source.content,action.inputs??[])}};break;
   }
  }
  return parseState(helperId,next);
@@ -173,6 +186,6 @@ function update(helperId:string,value:unknown,actionValue:unknown,admission?:Tab
 export function tableWorkflowReport(state:TableWorkflowState):string{
  const run=state.lastRun;if(!run||run.result.status!=='completed')throw Error('Only a complete local table run can be saved as a document. Stopped or invalid runs have no final table.');
  const fence=(s:string)=>{const f='`'.repeat(Math.max(3,...(s.match(/`+/g)??[]).map(x=>x.length+1)));return `${f}text\n${s}\n${f}`;};const saved=state.versions.find(item=>item.version===run.version)!;
- return [`# ${saved.definition.name}`,saved.definition.intent,`Local table workflow version ${run.version}. Explicit local computation only; no browser or OS action. Decimal arithmetic uses bounded JavaScript numbers, not financial precision.`,`## Exact selected source`,fence(run.source.label),`Source ${run.source.ref.sourceId}, version ${run.source.ref.version}, digest ${run.source.ref.digest}.`,`## Performed workflow`,...saved.definition.steps.map((step,i)=>`${i+1}. ${tableWorkflowStepText(step)}`),`## Complete output table`,fence(workflowTableCsv(run.result.table)),`## Source-record provenance`,...run.result.table.rows.map((row,i)=>`Output row ${i+1}: source CSV records ${row.records.join(', ')}.`)].join('\n\n');
+ return [`# ${saved.definition.name}`,saved.definition.intent,`Local table workflow version ${run.version}. Explicit local computation only; no browser or OS action. Decimal arithmetic uses bounded JavaScript numbers, not financial precision.`,`## Exact selected source`,fence(run.source.label),`Source ${run.source.ref.sourceId}, version ${run.source.ref.version}, digest ${run.source.ref.digest}.`,...(run.inputs?[`## Explicit named inputs`,...run.inputs.map(input=>fence(`${input.name}: ${input.value}`))]:[]),`## Performed workflow`,fence(run.result.trace.map(({step},i)=>`${i+1}. ${tableWorkflowStepText(step)}`).join('\n')),...(saved.definition.bindings?.length?[`## Checked input bindings`,...saved.definition.bindings.map(binding=>`${binding.name} (${binding.kind}) replaces step ${binding.stepIndex+1} ${binding.slot}; exact step ${binding.stepDigest}.`)]:[]),`## Complete output table`,fence(workflowTableCsv(run.result.table)),`## Source-record provenance`,...run.result.table.rows.map((row,i)=>`Output row ${i+1}: source CSV records ${row.records.join(', ')}.`)].join('\n\n');
 }
 export const tableWorkflow={initial,parseState,update,text:(_data:unknown,value:unknown)=>tableWorkflowReport(parseState((value as TableWorkflowState).helperId,value))};

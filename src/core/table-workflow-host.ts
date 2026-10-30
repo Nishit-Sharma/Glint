@@ -2,7 +2,7 @@ import {Schema} from 'effect';
 import type {Task,SourceRef} from './types';
 import type {LocalDemonstrationOwner} from '../learning/local-demonstration';
 import {tableWorkflow,TableWorkflowActionSchema,tableWorkflowReport,type TableWorkflowAction,type TableWorkflowSource,type TableWorkflowState} from '../learning/table-workflow';
-import {pickingCanonical,pickingDigest} from '../shared/picking-digest';
+import {pickingCanonical,pickingDigest,pickingTextDigest} from '../shared/picking-digest';
 
 /** Admission is called only by the existing atomic module-edit path. Nothing here grants external effects. */
 export function admitTableWorkflow(task:Task,owner:LocalDemonstrationOwner,previous:unknown,actionValue:unknown):{state:TableWorkflowState;sourceRefs:SourceRef[]}{
@@ -31,7 +31,18 @@ export async function saveTableWorkflowDocument(core:import('./companion').Compa
  if(!state.owner||pickingCanonical(state.owner)!==pickingCanonical(owner)||state.revision!==run.atRevision||state.activeVersion!==run.version)throw Error('The workflow changed after this run. Run the current active version again before publishing. Earlier saved reports stay in Files.');
  const content=tableWorkflowReport(state),title=(state.versions.find(item=>item.version===run.version)!.definition.name+' — table report').slice(0,200);
  const binding=pickingDigest({format:'local-table-workflow-report-v1',owner,run}),requestId='table-workflow-report-'+binding;
- const result=await core.runRequest({taskId:task.id,requestId,kind:'create',prompt:'Save the explicitly reviewed complete local table workflow result as an ordinary document.',executionScope:'local-table-workflow-report:v1',sourceIds:[run.source.ref.sourceId],expectedSourceRefs:[run.source.ref],expectedArtifacts:[{artifactId:owner.artifactId,revision:owner.artifactRevision,digest:owner.artifactDigest}],expectedModuleStates:[{artifactId:owner.artifactId,artifactRevision:owner.artifactRevision,moduleId:owner.moduleId,stateRevision:state.revision}]},async()=>({title,content,mimeType:'text/markdown'}));
+ const input={taskId:task.id,requestId,kind:'create',prompt:'Save the explicitly reviewed complete local table workflow result as an ordinary document.',executionScope:'local-table-workflow-report:v1',sourceIds:[run.source.ref.sourceId],expectedSourceRefs:[run.source.ref],expectedArtifacts:[{artifactId:owner.artifactId,revision:owner.artifactRevision,digest:owner.artifactDigest}],expectedModuleStates:[{artifactId:owner.artifactId,artifactRevision:owner.artifactRevision,moduleId:owner.moduleId,stateRevision:state.revision}]};
+ const original=task.requests.find(request=>request.id===requestId);
+ // Reconcile only the exact already-completed journal entry before any current-source admission.
+ // A lost acknowledgment must not turn a historical saved result into another publication.
+ if(original){
+  const expectedDigest=pickingTextDigest(JSON.stringify({...input,sourceRefs:[run.source.ref]}));
+  if(original.digest!==expectedDigest)throw Error('The original report identity has a different payload. No replacement was created.');
+  const artifact=task.artifacts.find(item=>item.id===original.answer?.artifactId),revision=artifact?.revisions.find(item=>item.revision===original.answer?.revision&&item.digest===original.answer?.digest);
+  if(original.status!=='completed'||!original.answer||!artifact||!revision||revision.title!==title||revision.content!==content||revision.mimeType!=='text/markdown'||pickingCanonical(revision.sourceRefs)!==pickingCanonical([run.source.ref]))throw Error('The original table report is not confirmed or is no longer available. Check Files for this exact run. A terminal attempt needs a new explicit local run; no replacement was created.');
+  return {artifactId:artifact.id,revision:revision.revision};
+ }
+ const result=await core.runRequest(input,async()=>({title,content,mimeType:'text/markdown'}));
  if(result.status!=='completed'||!result.answer)throw Error('The table report was not confirmed. Check Files for this exact run before another action. A terminal attempt needs a new explicit local run; no automatic retry or partial report was produced.');
  const saved=await core.getTask(task.id),artifact=saved.artifacts.find(item=>item.id===result.answer!.artifactId),revision=artifact?.revisions.find(item=>item.revision===result.answer!.revision&&item.digest===result.answer!.digest);
  if(!revision||revision.title!==title||revision.content!==content||revision.mimeType!=='text/markdown'||pickingCanonical(revision.sourceRefs)!==pickingCanonical([run.source.ref]))throw Error('The original table report needs review in Files. No replacement was created.');
