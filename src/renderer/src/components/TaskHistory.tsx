@@ -1,9 +1,10 @@
-import {useEffect,useId,useRef,useState} from 'react';
-import type {Task} from '../../../core/types';
+import {useEffect,useId,useRef,useState,type ReactNode} from 'react';
+import type {Checkpoint,Task} from '../../../core/types';
 import {publicErrorMessage,requestStatusLabel} from '../../../shared/public-messages';
 import {Button,Field,type Run} from '../ui';
 import {useNavigationDraft} from '../draft-navigation';
 import {ExportReview} from './ExportReview';
+import {CheckpointSources} from './CheckpointSources';
 import {buildHistoryEvents,historyRevision,historyTime,requestResultReference,validCheckpointNote,type HistoryRevisionReference} from './history-events';
 import './task-history.css';
 
@@ -12,6 +13,11 @@ export interface TaskHistoryProps {
  busy:boolean;
  run:Run;
  onOpenRevision?:(reference:HistoryRevisionReference)=>void;
+}
+
+function CheckpointDetails({task,checkpoint,children}:{task:Task;checkpoint:Checkpoint;children:ReactNode}){
+ const [open,setOpen]=useState(false);
+ return <details className="history-checkpoint-revisions" onToggle={event=>setOpen(event.currentTarget.open)}><summary>Saved at this point</summary>{children}{open&&<CheckpointSources task={task} checkpoint={checkpoint}/>}</details>;
 }
 
 export function TaskHistory({task,busy,run,onOpenRevision}:TaskHistoryProps){
@@ -31,7 +37,7 @@ export function TaskHistory({task,busy,run,onOpenRevision}:TaskHistoryProps){
 
   {events.length>0?<ol className="history-events" aria-label="Task events, newest first">{events.map(event=><li key={event.id} data-history-kind={event.kind}><article className={'history-event history-event-'+event.kind}>
    <time className="history-time" dateTime={Number.isFinite(Date.parse(event.at))?event.at:undefined} title={event.kind==='request'?'Started '+historyTime(event.at):event.at} aria-label={event.kind==='request'?'Started '+historyTime(event.at):undefined}>{historyTime(event.at)}</time>
-   {event.kind==='checkpoint'?<><p className="history-note">{event.checkpoint.note}</p>{event.checkpoint.artifacts.length>0&&<details className="history-checkpoint-revisions"><summary>Saved at this point</summary><ul>{event.checkpoint.artifacts.map((reference,index)=><li key={reference.artifactId+':'+reference.revision}>{revisionLink(reference,String(index))}</li>)}</ul><p className="history-event-meta">{event.checkpoint.sourceRefs.length} source versions</p></details>}</>:event.kind==='request'?<>
+   {event.kind==='checkpoint'?<><p className="history-note">{event.checkpoint.note}</p>{(event.checkpoint.artifacts.length>0||event.checkpoint.sourceRefs.length>0)&&<CheckpointDetails key={task.id+':'+event.checkpoint.id} task={task} checkpoint={event.checkpoint}>{event.checkpoint.artifacts.length>0&&<><h3>Saved results</h3><ul>{event.checkpoint.artifacts.map((reference,index)=><li key={reference.artifactId+':'+reference.revision}>{revisionLink(reference,String(index))}</li>)}</ul></>}</CheckpointDetails>}</>:event.kind==='request'?<>
     {event.request.status==='completed'&&requestResultReference(event.request)?revisionLink(requestResultReference(event.request)!):<p className="history-request-status">{requestStatusLabel(event.request.status)}</p>}
     {event.request.error&&<p className="warning">{publicErrorMessage(event.request.error)}</p>}
     <details className="history-analysis-request"><summary>{event.request.kind==='brief'?'Screen analysis':'Request details'}</summary><p className="history-request-prompt">{event.request.prompt}</p><p className="history-event-meta">{requestStatusLabel(event.request.status)}{event.request.finishedAt&&<> · <time dateTime={event.request.finishedAt} aria-label={'Finished '+historyTime(event.request.finishedAt)}>{historyTime(event.request.finishedAt)}</time></>}</p></details>
