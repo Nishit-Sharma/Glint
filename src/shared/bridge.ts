@@ -1,3 +1,4 @@
+import type {HelperSourceBatchRequest,HelperSourceBatchSave,HelperSourceBatchInspection} from './helper-source-batch';
 import type {RecordedTextRequest} from '../core/recorded-text-helper-host';
 import type {LearningDraftOwner,LearningDraftValue} from './learning-drafts'
 import type {ResponseBranchInput} from '../core/response-branch'
@@ -51,6 +52,9 @@ export type Command =
   | {type:'workflow.window.review';taskId:string;requestId:string;candidate:ArtifactRef;review:unknown}
   | {type:'workflow.example';taskId:string;requestId:string}
   | {type:'helper.create';taskId:string;requestId:string}
+  | ({type:'helper.source-batch.preview'} & HelperSourceBatchRequest)
+  | ({type:'helper.source-batch.save'} & HelperSourceBatchSave)
+  | ({type:'helper.source-batch.inspect'} & HelperSourceBatchInspection)
   | ({type:'helper.recorded.inspect'} & RecordedTextRequest)
   | ({type:'helper.recorded.create';binding:string;confirmed:'create-separate-inactive-draft'} & RecordedTextRequest)
   | {type:'workflow.prepare';taskId:string;basis:ArtifactRef}

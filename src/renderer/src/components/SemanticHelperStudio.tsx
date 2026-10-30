@@ -1,3 +1,5 @@
+import {SourceHelperBatch} from './SourceHelperBatch';
+import type {Task} from '../../../core/types';
 import {LocalDemonstrationWorkspace} from './LocalDemonstrationWorkspace';
 import {RecordedTextOriginView} from './RecordedTextReview';
 import {useState} from 'react';
@@ -91,10 +93,10 @@ function CompactSemanticHelperStudio({data,state,pending=false,onAction,onCustom
  </div>;
 }
 
-export function SemanticHelperStudio(props:{data:HelperData;state:SemanticHelperState;draftOwner?:LearningDraftOwner;pending?:boolean;onAction:(action:SemanticHelperAction)=>void|Promise<boolean>}){
+export function SemanticHelperStudio(props:{task?:Task;data:HelperData;state:SemanticHelperState;draftOwner?:LearningDraftOwner;pending?:boolean;onAction:(action:SemanticHelperAction)=>void|Promise<boolean>}){
  const [custom,setCustom]=useState<'compact'|'typed'|'staged'>('compact');
  const current=props.state.definitions.find(item=>item.procedure.version===props.state.draftVersion)?.procedure;
  const staged=custom==='staged'||!!current&&!!stagedDraftFromProcedure(current);
  const editor=custom!=='compact'||current&&(typedDraftFromProcedure(current)||staged)?<TypedSemanticHelperStudio {...props} staged={staged}/>:<CompactSemanticHelperStudio {...props} onCustom={()=>setCustom('typed')} onStaged={()=>setCustom('staged')}/>;
- return <>{props.data.recordedText&&<RecordedTextOriginView origin={props.data.recordedText}/>}<LocalDemonstrationWorkspace key={JSON.stringify(props.draftOwner??props.data.id)} state={props.state} pending={props.pending} onAction={props.onAction}/><div hidden={!!props.state.localWorkspace} inert={props.state.localWorkspace?true:undefined}>{editor}</div></>;
+ return <>{props.data.recordedText&&<RecordedTextOriginView origin={props.data.recordedText}/>}<LocalDemonstrationWorkspace key={JSON.stringify(props.draftOwner??props.data.id)} state={props.state} pending={props.pending} onAction={props.onAction}/><div hidden={!!props.state.localWorkspace} inert={props.state.localWorkspace?true:undefined}>{editor}</div>{props.task&&props.draftOwner&&!('kind' in props.draftOwner)&&props.state.versions.length>0&&<SourceHelperBatch key={JSON.stringify(props.draftOwner)} task={props.task} state={props.state} owner={props.draftOwner} pending={props.pending}/>}</>;
 }

@@ -1,3 +1,5 @@
+import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
+import {encodeHelperSourceReportReceipt,findHelperSourceReportReceipt} from './helper-source-report-receipt';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readFile, realpath, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -529,6 +531,33 @@ export class Companion {
   }
   saveArtifact(taskId: string, input: ArtifactInput): Promise<{ artifactId: string; revision: ArtifactRevision }> {
     return this.exclusive(() => this.commit(state => this.appendArtifact(this.task(state, taskId), input)));
+  }
+  private helperSourceReportSaved(task:Task,input:HelperSourceBatchInspection):HelperSourceBatchSaved|undefined{
+    const {binding,...request}=input,claimHash=hash('helper-source-report:'+binding),receipt=findHelperSourceReportReceipt(this.state.usedRequestIds,claimHash);
+    if(!receipt){if(this.state.usedRequestIds.includes(claimHash))return reject('conflict','The original table-report save is unavailable. Inspect Files before another action.');return undefined;}
+    const original=task.artifacts.find(item=>item.id===receipt.artifactId)?.revisions.find(item=>item.revision===receipt.revision);
+    if(receipt.taskId!==task.id||receipt.binding!==binding||receipt.requestDigest!==helperSourceBatchRequestIdentity(request)||!original||original.title!==HELPER_SOURCE_REPORT_TITLE||original.mimeType!=='text/markdown'||original.encoding==='base64'||original.digest!==receipt.digest||hash(original.content)!==receipt.payloadDigest||receipt.payloadDigest!==receipt.digest||original.sourceRefs.length!==1||original.sourceRefs[0].sourceId!==request.sourceRef.sourceId||original.sourceRefs[0].version!==request.sourceRef.version||original.sourceRefs[0].digest!==request.sourceRef.digest)return reject('conflict','The original reviewed report is unavailable or changed. No replacement was created.');
+    return {kind:'saved',taskId:task.id,binding,artifactId:receipt.artifactId,revision:receipt.revision,digest:receipt.digest,alreadySaved:true};
+  }
+  /** Read-only reconciliation uses the original exact intent, even after a later source/helper edit. */
+  inspectHelperSourceBatchSave(input:unknown):Promise<HelperSourceBatchSaveInspection>{
+    const value=clone(readHelperSourceBatchInspection(input));
+    return this.exclusive(()=>{const task=this.task(this.state,value.taskId);return clone(this.helperSourceReportSaved(task,value)??{kind:'not-saved' as const,taskId:task.id,binding:value.binding});});
+  }
+  /** One explicit local document save. No input/preview values enter request history before this action. */
+  saveHelperSourceBatchReport(input:unknown,assertCurrent:()=>void=()=>{}):Promise<HelperSourceBatchSaved>{
+    const {confirmed:_confirmed,...value}=clone(readHelperSourceBatchSave(input));
+    return this.exclusive(()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),existing=this.helperSourceReportSaved(task,value);if(existing)return clone(existing);
+      const {binding,...request}=value,preview=helperSourceBatchPreview(task,request);if(preview.binding!==binding)return reject('conflict','The reviewed table report changed. Preview it again before saving.');
+      return this.commit(state=>{
+        assertCurrent();const current=this.task(state,value.taskId),reviewed=helperSourceBatchPreview(current,request);if(reviewed.binding!==binding)return reject('conflict','The table or active helper changed before saving. Review a new report.');
+        const intent='helper-source-report:'+binding,claimHash=hash(intent);this.claimRequest(state,intent);
+        const saved=this.appendArtifact(current,{title:reviewed.title,content:reviewed.content,mimeType:'text/markdown',sourceRefs:[{...request.sourceRef}],expectedArtifacts:[{artifactId:request.artifactId,revision:request.artifactRevision,digest:request.artifactDigest}],expectedModuleStates:[{artifactId:request.artifactId,artifactRevision:request.artifactRevision,moduleId:request.moduleId,stateRevision:request.stateRevision}]}),payloadDigest=hash(reviewed.content);
+        state.usedRequestIds.push(encodeHelperSourceReportReceipt({claimHash,binding,requestDigest:helperSourceBatchRequestIdentity(request),payloadDigest,taskId:current.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
+        return {kind:'saved' as const,taskId:current.id,binding,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest,alreadySaved:false};
+      });
+    });
   }
   /** Saving shown recovery evidence is local data, never authority to retry a website action. */
   async saveBrowserReviewNotes(input:unknown,assertCurrent:()=>void=()=>{}):Promise<BrowserReviewNotesSaved>{
