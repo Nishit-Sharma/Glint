@@ -27,6 +27,7 @@
     "clsx": "2.1.1",
     "diff": "9.0.0",
     "effect": "3.22.4",
+    "entities": "6.0.1",
     "get-windows": "9.3.0",
     "lucide-react": "0.577.0",
     "marked": "18.1.1",

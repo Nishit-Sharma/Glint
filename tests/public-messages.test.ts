@@ -1,5 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {publicErrorMessage,sourceRoleLabel,requestStatusLabel,connectionIssueMessage} from '../src/shared/public-messages';
+import {savedWorkUnavailable} from '../src/shared/saved-work-search';
 describe('Public error and status copy',()=>{
  it.each([
   ["Error invoking remote method 'companion:command': Error: EACCES open /Users/private/.runtime/tasks.json",'cannot access'],
@@ -28,6 +29,14 @@ describe('Public error and status copy',()=>{
  });
  it('does not accept a safe-looking prefix with appended private data',()=>{
   expect(publicErrorMessage('The response was incomplete. Check your connection before trying again. /Users/private/key')).not.toContain('/Users');
+ });
+ it('preserves only the exact saved-work recovery messages',()=>{
+  for(const message of [savedWorkUnavailable,'Saved work changed while opening. Search again to choose from the current task list.','This saved task is no longer available. Search again.']){
+   expect(publicErrorMessage(new Error(message))).toBe(message);
+   expect(publicErrorMessage(`Error invoking remote method 'companion:command': Error: ${message}`)).toBe(message);
+   expect(publicErrorMessage(publicErrorMessage(message))).toBe(message);
+   expect(publicErrorMessage(message+' /Users/private/file')).not.toContain('/Users/private/file');
+  }
  });
  it('preserves the exact actionable unavailable-foreground message without changing it into a rebind error',()=>{
   const message='Switch to the window you want to use, then press the screen context shortcut again.';
