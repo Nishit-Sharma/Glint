@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import {SourceHelperPracticeActionSchema,SourceHelperPracticeReceiptSchema,validateSourceHelperPracticeReceipt,sourceHelperLearningLimits,type SourceHelperPracticeReceipt} from './source-helper-learning';
 import {LocalDemonstrationWorkspaceSchema,LocalDemonstrationOriginSchema,LocalDemonstrationActionSchema,startLocalDemonstration,performLocalDemonstration,parseLocalDemonstration,assertLocalDemonstrationOwner,localDemonstrationProcedure,type LocalDemonstrationWorkspace,type LocalDemonstrationOrigin,type LocalDemonstrationOwner} from './local-demonstration';
 import {checkSemanticDemonstration,createSemanticRecording,parseSemanticRecording,semanticRecordingExpectations,type SemanticRecordingCorrection,type SemanticDemonstrationCandidate,type SemanticRecording} from './semantic-demonstration';
 import {SemanticExpectedSchema,parseSemanticProcedure,runSemanticProcedure,type SemanticProcedure,type SemanticRunResult,type SemanticPredicate,type SemanticStep} from './semantic-procedure';
@@ -19,6 +20,7 @@ const versions=Schema.Array(Schema.Struct({version,procedureVersion:version,save
 export const SemanticHelperStateSchema=Schema.Struct({
  kind:Schema.Literal('helper-studio'),format:Schema.Literal('semantic-record-v1'),helperId:id,revision,
  localWorkspace:Schema.optional(Schema.NullOr(LocalDemonstrationWorkspaceSchema)),localDemonstrations:Schema.optional(Schema.Array(LocalDemonstrationOriginSchema).pipe(Schema.maxItems(8))),
+ sourcePractices:Schema.optional(Schema.Array(SourceHelperPracticeReceiptSchema).pipe(Schema.maxItems(sourceHelperLearningLimits.attempts))),
  definitions,draftVersion:Schema.NullOr(version),recordings:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(8)),
  rationales:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),corrections:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64)),examples:Schema.Array(Schema.Unknown).pipe(Schema.maxItems(20)),recordingCorrections:Schema.optional(Schema.Array(Schema.Unknown).pipe(Schema.maxItems(64))),
  evidenceHistory:Schema.Array(Schema.Struct({atRevision:revision,procedureVersion:version,candidate:Schema.Unknown})).pipe(Schema.maxItems(64)),
@@ -26,6 +28,7 @@ export const SemanticHelperStateSchema=Schema.Struct({
  lastBatchRun:Schema.optional(Schema.NullOr(Schema.Struct({version,rows:batchRows}))),
 });
 export const SemanticHelperActionSchema=Schema.Union(
+ SourceHelperPracticeActionSchema,
  LocalDemonstrationActionSchema,
  Schema.Struct({kind:Schema.Literal('correct-semantic-recording-expectation'),recordingId:id,expected:SemanticExpectedSchema,reason:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(500),Schema.filter(value=>value.trim().length>0)),expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('set-semantic-procedure'),procedure:Schema.Unknown,expectedRevision:revision}),
@@ -39,7 +42,7 @@ export const SemanticHelperActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('run-semantic-batch'),inputs:Schema.Array(batchInput).pipe(Schema.minItems(1),Schema.maxItems(semanticBatchLimit)),expectedVersion:version,expectedRevision:revision}),
 );
 export type SemanticHelperAction=typeof SemanticHelperActionSchema.Type;
-export type SemanticHelperState={kind:'helper-studio';format:'semantic-record-v1';helperId:string;revision:number;localWorkspace?:LocalDemonstrationWorkspace|null;localDemonstrations?:readonly LocalDemonstrationOrigin[];
+export type SemanticHelperState={kind:'helper-studio';format:'semantic-record-v1';helperId:string;revision:number;localWorkspace?:LocalDemonstrationWorkspace|null;localDemonstrations?:readonly LocalDemonstrationOrigin[];sourcePractices?:readonly SourceHelperPracticeReceipt[];
  definitions:{procedure:SemanticProcedure}[];draftVersion:number|null;recordings:SemanticRecording[];
  recordingCorrections?:readonly SemanticRecordingCorrection[];rationales:SemanticDemonstrationCandidate['rationales'];corrections:SemanticDemonstrationCandidate['corrections'];examples:SemanticDemonstrationCandidate['examples'];
  evidenceHistory:{atRevision:number;procedureVersion:number;candidate:SemanticDemonstrationCandidate}[];
@@ -136,6 +139,12 @@ function parseState(helperId:string,value:unknown):SemanticHelperState{
   correctionIds.set(correction.id,text);correctionRevisions.set(correction.atRevision,correction.id);
  }
  if(state.activeVersion!==null&&!state.versions.some(item=>item.version===state.activeVersion))fail('The active semantic helper version is unavailable.');
+ const practiceIds=new Set<string>();let practiceRevision=-1;
+ for(const receipt of state.sourcePractices??[]){
+  const saved=state.versions.find(item=>item.version===receipt.submitted.lesson.activeVersion);
+  if(!saved||saved.savedAtRevision>=receipt.atRevision||receipt.owner.helperId!==owner||receipt.atRevision>state.revision||receipt.atRevision<=practiceRevision||practiceIds.has(receipt.id))fail('The source practice history changed its owner or order.');
+  validateSourceHelperPracticeReceipt(saved.candidate.procedure,receipt);practiceIds.add(receipt.id);practiceRevision=receipt.atRevision;
+ }
  if(state.lastRun){const saved=state.versions.find(item=>item.version===state.lastRun!.version);if(!saved||canonical(runSemanticProcedure(saved.candidate.procedure,state.lastRun.input))!==canonical(state.lastRun.result))fail('The saved semantic result differs from its input and version.');}
  if(state.lastBatchRun){const saved=state.versions.find(item=>item.version===state.lastBatchRun!.version);if(!saved||state.activeVersion!==saved.version||state.lastBatchRun.rows.some(row=>canonical(runSemanticProcedure(saved.candidate.procedure,row.input))!==canonical(row.result)))fail('The saved batch differs from its inputs and active version.');}
  if(state.localWorkspace){
@@ -156,7 +165,7 @@ function parseState(helperId:string,value:unknown):SemanticHelperState{
  return state;
 }
 function initial(helperId:string):SemanticHelperState{return {kind:'helper-studio',format:'semantic-record-v1',helperId:decode(id,helperId),revision:0,definitions:[],draftVersion:null,recordings:[],rationales:[],corrections:[],examples:[],evidenceHistory:[],versions:[],activeVersion:null,lastRun:null};}
-function update(helperId:string,stateValue:unknown,actionValue:unknown,demonstrationOwner?:LocalDemonstrationOwner):SemanticHelperState{
+function update(helperId:string,stateValue:unknown,actionValue:unknown,demonstrationOwner?:LocalDemonstrationOwner,sourcePractice?:SourceHelperPracticeReceipt):SemanticHelperState{
  const state=parseState(helperId,stateValue),action=decode(SemanticHelperActionSchema,actionValue);
  if(action.expectedRevision!==state.revision)fail('This semantic helper changed. Reload it before editing.');
  if(state.revision>=500)fail('The helper reached its local revision limit.');
@@ -172,6 +181,12 @@ function update(helperId:string,stateValue:unknown,actionValue:unknown,demonstra
   return [...state.evidenceHistory,{atRevision:next.revision,procedureVersion:state.draftVersion!,candidate:candidate(state)}];
  };
  switch(action.kind){
+  case 'submit-source-helper-practice':{
+   if(!sourcePractice||canonical(sourcePractice.submitted)!==canonical(action)||sourcePractice.owner.helperId!==helperId||sourcePractice.atRevision!==next.revision)fail('Source practice requires the current host-owned source admission.');
+   if((state.sourcePractices?.length??0)>=sourceHelperLearningLimits.attempts)fail('The eight first-answer practice limit was reached. Earlier answers are kept.');
+   if(state.sourcePractices?.some(item=>item.id===sourcePractice.id))fail('This first practice answer is already recorded.');
+   next={...next,sourcePractices:[...(state.sourcePractices??[]),sourcePractice]};break;
+  }
   case 'start-semantic-demonstration':{
    if(state.localWorkspace)fail('Finish or cancel the current local demonstration first.');
    if(state.revision+8>500)fail('Keep revision capacity for six local actions and finishing or cancelling the demonstration.');
