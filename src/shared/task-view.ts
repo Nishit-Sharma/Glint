@@ -7,6 +7,6 @@ export type TaskPinsState={kind:'available';taskIds:readonly string[]}|{kind:'un
 export function orderTaskList<T extends {id:string;updatedAt:string}>(tasks:readonly T[],pinnedTaskIds:readonly string[]):T[]{
  return [...tasks].sort((a,b)=>{const ai=pinnedTaskIds.indexOf(a.id),bi=pinnedTaskIds.indexOf(b.id);return ai>=0||bi>=0?ai<0?1:bi<0?-1:ai-bi:b.updatedAt.localeCompare(a.updatedAt);});
 }
-export function restoreTaskView<T extends {id:string}>(tasks:T[],state:TaskViewState):T|undefined{
- return state.kind==='available'&&state.taskId!==null?tasks.find(task=>task.id===state.taskId):undefined;
+export function restoreTaskView<T extends {id:string;archive?:unknown}>(tasks:T[],state:TaskViewState):T|undefined{
+ return state.kind==='available'&&state.taskId!==null?tasks.find(task=>task.id===state.taskId&&!task.archive):undefined;
 }

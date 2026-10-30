@@ -47,6 +47,12 @@ export async function offlineTaskEntry(page:Page,port=4180,options:{ready?:boole
    fixture.commands.push(structuredClone(command));const {type,...input}=command;
    const result=await fixture.core.saveTaskHandoff(input);await fixture.emit({type:'changed',taskId:command.taskId});return result;
   }
+  if(command.type==='tasks.pause'||command.type==='tasks.resume'){
+   fixture.commands.push(structuredClone(command));if(command.type==='tasks.pause')await fixture.core.pause(command.taskId);else await fixture.core.resume(command.taskId);await fixture.emit({type:'changed',taskId:command.taskId});return fixture.core.getTask(command.taskId);
+  }
+  if(command.type==='tasks.archive'){
+   fixture.commands.push(structuredClone(command));const {type,...input}=command;const result=await fixture.core.setTaskArchived(input);await fixture.emit({type:'changed',taskId:command.taskId});return result;
+  }
   return invoke(command);
  };
  return {fixture,creations,phases,

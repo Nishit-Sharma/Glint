@@ -18,6 +18,7 @@ import type {SourceDragState} from './source-drag'
 import type {SourceTextExpected} from './source-text-draft'
 import type {SourceTextSaveInspectionInput} from './source-text-save'
 import type {TaskHandoffSave} from './task-handoff';
+import type {TaskArchiveChange} from './task-archive';
 import type {SavedDocumentSourceInput} from './saved-document-source';
 
 export type Command =
@@ -35,6 +36,7 @@ export type Command =
   | {type:'tasks.update';taskId:string;title:string;goal?:string}
   | {type:'tasks.get';taskId:string} | {type:'tasks.delete';taskId:string}
   | {type:'tasks.pause'|'tasks.resume';taskId:string}
+  | ({type:'tasks.archive'} & TaskArchiveChange)
   | {type:'tasks.checkpoint';taskId:string;note:string}
   | {type:'task-pins.get'} | {type:'task-pins.set';taskId:string;pinned:boolean}
   | {type:'draft.save';taskId:string;expectedRevision:number;draft:Pick<ComposerDraft,'text'|'kind'>}

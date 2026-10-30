@@ -74,6 +74,7 @@ export interface ExportAction {
 }
 export interface Task {
   id: string; title: string; goal: string; status: 'active' | 'paused';
+  archive?: import('../shared/task-archive').TaskArchive;
   assignedBotId?: string;
   provenance?: 'local-example';
   createdAt: string; updatedAt: string;

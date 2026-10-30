@@ -6,6 +6,7 @@ import { Effect, Schema } from 'effect';
 import {DocumentStampSchema,DocumentChangeSchema} from '../shared/document-source';
 import type { Task } from './types';
 import { TaskSessionSchema,BrowserStartReceiptSchema } from './task-session';
+import {TaskArchiveSchema} from '../shared/task-archive';
 
 const list = <A, I, R>(schema: Schema.Schema<A, I, R>) => Schema.mutable(Schema.Array(schema));
 const optionalText = Schema.optional(Schema.String);
@@ -29,7 +30,7 @@ const Evidence = Schema.Struct({ path: Schema.String, byteLength: Schema.Int, di
 const Action = Schema.Struct({ proposal: Proposal, status: Schema.Literal('proposed', 'approved', 'executing', 'verified', 'failed', 'uncertain', 'retired'), approvalId: optionalText, approvalRetiredAt: optionalText, requestId: optionalText, evidence: Schema.optional(Evidence), error: optionalText });
 const taskFields = { id: Schema.String, title: Schema.String, goal: Schema.String, status: Schema.Literal('active', 'paused'), createdAt: Schema.String, updatedAt: Schema.String, sources: list(Source), artifacts: list(Artifact), requests: list(Request), procedures: list(Procedure), checkpoints: list(Checkpoint), actions: list(Action), memory: Schema.Struct({ enabled: Schema.Literal(false) }) };
 const LegacyStateSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), tasks: list(Schema.Struct(taskFields)), usedRequestIds: list(Schema.String) });
-const TaskSchema = Schema.Struct({ ...taskFields, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema) });
+const TaskSchema = Schema.Struct({ ...taskFields, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema),archive:Schema.optional(TaskArchiveSchema) }).pipe(Schema.filter(task=>!task.archive||task.status==='paused'));
 const StateSchema = Schema.Struct({ schemaVersion: Schema.Literal(2), tasks: list(TaskSchema), usedRequestIds: list(Schema.String) });
 export interface State { schemaVersion: 2; tasks: Task[]; usedRequestIds: string[] }
 export class StateValidationError extends Error {

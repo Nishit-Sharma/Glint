@@ -12,6 +12,7 @@ import type {DocumentBinding,DocumentReconciliation} from '../shared/document-so
 import { projectTaskDialogue } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
+import {readTaskArchiveChange} from '../shared/task-archive';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
 import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
@@ -640,7 +641,7 @@ export class Companion {
   }
   resume(taskId: string): Promise<ResumeResult> {
     return this.exclusive(() => this.commit(state => {
-      const task = this.task(state, taskId); task.status = 'active';
+      const task = this.task(state, taskId);if(task.archive)return reject('conflict','Restore this archived task before resuming it.'); task.status = 'active';
       const affectedArtifacts = task.artifacts.flatMap(artifact => {
         const revisions = artifact.revisions.filter(revision => { try { this.validRefs(task, revision.sourceRefs); return false; } catch { return true; } }).map(revision => revision.revision);
         return revisions.length ? [{ artifactId: artifact.id, revisions }] : [];
@@ -685,6 +686,21 @@ export class Companion {
         return {kind:request?'cleared-terminal' as const:'retired-unstarted' as const,task:current,taskId:current.id,requestId:value.requestId,receipt};
       });
     });
+  }
+
+  setTaskArchived(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Task>{
+    const value=clone(readTaskArchiveChange(input));
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();const task=this.task(state,value.taskId);
+      if((task.archive?.id??null)!==value.expectedArchiveId)return reject('conflict','The archive state changed. Review the current task before trying again.');
+      if(!!task.archive===value.archived)return task;
+      if(value.archived){
+        if(task.status!=='paused')return reject('conflict','Pause this task before archiving it.');
+        if(task.requests.some(request=>request.status==='running')||task.actions.some(action=>action.status==='executing')||task.session?.runs.some(run=>run.operations.some(operation=>operation.status==='executing')))return reject('busy','Wait for the current work to finish before archiving this task.');
+        task.archive={id:randomUUID(),archivedAt:this.time()};
+      }else delete task.archive;
+      task.updatedAt=this.time();return task;
+    }));
   }
 
   async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
