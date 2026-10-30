@@ -12,6 +12,8 @@ import {saveModuleDocument} from '../src/core/module-state';
 test('the actual table workflow renderer import graph bundles for browsers without Node shims',async()=>{
  const bundled=await build({entryPoints:[resolve('src/renderer/src/components/TableWorkflowStudio.tsx')],bundle:true,platform:'browser',format:'esm',target:'es2022',write:false,metafile:true,loader:{'.css':'empty'},logLevel:'silent'});
  expect(bundled.metafile.inputs).toHaveProperty('src/core/table-workflow-host.ts');
+ expect(bundled.metafile.inputs).toHaveProperty('src/learning/table-workflow-columns.ts');
+ expect(bundled.metafile.inputs).toHaveProperty('src/renderer/src/components/TableWorkflowColumnMappings.tsx');
  expect(Object.values(bundled.metafile.outputs).flatMap(output=>output.imports).some(item=>item.external&&/^(node:|crypto$)/.test(item.path))).toBe(false);
  expect(bundled.outputFiles.every(file=>!file.text.includes('browser-external:node:crypto'))).toBe(true);
 });

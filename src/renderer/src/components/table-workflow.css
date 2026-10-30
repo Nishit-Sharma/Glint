@@ -13,3 +13,5 @@
 .table-workflow dl { margin:.75rem 0; }
 .table-workflow dt { font-weight:600; overflow-wrap:anywhere; }
 .table-workflow dd { margin:0 0 .6rem; white-space:pre-wrap; overflow-wrap:anywhere; }
+.table-workflow .table-workflow-input-values label { min-width:0; overflow-wrap:anywhere; }
+.table-workflow .table-workflow-input-values input,.table-workflow .table-workflow-input-values select { width:100%; box-sizing:border-box; }
