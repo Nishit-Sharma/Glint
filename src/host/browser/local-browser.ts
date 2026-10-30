@@ -45,8 +45,23 @@ export function browserPageState(target?:Element|void){
     return true;
   };
   const optionVisible=(option:HTMLOptionElement)=>rendered(option);
+  const sensitive=/password|passcode|one[-_ ]?time|\botp\b|cc-|credit[-_ ]?card|card[-_ ]?number|security[-_ ]?code|\bcvv\b|\bcvc\b|secret|token|api[-_ ]?key|verification[-_ ]?code|auth[-_ ]?code|\bpin\b/i;
+  const sensitiveEditor=(element:Element)=>{
+    if(!element.hasAttribute('contenteditable'))return false;
+    for(let parent:Element|null=element;parent;parent=parent.parentElement??((parent.getRootNode() as ShadowRoot).host??null)){
+      const masking=getComputedStyle(parent).getPropertyValue('-webkit-text-security');
+      if(masking&&masking!=='none')return true;
+      if(sensitive.test(['autocomplete','name','id','type','inputmode','aria-label'].map(attribute=>parent!.getAttribute(attribute)??'').join(' ')))return true;
+    }
+    const root=element.getRootNode() as Document|ShadowRoot,references=(element.getAttribute('aria-labelledby')??'').trim().split(/\s+/,101).filter(Boolean);
+    return references.length>100||references.some(id=>sensitive.test(root.getElementById(id)?.textContent??''));
+  };
+  const sensitiveContext=(element:Element)=>{
+    for(let parent:Element|null=element;parent;parent=parent.parentElement??((parent.getRootNode() as ShadowRoot).host??null))if(sensitiveEditor(parent))return true;
+    return false;
+  };
   const text=(element:Element,omitSelects=false):string=>{
-    if(!rendered(element))return '';
+    if(!rendered(element)||sensitiveContext(element))return '';
     if(element instanceof HTMLSelectElement){
       if(omitSelects)return '';
       const parts:string[]=[];let group:HTMLOptGroupElement|undefined;
@@ -58,7 +73,7 @@ export function browserPageState(target?:Element|void){
       return parts.join('\n');
     }
     const display=getComputedStyle(element).display;
-    if(element instanceof HTMLElement&&display!=='contents'&&!element.querySelector('select'))return element.innerText;
+    if(element instanceof HTMLElement&&display!=='contents'&&!element.querySelector('select')&&!element.querySelector('[contenteditable]'))return element.innerText;
     return Array.from(element.childNodes).map(node=>{
       if(node.nodeType===Node.TEXT_NODE)return node.textContent??'';
       if(!(node instanceof Element)||!rendered(node))return '';
@@ -68,7 +83,7 @@ export function browserPageState(target?:Element|void){
     }).join('');
   };
   const name=(element:Element)=>{
-    if(!rendered(element))return '';
+    if(!rendered(element)||sensitiveContext(element))return '';
     const root=element.getRootNode() as Document|ShadowRoot;
     const references=(element.getAttribute('aria-labelledby')??'').trim().split(/\s+/,101).filter(Boolean);
     if(references.length>100)throw Error('This page exceeds the observation limit; choose a narrower page.');
@@ -77,7 +92,8 @@ export function browserPageState(target?:Element|void){
     const associated=element instanceof HTMLInputElement||element instanceof HTMLTextAreaElement||element instanceof HTMLSelectElement?Array.from(element.labels??[]).map(label=>text(label,true)).join(' '):'';
     return (referenced||(element.getAttribute('aria-label')??(associated||text(element,!(element instanceof HTMLSelectElement))))).trim().slice(0,500);
   };
-  return target?{text:'',title:'',url:'',label:name(target)}:{text:document.body?text(document.body):'',title:document.title,url:location.href,label:''};
+  const blockedEditor=Boolean(target&&((target as HTMLElement).isContentEditable||sensitiveContext(target)));
+  return target?{text:'',title:'',url:'',label:blockedEditor?'':name(target),blockedEditor}:{text:document.body?text(document.body):'',title:document.title,url:location.href,label:'',blockedEditor:undefined};
 }
 
 /** Isolated browser only. The caller owns durable operations and trusted approval UI. */
@@ -237,7 +253,7 @@ export class LocalBrowser {
   private async read() {
     this.assertOpen();
     const documentId = this.documentId;
-    const {label:_label,...state} = await this.page.evaluate(browserPageState);
+    const {label:_label,blockedEditor:_blockedEditor,...state} = await this.page.evaluate(browserPageState);
     if (documentId !== this.documentId) throw Error('The document changed during observation. Observe it again.');
     if (new URL(state.url).origin !== this.origin) throw Error('Browser left its authorized origin.');
     if (state.text.length > 100_000) throw Error('This page exceeds the observation limit; choose a narrower page.');
@@ -280,7 +296,9 @@ export class LocalBrowser {
       // Password/file/hidden controls are never exposed as tools or observations.
       if (captured.sensitive || ['password', 'file', 'hidden'].includes(info.role)) { await handle.dispose(); continue; }
       const id = randomUUID();
-      const label=(await handle.evaluate(browserPageState)).label;
+      const current=await handle.evaluate(browserPageState);
+      if(current.blockedEditor){await handle.dispose();continue;}
+      const label=current.label;
       if(typeof label!=='string')throw Error('The current control name could not be observed.');
       this.targets.set(id, { handle, fingerprint: captured.fingerprint, label });
       snapshot.targets.push({ id, ...info, label });
@@ -305,7 +323,8 @@ export class LocalBrowser {
     if ((await this.read()).digest !== this.snapshot.digest || this.snapshot.documentId !== this.documentId) throw new BrowserObservationChangedError('page');
     const target = this.targets.get(intent.targetId);
     if (!target) throw Error('The target changed. Observe it again before proposing an action.');
-    if (await this.fingerprint(target.handle) !== target.fingerprint || (await target.handle.evaluate(browserPageState)).label!==target.label || !(await target.handle.isVisible())) throw new BrowserObservationChangedError('target');
+    const fingerprint=await this.fingerprint(target.handle),visible=await target.handle.isVisible(),current=await target.handle.evaluate(browserPageState);
+    if (fingerprint!==target.fingerprint || !visible || current.blockedEditor || current.label!==target.label) throw new BrowserObservationChangedError('target');
     if(intent.kind==='select'){
       const descriptor=this.snapshot.targets.find(target=>target.id===intent.targetId),options=descriptor?.options?.filter(option=>option.value===intent.value);
       if(options?.length!==1||options[0].disabled)throw Error('Choose one enabled, unambiguous value from the observed choice list.');
