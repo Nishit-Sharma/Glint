@@ -1,4 +1,5 @@
 import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT,sourceFormulaDraftBasis,emptySourceFormulaDraft,emptySourceFormulaIntent,readSourceFormulaDraft} from './source-formula-draft';
+import {documentRecipeForm,validateDocumentRecipeRaw,DOCUMENT_RECIPE_DRAFT_BYTES} from './document-recipe-raw';
 import {SavedDocumentDraftOwnerSchema,SAVED_DOCUMENT_DRAFT_SLOT,SAVED_DOCUMENT_CONTENT_LIMIT,SAVED_DOCUMENT_DRAFT_JSON_BYTES,emptySavedDocumentDraft,parseSavedDocumentDraft,parseSavedDocumentDraftBasis} from './saved-document-draft';
 import {REVISION_INSTRUCTIONS_SLOT,emptyRevisionInstructions,parseRevisionInstructions} from './revision-instructions';
 import {pickingRawPolicy,isPickingRawPolicy,validatePickingRaw,PICKING_DEFINITION_DRAFT_JSON_BYTES,PICKING_CASE_DRAFT_JSON_BYTES,type PickingRawPolicy} from './picking-draft-form-policy';
@@ -17,7 +18,7 @@ export const WORKFLOW_SOURCE_DRAFT_JSON_BYTES=544*1024;
  * The host separately verifies historical candidate/module and exact row identity. */
 export const WINDOW_REVIEW_DRAFT_JSON_BYTES=640*1024;
 export const JOIN_ROW_DRAFT_JSON_BYTES=800*1024;
-export type LearningDraftJsonPolicy='workflow-source-review'|'window-workflow-review'|'join-row'|'local-task-form'|'source-text-edit'|'saved-document-edit'|PickingRawPolicy;
+export type LearningDraftJsonPolicy='document-recipe-form'|'workflow-source-review'|'window-workflow-review'|'join-row'|'local-task-form'|'source-text-edit'|'saved-document-edit'|PickingRawPolicy;
 export {LearningDraftValidationError,type LearningDraftValidationReason} from './learning-draft-validation';
 import {invalidLearningDraft as invalid} from './learning-draft-validation';
 const safeText=(maximum:number)=>Schema.String.pipe(Schema.minLength(1),Schema.maxLength(maximum),Schema.filter(value=>!value.includes('\0')));
@@ -81,6 +82,7 @@ function canonicalJson(input:unknown,stringLimit:number=LEARNING_DRAFT_LIMITS.st
 const byteLength=(text:string)=>new TextEncoder().encode(text).byteLength;
 function jsonLimit(policy?:LearningDraftJsonPolicy){
  if(policy===undefined)return LEARNING_DRAFT_LIMITS.jsonBytes;
+ if(policy==='document-recipe-form')return DOCUMENT_RECIPE_DRAFT_BYTES;
  if(policy==='workflow-source-review')return WORKFLOW_SOURCE_DRAFT_JSON_BYTES;
  if(policy==='window-workflow-review')return WINDOW_REVIEW_DRAFT_JSON_BYTES;
  if(policy==='join-row')return JOIN_ROW_DRAFT_JSON_BYTES;
@@ -97,11 +99,12 @@ export function learningDraftJsonPolicy(owner:LearningDraftOwner,slot:string):Le
   if(owner.kind==='local-task-form'){parseLearningDraftOwner(owner);return slot===LOCAL_TASK_DRAFT_SLOT?'local-task-form':undefined;}
   if(owner.kind==='workflow-source-review'&&isWorkflowSourceReviewSlot(slot))return 'workflow-source-review';
   if(owner.kind==='window-workflow-review'&&windowReviewCandidateId(slot))return 'window-workflow-review';
- }else{if(joinRowDraftSlot(slot))return 'join-row';return pickingRawPolicy(slot);}
+ }else{if(documentRecipeForm(slot))return 'document-recipe-form';if(joinRowDraftSlot(slot))return 'join-row';return pickingRawPolicy(slot);}
  return undefined;
 }
 export function serializeLearningDraftJson(value:unknown,policy?:LearningDraftJsonPolicy):string{
  const canonical=canonicalJson(value,policy==='saved-document-edit'?SAVED_DOCUMENT_CONTENT_LIMIT:policy==='source-text-edit'?SOURCE_TEXT_DRAFT_STRING_LIMIT:policy==='local-task-form'?LOCAL_TASK_DRAFT_STRING_LIMIT:policy==='picking-helper-candidate'?512*1024:LEARNING_DRAFT_LIMITS.stringLength);
+ if(policy==='document-recipe-form')validateDocumentRecipeRaw(canonical);
  if(isPickingRawPolicy(policy))validatePickingRaw(canonical,policy);
  const text=JSON.stringify(canonical);
  if(byteLength(text)>jsonLimit(policy))throw invalid('Draft JSON is too large.','too-large');
@@ -111,6 +114,7 @@ export function parseLearningDraftJson(text:string,policy?:LearningDraftJsonPoli
  if(typeof text!=='string'||byteLength(text)>jsonLimit(policy))throw invalid('Draft JSON is too large.','too-large');
  let parsed:unknown;try{parsed=JSON.parse(text);}catch{throw invalid('Draft JSON is invalid.');}
  const value=canonicalJson(parsed,policy==='saved-document-edit'?SAVED_DOCUMENT_CONTENT_LIMIT:policy==='source-text-edit'?SOURCE_TEXT_DRAFT_STRING_LIMIT:policy==='local-task-form'?LOCAL_TASK_DRAFT_STRING_LIMIT:policy==='picking-helper-candidate'?512*1024:LEARNING_DRAFT_LIMITS.stringLength);
+ if(policy==='document-recipe-form')validateDocumentRecipeRaw(value);
  if(isPickingRawPolicy(policy))validatePickingRaw(value,policy);
  if(JSON.stringify(value)!==text)throw invalid('Draft JSON must use canonical serialization.');
  return value;
@@ -132,6 +136,7 @@ export function parseLearningDraftValue(value:unknown,owner?:LearningDraftOwner,
  if(owner&&'kind' in owner&&owner.kind==='source-formula-review'){
   try{if(![SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT].includes(slot??'')||parsed.basis!==sourceFormulaDraftBasis(slot!)||parsed.initial!==serializeLearningDraftJson(slot===SOURCE_FORMULA_DRAFT_SLOT?emptySourceFormulaDraft:emptySourceFormulaIntent))throw Error();readSourceFormulaDraft(slot!,initial);readSourceFormulaDraft(slot!,current);}catch{throw invalid('Formula review edits need inspection.');}
  }
+ if(policy==='document-recipe-form'){validateDocumentRecipeRaw(initial,slot);validateDocumentRecipeRaw(current,slot);}
  if(owner&&'kind' in owner&&owner.kind==='saved-document-edit'){
   try{const basis=parseSavedDocumentDraftBasis(parsed.basis);if(basis.taskId!==owner.taskId||basis.artifactId!==owner.artifactId)throw Error();
    if(slot===REVISION_INSTRUCTIONS_SLOT){if(parsed.initial!==serializeLearningDraftJson(emptyRevisionInstructions))throw Error();parseRevisionInstructions(initial);parseRevisionInstructions(current);}

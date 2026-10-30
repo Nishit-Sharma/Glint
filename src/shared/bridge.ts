@@ -1,4 +1,5 @@
 import type {SourceFormulaInput,SourceFormulaCommand} from '../learning/source-formula';
+import type {DocumentRecipeRequest,DocumentRecipeSave,DocumentRecipeInspection} from './document-recipe';
 import type {HelperSourceBatchRequest,HelperSourceBatchSave,HelperSourceBatchInspection} from './helper-source-batch';
 import type {RecordedTextRequest} from '../core/recorded-text-helper-host';
 import type {LearningDraftOwner,LearningDraftValue} from './learning-drafts'
@@ -55,6 +56,10 @@ export type Command =
   | {type:'workflow.window.review';taskId:string;requestId:string;candidate:ArtifactRef;review:unknown}
   | {type:'workflow.example';taskId:string;requestId:string}
   | {type:'helper.create';taskId:string;requestId:string}
+  | {type:'helper.document.create';taskId:string;requestId:string}
+  | ({type:'helper.document.preview'} & DocumentRecipeRequest)
+  | ({type:'helper.document.save'} & DocumentRecipeSave)
+  | ({type:'helper.document.inspect'} & DocumentRecipeInspection)
   | ({type:'helper.source-batch.preview'} & HelperSourceBatchRequest)
   | ({type:'helper.source-batch.save'} & HelperSourceBatchSave)
   | ({type:'helper.source-batch.inspect'} & HelperSourceBatchInspection)

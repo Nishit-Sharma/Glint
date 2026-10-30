@@ -1,6 +1,7 @@
 import {initialRecordedTextHelper} from '../learning/recorded-text-procedure';
 import {readTruthBinding,TRUTH_INTRO,isTruthModuleId} from '../learning/truth-table';
 import { Schema } from 'effect';
+import {documentRecipe,DocumentRecipeDataSchema,DocumentRecipeStateSchema,DocumentRecipeActionSchema} from '../learning/document-recipe';
 import { createModuleRegistry, defineModule } from './module-registry';
 import { joinLab, JoinLessonSchema, JoinStateSchema, JoinActionSchema, validateLesson } from '../learning/join-lab';
 import { helperStudio, HelperDataSchema, HelperStateSchema, HelperActionSchema } from '../learning/reusable-helper';
@@ -58,7 +59,8 @@ export const helperModule = defineModule({kind:'helper-studio',schemaVersion:1,d
 });
 export const groundedJoinModule=defineModule({kind:'grounded-join',schemaVersion:1,description:'Review cited table extraction, correct ambiguities and run the installed join experiment.',data:GroundedJoinDataSchema,state:GroundedJoinStateSchema,action:GroundedJoinActionSchema,validate:groundedJoin.parse,initial:groundedJoin.initial,update:groundedJoin.update,text:groundedJoin.text});
 export const workflowModule=defineModule({kind:'workflow-lab',schemaVersion:1,description:'Predict and edit a bounded finite workflow; inspect the computed trace and try a distinct transfer.',data:WorkflowDataSchema,state:WorkflowStateSchema,action:WorkflowActionSchema,validate:workflowLab.parse,initial:workflowLab.initial,update:workflowLab.update,text:workflowLab.text});
-export const installedModules = createModuleRegistry({ comparison: comparisonModule, plan: planModule, 'join-lab': joinModule, 'helper-studio':helperModule,'grounded-join':groundedJoinModule,'workflow-lab':workflowModule });
+export const documentRecipeModule=defineModule({kind:'document-recipe',schemaVersion:1,description:'Demonstrate and check a local document layout, then preview a new document from explicitly selected labelled notes.',data:DocumentRecipeDataSchema,state:DocumentRecipeStateSchema,action:DocumentRecipeActionSchema,initial:()=>documentRecipe.initial(),update:(_data,state,action)=>documentRecipe.update(state,action),text:documentRecipe.text});
+export const installedModules = createModuleRegistry({ 'document-recipe':documentRecipeModule, comparison: comparisonModule, plan: planModule, 'join-lab': joinModule, 'helper-studio':helperModule,'grounded-join':groundedJoinModule,'workflow-lab':workflowModule });
 /** Model output is a smaller contract than installed host/storage capability. */
 const modelModules=createModuleRegistry({comparison:comparisonModule,plan:planModule});
 export type ModelModuleDraft=ReturnType<typeof modelModules.parse>;
@@ -99,7 +101,7 @@ export function readableModuleIntro(answer:ModuleAnswer,stateFor?:(moduleId:stri
 /** Local helpers contain arbitrary pasted values and operation literals. Only closed metadata enters automatic model context. */
 export const LOCAL_HELPER_CONTEXT_NOTICE='Local helper names, operations, inputs, results, checks and reasons are excluded from automatic AI and browser context. Text you include in requests, selected sources or saved notes can still be shared.';
 export function modelModuleIntro(answer:ModuleAnswer,stateFor?:(moduleId:string)=>unknown):string{
- return answer.modules.some(module=>module.data.kind==='helper-studio')?'Local helper answer. Its text and values are excluded from automatic AI and browser context.':readableModuleIntro(answer,stateFor);
+ return answer.modules.some(module=>module.data.kind==='helper-studio'||module.data.kind==='document-recipe')?'Local helper answer. Its text and values are excluded from automatic AI and browser context.':readableModuleIntro(answer,stateFor);
 }
 export function modelModuleText(data:ModuleDraft,stateValue?:unknown):string{
  if(data.kind!=='helper-studio')return moduleText(data,stateValue);

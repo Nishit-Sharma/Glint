@@ -1,0 +1,8 @@
+.document-recipe > details > summary { min-height: 42px; cursor: pointer; align-content: center; color: var(--learning-ink); font-weight: 550; }
+.document-recipe label { display: grid; min-width: 0; gap: 5px; margin-block: 12px 6px; font-size: 12px; color: var(--learning-muted); }
+.document-recipe textarea { min-height: 100px; white-space: pre-wrap; }
+.document-recipe input, .document-recipe select { width: 100%; min-width: 0; }
+.document-recipe li { margin-block: 12px; }
+.document-recipe pre { white-space: break-spaces; border-inline-start: 2px solid var(--learning-line); padding-inline-start: 10px; max-height: 300px; overflow: auto; }
+.document-recipe-preview { margin-block: 20px; padding-block-start: 16px; border-block-start: 1px solid var(--learning-line); }
+.document-recipe .readable-text { overflow-wrap: anywhere; }

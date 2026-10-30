@@ -16,6 +16,8 @@ import {PickingHelperStudio} from './PickingHelperStudio';
 import {pickingHelper} from '../../../learning/picking-helper';
 import { helperStudio } from '../../../learning/reusable-helper';
 import {semanticHelper} from '../../../learning/semantic-helper';
+import {DocumentRecipeStudio} from './DocumentRecipeStudio';
+import {documentRecipe} from '../../../learning/document-recipe';
 import {ReadyArtifact} from './ReadyArtifact';
 import {DraftNavigationScope} from '../draft-navigation';
 import './interactive-module.css';
@@ -38,6 +40,7 @@ function Plan({ data, state, pending, onAction,motion }: Interaction & { data: R
 type RenderDefinition = { render(data: unknown, state: unknown, interaction: Interaction): ReactNode };
 /** Each renderer binds to its complete core definition; adding a kind requires a renderer binding. */
 export const moduleViews = {
+  'document-recipe':{definition:moduleRegistry['document-recipe'],render(_data,state,interaction){return <DocumentRecipeStudio state={documentRecipe.parseState(state)} {...interaction}/>;}},
   comparison: { definition: comparisonModule, render(data, state, interaction) { return <Comparison data={comparisonModule.parse(data)} state={comparisonModule.parseState(state)} {...interaction}/>; } },
   plan: { definition: planModule, render(data, state, interaction) { return <Plan data={planModule.parse(data)} state={planModule.parseState(state)} {...interaction}/>; } },
   'join-lab': { definition: joinModule, render(data, state, interaction) { return <JoinLab data={joinModule.parse(data)} state={joinLab.parseState(data,state)} {...interaction}/>; } },
@@ -51,5 +54,5 @@ export function ModuleView({ data, state, pending = false, onAction,motion,task,
   let content:ReactNode;
   try { content=moduleViews[data.kind].render(data, state, { pending, onAction,motion,task,draftOwner,onOpenSourceDocument }); }
   catch { return <section className="interactive-answer" aria-label={data.title}><p role="alert">This saved example needs review before editing. Your saved work is kept.</p></section>; }
-  return <section className="interactive-answer" aria-label={data.title}>{data.kind==='join-lab'||data.kind==='grounded-join'||data.kind==='workflow-lab'||data.kind==='helper-studio'?<DraftNavigationScope identity={motion?.identity}><LearningDraftScope owner={draftOwner}>{content}</LearningDraftScope></DraftNavigationScope>:content}</section>;
+  return <section className="interactive-answer" aria-label={data.title}>{data.kind==='document-recipe'||data.kind==='join-lab'||data.kind==='grounded-join'||data.kind==='workflow-lab'||data.kind==='helper-studio'?<DraftNavigationScope identity={motion?.identity}><LearningDraftScope owner={draftOwner}>{content}</LearningDraftScope></DraftNavigationScope>:content}</section>;
 }

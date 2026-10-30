@@ -1,4 +1,5 @@
 import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT} from '../shared/source-formula-draft';
+import {documentRecipeForm,validateDocumentRecipeRaw} from '../shared/document-recipe-raw';
 import {SAVED_DOCUMENT_DRAFT_SLOT,parseSavedDocumentDraftBasis,parseSavedDocumentDraft,ordinaryTextDocument,sameDocumentRefs} from '../shared/saved-document-draft';
 import {REVISION_INSTRUCTIONS_SLOT,parseRevisionInstructions} from '../shared/revision-instructions';
 import {createHash,randomUUID} from 'node:crypto';
@@ -143,6 +144,7 @@ export class LearningDraftStore{
     const policy=learningDraftJsonPolicy(owner,slot);
     return [value.initial,value.value].every(text=>parseJoinRowRaw(parseLearningDraftJson(text,policy)).cells.length===table.columns.length);
    }
+   if(module.data.kind==='document-recipe'){if(!documentRecipeForm(slot)||artifact?.revisions.at(-1)!==revision)return false;return [value.initial,value.value].every(text=>{validateDocumentRecipeRaw(parseLearningDraftJson(text,'document-recipe-form'),slot);return true;});}
    if(module.data.kind!=='helper-studio')return !isHelperDraftSlot(slot)&&['join-lab','grounded-join','workflow-lab'].includes(module.data.kind);
    const mode=helperDraftMode(slot);if(!mode||artifact?.revisions.at(-1)!==revision)return false;
    const matches=task.session?.moduleStates.filter(saved=>saved.artifactId===owner.artifactId&&saved.artifactRevision===owner.artifactRevision&&(saved.moduleId===owner.moduleId||(saved.moduleId===undefined&&answer.modules.length===1)))??[];

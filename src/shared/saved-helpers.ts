@@ -1,5 +1,6 @@
 import type {Artifact,Task} from '../core/types';
 import {parseModuleAnswer} from '../core/interactive-modules';
+import {documentRecipe} from '../learning/document-recipe';
 import {helperStudio,type HelperDefinition} from '../learning/reusable-helper';
 import {pickingHelper} from '../learning/picking-helper';
 import {semanticHelper} from '../learning/semantic-helper';
@@ -24,6 +25,11 @@ export function savedHelpers(tasks:readonly Task[]):SavedHelperEntry[]{
    const answer=parseModuleAnswer(JSON.parse(revision.content));
    for(const module of answer.modules){
     try{
+     if(module.data.kind==='document-recipe'){
+      const saved=task.session?.moduleStates.find(item=>item.artifactId===artifact.id&&item.artifactRevision===revision.revision&&item.moduleId===module.id);if(!saved)continue;
+      const state=documentRecipe.parseState(saved.state),version=state.versions.find(item=>item.version===state.activeVersion)??state.versions.at(-1);if(!version)continue;
+      entries.push({taskId:task.id,taskTitle:task.title,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,helperId:module.data.id,stateRevision:state.revision,name:version.definition.name,description:version.definition.intent,invocation:'Local document recipe',version:version.version,activeVersion:state.activeVersion,savedVersionCount:state.versions.length,example:undefined});continue;
+     }
      if(module.data.kind!=='helper-studio')continue;
      const matches=task.session?.moduleStates.filter(saved=>saved.artifactId===artifact.id&&saved.artifactRevision===revision.revision&&(saved.moduleId===module.id||(saved.moduleId===undefined&&answer.modules.length===1)))??[];
      if(matches.length!==1)continue;
