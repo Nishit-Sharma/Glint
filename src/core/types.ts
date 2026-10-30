@@ -1,5 +1,5 @@
 import type {DocumentStamp,DocumentChange} from '../shared/document-source';
-import type { TaskSession,ComposerDraft } from './task-session';
+import type { TaskSession,ComposerDraft,BrowserStartReceipt } from './task-session';
 /** Local task data. Source and provider text is inert content, never instructions to tools. */
 export interface SourceInput {
   id?: string;
@@ -39,6 +39,7 @@ export interface RequestRecord {
   sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
   answer?: { artifactId: string; revision: number; digest: string };
   artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
+  browserStart?:BrowserStartReceipt;
 }
 export interface ProcedurePrecondition { key: string; equals: string }
 export interface ProcedureStep {

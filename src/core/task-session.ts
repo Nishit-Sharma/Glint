@@ -6,6 +6,11 @@ export {readComposerDraft,type ComposerDraft,type ComposerKind} from './composer
 const text = Schema.String.pipe(Schema.maxLength(100_000));
 const id = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200));
 export const ComposerKindSchema=Schema.Literal(...composerKinds);
+/** Historical website selection only; paths, query strings and fragments are excluded. */
+export const BrowserStartReceiptSchema=Schema.Struct({origin:Schema.String.pipe(Schema.maxLength(2_000)),recordedAt:id}).pipe(Schema.filter(value=>{
+ try{const url=new URL(value.origin);return url.origin===value.origin&&!url.username&&!url.password&&(url.protocol==='https:'||url.protocol==='http:'&&url.hostname==='127.0.0.1');}catch{return false;}
+}));
+export type BrowserStartReceipt=typeof BrowserStartReceiptSchema.Type;
 export const BrowserObservationSchema = Schema.Struct({
   id, taskId: id, browserId: id, documentId: id, url: text, title: text, text, digest: id,
   targets: Schema.Array(Schema.Struct({ id, role: text, label: text, href: Schema.optional(text), value: Schema.optional(text), options: Schema.optional(Schema.Array(Schema.Struct({ value: Schema.String.pipe(Schema.maxLength(10_000)), label: Schema.String.pipe(Schema.maxLength(500)), disabled: Schema.Boolean })).pipe(Schema.maxItems(100))) })).pipe(Schema.maxItems(100)),

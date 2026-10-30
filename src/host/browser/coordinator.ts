@@ -5,6 +5,7 @@ import { emptyTaskSession, type TaskSession, type BrowserObservation, type Compo
 import { modelModuleText, parseModelModule, parseModuleAnswer, type ModelModuleDraft } from '../../core/interactive-modules';
 import type { Task } from '../../core/types';
 import {readTaskArtifactText} from '../../core/task-dialogue';
+import {browserObservationErrorMessage,BROWSER_CLEANUP_UNCONFIRMED} from '../../shared/public-messages';
 import { LocalBrowser, BrowserObservationChangedError, ExpectedFormFields, type FormValuesMismatch, type BrowserProposal, type WriteScope, type BrowserWindowOwner } from './local-browser';
 
 const PlannedActionSchema = Schema.Struct({ kind: Schema.Literal('action'), reason: Schema.String, action: Schema.Union(Schema.Struct({ kind: Schema.Literal('click'), targetId: Schema.String, expectedFields: Schema.optional(ExpectedFormFields) }), Schema.Struct({ kind: Schema.Literal('fill'), targetId: Schema.String, value: Schema.String }), Schema.Struct({ kind: Schema.Literal('select'), targetId: Schema.String, value: Schema.String.pipe(Schema.maxLength(10_000)) })) });
@@ -60,15 +61,18 @@ export class BrowserCoordinator {
     const endpointKey = this.planner.endpointKey;
     return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [], ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url }) }, async ctx => {
       let browser: LocalBrowser | undefined;
-      const stop = () => { void browser?.close(); };
+      const stop = () => { void browser?.close().catch(()=>{}); };
       ctx.signal.addEventListener('abort', stop, { once: true });
       try {
         if (ctx.signal.aborted) throw Error('Stopped before opening the browser.');
         if(input.authorizeStart)await untilStopped(input.authorizeStart(ctx.signal),ctx.signal);
         if(ctx.signal.aborted)throw Error('Stopped before opening the browser.');
+        await this.core.recordBrowserStartingSite(input.taskId,input.requestId,input.origin);
+        if(ctx.signal.aborted)throw Error('Stopped before opening the browser.');
         browser = await LocalBrowser.open({ taskId: input.taskId, origin: input.origin, url: input.url, headless: input.headless, signal: ctx.signal,onWindowOwner:input.onWindowOwner });
         if (ctx.signal.aborted) throw Error('Stopped before observing the browser.');
-        let observation = await browser.observe();
+        let observation:BrowserObservation;
+        try { observation = await browser.observe(); } catch(error) { throw Error(browserObservationErrorMessage(error)); }
         input.onProgress?.(`Reading ${observation.title || 'the selected page'}…`);
         await this.core.beginBrowserRun(input.taskId,{id:input.requestId,endpointKey,origin:input.origin,browserId:browser.id,initialObservation:observation},ctx.task.session?.contextRevision??0);
         const boundBrowser=browser;
@@ -155,7 +159,7 @@ export class BrowserCoordinator {
           return {...session,runs:session.runs.map(run=>run.id!==input.requestId?run:{...run,operations:run.operations.map(operation=>operation.status==='proposed'?{...operation,status:'retired',error:'This request stopped before the action was authorized.'}:operation.status==='executing'?{...operation,status:'uncertain',error:'This request stopped during execution. Inspect the website before retrying.'}:operation)})};
         }).catch(()=>{});
         throw error;
-      } finally { ctx.signal.removeEventListener('abort', stop); await browser?.close(); }
+      } finally { ctx.signal.removeEventListener('abort', stop); try { await browser?.close(); } catch { throw Error(BROWSER_CLEANUP_UNCONFIRMED); } }
     });
   }
 }

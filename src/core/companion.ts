@@ -16,7 +16,7 @@ import {readLocalTaskStart,type LocalTaskStartResult} from '../shared/local-task
 import {encodeLocalStartReceipt,findLocalStartReceipt,type LocalStartReceipt} from './local-start-receipt';
 import {readSourceTextSave,readSourceTextSaveInspection,sourceTextSaveBindingText,SOURCE_TEXT_SAVE_BINDING_PREFIX,type SourceTextSaveConfirmed,type SourceTextSaveInspection,type SourceTextSaveInspectionInput} from '../shared/source-text-save';
 import {encodeSourceTextSaveReceipt,findSourceTextSaveReceipt,sourceTextSaveClaim,type SourceTextSaveReceipt} from './source-text-save-receipt';
-import { emptyTaskSession, recoverTaskSession,readComposerDraft,ComposerKindSchema,type ComposerDraft,type ComposerKind, type TaskSession } from './task-session';
+import { emptyTaskSession, recoverTaskSession,readComposerDraft,ComposerKindSchema,BrowserStartReceiptSchema,type BrowserStartReceipt,type ComposerDraft,type ComposerKind, type TaskSession } from './task-session';
 import type {
   ArtifactInput, ArtifactRevision, CompanionOptions, ExportAction, ExportEvidence,
   ProcedureInput, RequestContext, RequestInput, RequestOutput, RequestRecord, ResumeResult,
@@ -253,10 +253,21 @@ export class Companion {
   clearBrowserContext(taskId: string): Promise<Task> {
     return this.exclusive(() => this.commit(state => { const task=this.task(state,taskId),{browserContext:_browser,...session}=task.session??emptyTaskSession();task.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1};task.updatedAt=this.time();return task; }));
   }
+  recordBrowserStartingSite(taskId:string,requestId:string,origin:string):Promise<BrowserStartReceipt>{
+    const receipt=Schema.decodeUnknownSync(BrowserStartReceiptSchema,{onExcessProperty:'error'})({origin,recordedAt:this.time()});
+    return this.exclusive(()=>{
+      const task=this.task(this.state,taskId),request=task.requests.find(request=>request.id===requestId);
+      if(task.status!=='active'||request?.kind!=='browser'||request.status!=='running')return reject('conflict','The browser request stopped before its starting website was recorded.');
+      if(request.browserStart){if(request.browserStart.origin!==origin)return reject('conflict','The browser starting website changed. Start a new request.');return clone(request.browserStart);}
+      if(task.session?.runs.some(run=>run.id===requestId))return reject('conflict','The browser already has an observation. Its starting website cannot be recorded retrospectively.');
+      return this.commit(state=>{const task=this.task(state,taskId),request=task.requests.find(request=>request.id===requestId)!;request.browserStart=receipt;task.updatedAt=this.time();return receipt;});
+    });
+  }
   beginBrowserRun(taskId:string,run:Omit<TaskSession['runs'][number],'operations'>,expectedContextRevision:number):Promise<TaskSession>{
     return this.exclusive(()=>this.commit(state=>{
       const task=this.task(state,taskId),request=task.requests.find(request=>request.id===run.id),session=task.session??emptyTaskSession();
       if(task.status!=='active'||request?.kind!=='browser'||request.status!=='running')return reject('conflict','The browser request stopped before its first observation was saved.');
+      if(request.browserStart&&request.browserStart.origin!==run.origin)return reject('conflict','The observed website does not match this browser request’s starting website.');
       if(session.runs.some(previous=>previous.id===run.id))return reject('conflict','This browser run already has an initial observation.');
       if(!Number.isSafeInteger(expectedContextRevision)||expectedContextRevision<0||run.initialObservation.taskId!==taskId||run.initialObservation.browserId!==run.browserId||new URL(run.initialObservation.url).origin!==run.origin)return reject('invalid','The initial browser observation does not match its request.');
       const contextRevision=session.contextRevision??0;

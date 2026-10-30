@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chromium, type Browser, type BrowserContext, type ElementHandle, type Page } from 'playwright-core';
 import { Schema } from 'effect';
-import { BROWSER_LAUNCH_UNAVAILABLE } from '../../shared/public-messages';
+import { BROWSER_LAUNCH_UNAVAILABLE,BROWSER_PAGE_OPEN_FAILED,BROWSER_CLEANUP_UNCONFIRMED } from '../../shared/public-messages';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const Intent = Schema.Union(
@@ -121,7 +121,7 @@ export class LocalBrowser {
     let opened:LocalBrowser|undefined;
     try {
       if (options.signal?.aborted) throw Error('Browser request was stopped before opening a page.');
-      const stop = () => { void browser.close(); };
+      const stop = () => { void browser.close().catch(()=>{}); };
       options.signal?.addEventListener('abort', stop, { once: true });
       releaseStop=()=>options.signal?.removeEventListener('abort',stop);
       if(options.onWindowOwner){
@@ -176,9 +176,17 @@ export class LocalBrowser {
         Object.defineProperty(window, 'webkitRTCPeerConnection', { value: undefined, configurable: false });
       });
       if (options.signal?.aborted) throw Error('Browser request was stopped before navigation.');
-      await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 10_000 });
+      try { await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 10_000 }); }
+      catch { throw Error(BROWSER_PAGE_OPEN_FAILED); }
       return owner;
-    } catch (error) { releaseStop();await browser.close();releaseOwner();if(opened?.blockedRedirects)throw new BrowserRedirectError();throw error; }
+    } catch (error) {
+      releaseStop();
+      try { await browser.close(); } catch { throw Error(BROWSER_CLEANUP_UNCONFIRMED); }
+      releaseOwner();
+      if(opened?.blockedRedirects)throw new BrowserRedirectError();
+      const safe=['Browser request was stopped before opening a page.','Browser request was stopped before navigation.','The owned browser process identity could not be established. No page was opened.',BROWSER_PAGE_OPEN_FAILED];
+      throw Error(error instanceof Error&&safe.includes(error.message)?error.message:BROWSER_PAGE_OPEN_FAILED);
+    }
   }
   get diagnostics() { return { browserId: this.id, taskId: this.taskId, closed: this.closed, blockedRequests: this.blocked, blockedRedirects:this.blockedRedirects, profile: 'fresh-ephemeral' as const }; }
   proposal(id: string) { const value = this.proposals.get(id); return value ? structuredClone(value) : undefined; }

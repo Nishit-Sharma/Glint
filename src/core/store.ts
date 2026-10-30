@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Effect, Schema } from 'effect';
 import {DocumentStampSchema,DocumentChangeSchema} from '../shared/document-source';
 import type { Task } from './types';
-import { TaskSessionSchema } from './task-session';
+import { TaskSessionSchema,BrowserStartReceiptSchema } from './task-session';
 
 const list = <A, I, R>(schema: Schema.Schema<A, I, R>) => Schema.mutable(Schema.Array(schema));
 const optionalText = Schema.optional(Schema.String);
@@ -18,7 +18,7 @@ const SourceVersion = Schema.Struct({ ...sourceFields, version: Schema.Int, dige
 const Source = Schema.Struct({ id: Schema.String, currentVersion: Schema.Int, versions: list(SourceVersion), freshness: Schema.Literal('fresh', 'refresh-required'), staleReason: optionalText, documentChange:Schema.optional(DocumentChangeSchema) });
 const ArtifactRevision = Schema.Struct({ revision: Schema.Int, title: Schema.String, content: Schema.String, mimeType: Schema.String, encoding: Schema.optional(Schema.Literal('utf8', 'base64')), sourceRefs: list(Ref), digest: Schema.String, createdAt: Schema.String });
 const Artifact = Schema.Struct({ id: Schema.String, revisions: list(ArtifactRevision) });
-const Request = Schema.Struct({ id: Schema.String, kind: Schema.String, prompt: Schema.String, digest: Schema.String, status: Schema.Literal('running', 'completed', 'cancelled', 'interrupted', 'failed'), sourceRefs: list(Ref), startedAt: Schema.String, finishedAt: optionalText, artifactId: optionalText, answer: Schema.optional(Schema.Struct({ artifactId: Schema.String, revision: Schema.Int, digest: Schema.String })), targetArtifactId: optionalText, expectedRevision: Schema.optional(Schema.Int), error: optionalText });
+const Request = Schema.Struct({ id: Schema.String, kind: Schema.String, prompt: Schema.String, digest: Schema.String, status: Schema.Literal('running', 'completed', 'cancelled', 'interrupted', 'failed'), sourceRefs: list(Ref), startedAt: Schema.String, finishedAt: optionalText, artifactId: optionalText, answer: Schema.optional(Schema.Struct({ artifactId: Schema.String, revision: Schema.Int, digest: Schema.String })), targetArtifactId: optionalText, expectedRevision: Schema.optional(Schema.Int), error: optionalText, browserStart:Schema.optional(BrowserStartReceiptSchema) });
 const Step = Schema.Struct({ intent: Schema.String, target: Schema.String, preconditions: list(Schema.Struct({ key: Schema.String, equals: Schema.String })), expectedResult: Schema.String });
 const Observation = Schema.Struct({ artifactId: Schema.String, revision: Schema.Int, digest: Schema.String, summary: Schema.String, limitations: list(Schema.String) });
 const Procedure = Schema.Struct({ id: Schema.String, revisions: list(Schema.Struct({ revision: Schema.Int, title: Schema.String, scope: Schema.Struct({ taskId: Schema.String, project: optionalText }), steps: list(Step), sourceRefs: list(Ref), createdAt: Schema.String, observation: Schema.optional(Observation) })) });
