@@ -1,15 +1,23 @@
-import type {Artifact,ArtifactRevision,Task} from '../core/types';
+import type {Artifact,ArtifactRevision,Checkpoint,Task} from '../core/types';
 import {savedWorkSearchText} from './saved-work-search-text';
 
-export const savedWorkSearchLimits={query:200,file:100_000,task:20_000,total:2_000_000,results:50,excerpt:240} as const;
-export type SavedWorkScope='all'|'tasks'|'files';
-type Match={taskId:string;taskTitle:string;title:string;excerpt:string;field:'Task name'|'Task goal'|'File name'|'File text'};
+export const savedWorkSearchLimits={query:200,file:100_000,task:20_000,note:10_000,total:2_000_000,results:50,excerpt:240} as const;
+export type SavedWorkScope='all'|'tasks'|'files'|'notes';
+type Match={taskId:string;taskTitle:string;title:string;excerpt:string;field:'Task name'|'Task goal'|'File name'|'File text'|'Activity note'};
 export type SavedWorkMatch=
  | Match&{kind:'task';goal:string}
- | Match&{kind:'file';artifactId:string;revision:number;digest:string;mimeType:string;encoding:ArtifactRevision['encoding'];contentLength:number;contentPrefix:string};
-export interface SavedWorkResults{query:string;scope:SavedWorkScope;matches:SavedWorkMatch[];matchCount:number;searched:number;partial:number;omitted:number;unavailable:number;unsearchedFiles:number}
+ | Match&{kind:'file';artifactId:string;revision:number;digest:string;mimeType:string;encoding:ArtifactRevision['encoding'];contentLength:number;contentPrefix:string}
+ | Match&{kind:'note';checkpoint:Checkpoint};
+export interface SavedWorkResults{query:string;scope:SavedWorkScope;matches:SavedWorkMatch[];matchCount:number;searched:number;partial:number;omitted:number;unavailable:number;unsearchedFiles:number;unsearchedNotes:number}
 export interface SavedWorkSearchState{query:string;scope:SavedWorkScope;results?:SavedWorkResults}
 export const searchableSavedFile=(revision:ArtifactRevision)=>['text/plain','text/markdown'].includes(revision.mimeType)&&revision.encoding!=='base64';
+/** Checkpoints have no editable revision. Bind all their recorded content,
+ * including source/result references, rather than accepting a reused ID. */
+export const savedNoteIdentity=(checkpoint:Checkpoint)=>JSON.stringify([checkpoint.id,checkpoint.createdAt,checkpoint.note,checkpoint.sourceRefs.map(ref=>[ref.sourceId,ref.version,ref.digest]),checkpoint.artifacts.map(ref=>[ref.artifactId,ref.revision])]);
+export function resolveSavedNote(task:Task,checkpoint:Checkpoint):Checkpoint|undefined{
+ const matches=task.checkpoints.filter(item=>item.id===checkpoint.id);
+ return matches.length===1&&savedNoteIdentity(matches[0])===savedNoteIdentity(checkpoint)?matches[0]:undefined;
+}
 const counts=(items:readonly {id:string}[])=>{const result=new Map<string,number>();for(const item of items)result.set(item.id,(result.get(item.id)??0)+1);return result;};
 const excerpt=(value:string,index:number,length:number)=>{
  const start=Math.max(0,index-Math.min(80,Math.floor((savedWorkSearchLimits.excerpt-length)/2))),end=Math.min(value.length,start+savedWorkSearchLimits.excerpt);
@@ -17,12 +25,13 @@ const excerpt=(value:string,index:number,length:number)=>{
 };
 
 /** A literal local search, computed only on explicit submission. No source,
- * session, receipt, older revision, image or structured module is indexed. */
+ * session, receipt, older revision, image or structured module is indexed.
+ * Authored checkpoint notes are searched as inert plain text on this device. */
 export function searchSavedWork(tasks:readonly Task[],input:string,scope:SavedWorkScope='all'):SavedWorkResults{
  const query=input.trim();
  if(!query||query.length>savedWorkSearchLimits.query)throw Error('Enter up to 200 characters to find saved work.');
  const pattern=new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'iu');
- const result:SavedWorkResults={query,scope,matches:[],matchCount:0,searched:0,partial:0,omitted:0,unavailable:0,unsearchedFiles:0};let remaining:number=savedWorkSearchLimits.total;
+ const result:SavedWorkResults={query,scope,matches:[],matchCount:0,searched:0,partial:0,omitted:0,unavailable:0,unsearchedFiles:0,unsearchedNotes:0};let remaining:number=savedWorkSearchLimits.total;
  const scan=(title:string,body:string,limit:number,fields:readonly [Match['field'],Match['field']],project?:(prefix:string)=>string|null)=>{
   if(!remaining){result.omitted++;return;}
   const head=title.slice(0,Math.min(remaining,limit));remaining-=head.length;
@@ -38,29 +47,44 @@ export function searchSavedWork(tasks:readonly Task[],input:string,scope:SavedWo
  const taskCounts=counts(tasks),ordered=[...tasks].sort((a,b)=>(Date.parse(b.updatedAt)||0)-(Date.parse(a.updatedAt)||0)||a.id.localeCompare(b.id));
  for(const task of ordered){
   if(taskCounts.get(task.id)!==1)continue;
-  if(scope!=='files'){
+  if(scope==='all'||scope==='tasks'){
    const found=scan(task.title,task.goal,savedWorkSearchLimits.task,['Task name','Task goal']);
    if(found)add({kind:'task',taskId:task.id,taskTitle:task.title,title:task.title,goal:task.goal,field:found.field,excerpt:found.excerpt});
   }
   if(scope==='tasks')continue;
   const artifactCounts=counts(task.artifacts);
-  for(const artifact of task.artifacts){
+  if(scope!=='notes')for(const artifact of task.artifacts){
    const revision=artifact.revisions.at(-1);
    if(artifactCounts.get(artifact.id)!==1||!revision||artifact.revisions.filter(item=>item.revision===revision.revision).length!==1||!searchableSavedFile(revision))continue;
    if(revision.title.length+revision.content.length>Math.min(savedWorkSearchLimits.file,remaining)){result.unsearchedFiles++;continue;}
    const found=scan(revision.title,revision.content,savedWorkSearchLimits.file,['File name','File text'],prefix=>savedWorkSearchText(task,artifact,revision,prefix));
    if(found)add({kind:'file',taskId:task.id,taskTitle:task.title,title:revision.title,artifactId:artifact.id,revision:revision.revision,digest:revision.digest,mimeType:revision.mimeType,encoding:revision.encoding,contentLength:revision.content.length,...found});
   }
+  if(scope==='all'||scope==='notes'){
+   const checkpointCounts=counts(task.checkpoints);
+   const notes=[...task.checkpoints].sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0)||a.id.localeCompare(b.id));
+   for(const checkpoint of notes){
+    if(checkpointCounts.get(checkpoint.id)!==1)continue;
+    if(checkpoint.note.length>Math.min(savedWorkSearchLimits.note,remaining)){result.unsearchedNotes++;continue;}
+    const found=scan('',checkpoint.note,savedWorkSearchLimits.note,['Activity note','Activity note']);
+    if(found)add({kind:'note',taskId:task.id,taskTitle:task.title,title:checkpoint.note.trim().split(/\r?\n/,1)[0].slice(0,80)||'Activity note',field:'Activity note',excerpt:found.excerpt,checkpoint:structuredClone(checkpoint)});
+   }
+  }
  }
  return result;
 }
 
 export const savedWorkUnavailable='This match changed or is no longer available. Search again to choose current saved work.';
-export function resolveSavedWorkMatch(task:Task,match:SavedWorkMatch):{kind:'task'}|{kind:'file';artifact:Artifact;revision:ArtifactRevision}{
+export function resolveSavedWorkMatch(task:Task,match:SavedWorkMatch):{kind:'task'}|{kind:'file';artifact:Artifact;revision:ArtifactRevision}|{kind:'note';checkpoint:Checkpoint}{
  if(task.id!==match.taskId||task.title!==match.taskTitle)throw Error(savedWorkUnavailable);
  if(match.kind==='task'){
   if(task.goal!==match.goal||task.title!==match.title)throw Error(savedWorkUnavailable);
   return {kind:'task'};
+ }
+ if(match.kind==='note'){
+  const checkpoint=resolveSavedNote(task,match.checkpoint);
+  if(!checkpoint)throw Error(savedWorkUnavailable);
+  return {kind:'note',checkpoint};
  }
  const artifacts=task.artifacts.filter(item=>item.id===match.artifactId),artifact=artifacts.length===1?artifacts[0]:undefined,revision=artifact?.revisions.at(-1);
  if(!artifact||!revision||artifact.revisions.filter(item=>item.revision===match.revision).length!==1||revision.revision!==match.revision||revision.digest!==match.digest||revision.title!==match.title||revision.mimeType!==match.mimeType||revision.encoding!==match.encoding||revision.content.length!==match.contentLength||revision.content.slice(0,match.contentPrefix.length)!==match.contentPrefix||!searchableSavedFile(revision))throw Error(savedWorkUnavailable);
