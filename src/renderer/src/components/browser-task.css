@@ -5,3 +5,5 @@
 .browser-review-notes { margin-top: 10px; min-width: 0; overflow-wrap: anywhere; }
 .browser-review-notes section { margin-top: 10px; }
 .browser-review-notes textarea { margin-block: 6px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.browser-first-page{min-width:0;overflow-wrap:anywhere}.browser-first-page-text{max-height:20rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px}.browser-first-page-text:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
