@@ -1,3 +1,4 @@
+import {reviewBrowserContinuation,prepareBrowserContinuation} from '../src/shared/browser-continuation';
 import {prepareRequestFollowup} from '../src/shared/request-followup';
 import {recognizeRangeSum,rangeSumVariables,RANGE_SUM_FORMULA,RANGE_SUM_ASSUMPTION} from '../src/learning/python-range-sum';
 import {browserReviewNotesPreview} from '../src/shared/browser-review-notes';
@@ -1603,4 +1604,17 @@ it('recorded text stays out of actual model consent and provider payloads includ
  expect(f.calls.provider).toHaveLength(1);expect(f.calls.details).toHaveLength(1);
  for(const sentinel of Object.values(privateText)){expect(JSON.stringify(f.calls.provider)).not.toContain(sentinel);expect(JSON.stringify(f.calls.details)).not.toContain(sentinel);}
  f.setResponse(0);await expect(f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-denied',kind:'explain',prompt:'Another public question',sourceIds:[]})).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
+});
+
+
+describe('Reviewed browser continuation boundary',()=>{
+ it('strictly rejects renderer approval/scope additions and blocks unresolved same-site work before any consent or provider',async()=>{
+  const f=await fixture(),created=await f.core.createTask({title:'Owned continuation IPC'}),taskId=created.id,origin='https://owned.invalid';
+  await f.core.runRequest({taskId,requestId:'original-browser',kind:'browser',prompt:'Earlier browser work',sourceIds:[]},async ctx=>{const observation={id:'before',taskId,browserId:'old-browser',documentId:'old-document',url:origin+'/form',title:'Owned page',text:'Historical page',digest:'old-digest',targets:[]};await f.core.recordBrowserStartingSite(taskId,'original-browser',origin);await f.core.beginBrowserRun(taskId,{id:'original-browser',endpointKey:'old-route',origin,browserId:observation.browserId,initialObservation:observation},ctx.task.session?.contextRevision??0);throw Error('Owned stop');});
+  const task=await f.core.getTask(taskId),selection={taskId,requestId:'original-browser',digest:task.requests[0].digest},review=reviewBrowserContinuation(task,selection),command=prepareBrowserContinuation(task,selection,{prompt:'Only remaining work',url:origin+'/form'},'next-browser',review.binding);
+  const {type:_type,...pendingInput}=command;await f.command({type:'browser.continue.prepare',...pendingInput});
+  for(const addition of [{approved:true},{transmissionApproved:true},{write:{method:'POST'}},{submittedDraft:{text:'Do not consume',kind:'create',revision:0}}])await expect(f.command({...command,...addition})).rejects.toThrow();
+  const session=(await f.core.getTask(taskId)).session!;await f.core.replaceSession(taskId,session.revision,{...session,runs:session.runs.map(run=>({...run,operations:[{id:'unknown',intent:{kind:'click' as const,snapshotId:'before',targetId:'old'},reason:'Unknown old effect',status:'uncertain' as const}]}))});
+  await expect(f.command(command)).rejects.toThrow();expect((await f.core.getTask(taskId)).requests).toHaveLength(1);expect(f.calls.provider).toEqual([]);expect(f.calls.confirmations).toEqual([]);expect(f.calls.captures).toBe(0);
+ });
 });

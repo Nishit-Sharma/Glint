@@ -1,3 +1,4 @@
+import type {BrowserContinuationReceipt} from '../shared/browser-continuation';
 import type {DocumentStamp,DocumentChange} from '../shared/document-source';
 import type { TaskSession,ComposerDraft,BrowserStartReceipt } from './task-session';
 /** Local task data. Source and provider text is inert content, never instructions to tools. */
@@ -40,6 +41,7 @@ export interface RequestRecord {
   answer?: { artifactId: string; revision: number; digest: string };
   artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
   browserStart?:BrowserStartReceipt;
+  browserContinuation?:BrowserContinuationReceipt;
 }
 export interface ProcedurePrecondition { key: string; equals: string }
 export interface ProcedureStep {
@@ -94,6 +96,7 @@ export interface ProcedureInput {
 /** The detached task's sources contain only the request's selected current versions. */
 export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; signal: AbortSignal }
 export interface RequestInput {
+  browserContinuation?:BrowserContinuationReceipt;
   taskId: string; requestId: string; kind: string; prompt: string;
   submittedDraft?:ComposerDraft;
   /** Host-owned endpoint/tool-scope binding, included in durable request identity. */

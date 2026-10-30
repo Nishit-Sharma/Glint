@@ -1,3 +1,4 @@
+import {prepareBrowserContinuation,readBrowserContinuationInput,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationSelection} from '../../shared/browser-continuation';
 import { createHash } from 'node:crypto';
 import {LOCAL_HELPER_CONTEXT_NOTICE} from '../../core/interactive-modules';
 import { dialog, type BrowserWindow } from 'electron';
@@ -21,10 +22,18 @@ export class BrowserService {
     headless?: boolean;
     onWindowOwner?:BrowserWindowOwner;
   }) { this.reconciliation = new BrowserReconciliation(core, options.onWindowOwner); }
-  async run(input: { taskId: string; requestId: string; prompt: string; url: string;submittedDraft?:ComposerDraft }) {
+  async continue(input:BrowserContinuationInput){
+    const value=readBrowserContinuationInput(input),selection={taskId:value.taskId,requestId:value.previous.requestId,digest:value.previous.digest};
+    const current=await this.core.getTask(value.taskId),pending=pendingBrowserContinuation(current);if(!pending||!sameBrowserContinuationInput(pending.input,value))throw Error('Save and check this exact remaining-work attempt before starting its browser.');
+    const command=prepareBrowserContinuation(current,selection,value,value.requestId,value.previous.binding);
+    return this.run({taskId:command.taskId,requestId:command.requestId,prompt:command.prompt,url:command.url,continuation:{selection,binding:command.previous.binding}});
+  }
+  async run(input: { taskId: string; requestId: string; prompt: string; url: string;submittedDraft?:ComposerDraft;continuation?:{selection:BrowserContinuationSelection;binding:string} }) {
     if(this.lifetime.signal.aborted)throw Error('This browser session has closed. Start a new request.');
     const url = new URL(input.url);
     if (url.username || url.password || !['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && url.hostname !== '127.0.0.1')) throw Error('Use an HTTPS page without sign-in details in the address.');
+    const validateContinuation=async()=>{if(input.continuation)prepareBrowserContinuation(await this.core.getTask(input.taskId),input.continuation.selection,input,input.requestId,input.continuation.binding);};
+    await validateContinuation();
     const route=this.options.route();
     const coordinator = new BrowserCoordinator(this.core, {
       get endpointKey() { return service.options.route().key; },
@@ -37,7 +46,9 @@ export class BrowserService {
     });
     const service = this;
     const result = await coordinator.run({ taskId: input.taskId, requestId: input.requestId, goal: input.prompt,...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), url: url.href, origin: url.origin, transmissionApproved: true,
+      ...(input.continuation?{continuation:{previousRequestId:input.continuation.selection.requestId,previousDigest:input.continuation.selection.digest,bindingDigest:createHash('sha256').update(input.continuation.binding).digest('hex'),startPageDigest:createHash('sha256').update(url.href).digest('hex'),promptDigest:createHash('sha256').update(input.prompt).digest('hex')}}:{}),
       authorizeStart:async signal=>{
+        await validateContinuation();
         if(this.lifetime.signal.aborted)throw Error('This browser session has closed. Start a new request.');
         const connection=await route.provider.status();
         if(this.lifetime.signal.aborted)throw Error('This browser session has closed. Start a new request.');
@@ -50,6 +61,7 @@ export class BrowserService {
     });
     if (consent.response !== 1) throw Error('The browser task was not authorized. Nothing was sent.');
     if (this.options.route().key !== route.key) throw Error('The connection changed before the browser task started. Review it again.');
+        await validateContinuation();
         if(signal.aborted)throw Error('Stopped before opening the browser.');
       },
       headless: this.options.headless ?? false,onWindowOwner:this.options.onWindowOwner,

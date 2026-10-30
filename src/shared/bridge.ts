@@ -1,3 +1,4 @@
+import type {BrowserContinuationInput} from './browser-continuation';
 import type {TargetPracticeInput,TargetPracticeSubmission} from '../learning/experiment-target-practice';
 import type {SourceFormulaInput,SourceFormulaCommand} from '../learning/source-formula';
 import type {DocumentRecipeRequest,DocumentRecipeSave,DocumentRecipeInspection} from './document-recipe';
@@ -90,6 +91,8 @@ export type Command =
   | ({type:'signal.overwrite.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true} & ({mode:'lesson';secondEnabled:boolean}|{mode:'practice'}))
   | {type:'workflow.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
   | {type:'workflow.contextual.review';taskId:string;requestId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];review:WorkflowReview}
+  | ({type:'browser.continue.prepare'|'browser.continue.release'} & BrowserContinuationInput)
+  | ({type:'browser.continue'} & BrowserContinuationInput)
   | {type:'browser.run';taskId:string;requestId:string;prompt:string;url:string;submittedDraft?:ComposerDraft}
   | {type:'browser.inspect';taskId:string;runId:string;operationId:string;url:string;attemptId?:string}
   | {type:'browser.inspect.cancel';taskId:string;runId:string;operationId:string;attemptId:string}

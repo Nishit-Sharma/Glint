@@ -1,4 +1,5 @@
 import { Schema } from 'effect';
+import {BrowserContinuationAttemptSchema} from '../shared/browser-continuation';
 import { StoredModuleStateSchema } from './module-registry';
 import {composerKinds} from './composer-draft';
 export {readComposerDraft,type ComposerDraft,type ComposerKind} from './composer-draft';
@@ -31,6 +32,8 @@ export const BrowserOperationSchema = Schema.Struct({
   error: Schema.optional(text),
 });
 export const TaskSessionSchema = Schema.Struct({
+  /** Local pending input only; never restores browser execution authority. */
+  browserContinuationAttempt:Schema.optional(BrowserContinuationAttemptSchema),
   revision: Schema.Int.pipe(Schema.nonNegative()), draft: text,
   draftKind:Schema.optional(ComposerKindSchema),
   draftRevision:Schema.optional(Schema.Int.pipe(Schema.nonNegative())),

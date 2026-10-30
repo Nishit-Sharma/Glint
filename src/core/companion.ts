@@ -1,3 +1,4 @@
+import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
 import {encodeHelperSourceReportReceipt,findHelperSourceReportReceipt} from './helper-source-report-receipt';
 import { createHash, randomUUID } from 'node:crypto';
@@ -48,7 +49,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {draft:_draft,draftKind:_kind,draftRevision:_revision,...rest}=session;
+  const {draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -648,9 +649,48 @@ export class Companion {
     }));
   }
 
+  /** Persist the exact local intent before dispatch. A different pending intent is returned, never replaced. */
+  prepareBrowserContinuationAttempt(input:BrowserContinuationInput):Promise<Task>{
+    const value=clone(readBrowserContinuationInput(input));
+    return this.exclusive(()=>{
+      const task=this.task(this.state,value.taskId);if(pendingBrowserContinuation(task))return clone(task);
+      if(this.state.usedRequestIds.includes(hash(value.requestId)))return reject('conflict','This remaining-work identity is already retired or recorded. Check its original outcome.');
+      const command=prepareBrowserContinuation(task,{taskId:task.id,requestId:value.previous.requestId,digest:value.previous.digest},value,value.requestId,value.previous.binding),{type:_type,...canonical}=command;
+      return this.commit(state=>{const current=this.task(state,value.taskId),session=current.session??emptyTaskSession();current.session={...session,revision:session.revision+1,browserContinuationAttempt:{input:canonical,phase:'prepared'}};current.updatedAt=this.time();return current;});
+    });
+  }
+  /** Explicit local closure: retire an absent ID atomically, or clear only a matching terminal receipt. */
+  releaseBrowserContinuationAttempt(input:BrowserContinuationInput):Promise<BrowserContinuationRelease>{
+    const value=clone(readBrowserContinuationInput(input));
+    const receipt:BrowserContinuationReceipt={previousRequestId:value.previous.requestId,previousDigest:value.previous.digest,bindingDigest:hash(value.previous.binding),startPageDigest:hash(value.url),promptDigest:hash(value.prompt)};
+    const retired='browser-continuation-retired-v1:'+hash(JSON.stringify({taskId:value.taskId,requestId:value.requestId,receipt}));
+    return this.exclusive(()=>{
+      const task=this.task(this.state,value.taskId),pending=pendingBrowserContinuation(task),request=task.requests.find(request=>request.id===value.requestId);
+      if(pending&&!sameBrowserContinuationInput(pending.input,value))return reject('conflict','A different browser attempt is pending. Its input is kept.');
+      if(request){
+        if(pending&&pending.phase!=='submitted')return reject('conflict','The saved attempt and its request disagree. Its pending input is kept.');
+        let saved:BrowserContinuationReceipt;try{saved=readBrowserContinuationReceipt(request.browserContinuation);}catch{return reject('conflict','The exact continuation receipt is unavailable. Its pending input is kept.');}
+        const origin=new URL(value.url).origin,runs=task.session?.runs.filter(run=>run.id===value.requestId)??[];
+        if(JSON.stringify(saved)!==JSON.stringify(receipt)||request.kind!=='browser'||request.prompt!==value.prompt||request.sourceRefs.length||request.targetArtifactId||request.browserStart&&request.browserStart.origin!==origin||runs.length>1||runs.some(run=>run.origin!==origin||run.initialObservation.taskId!==task.id||run.initialObservation.browserId!==run.browserId))return reject('conflict','The exact continuation receipt changed. Its pending input is kept.');
+        if(request.status==='running')return reject('conflict','This browser request is still running. Use the task Stop control or check again.');
+      }else if(!this.state.usedRequestIds.includes(retired)){
+        if(pending?.phase==='submitted')return reject('conflict','The submitted browser request is unavailable. Its pending input is kept.');
+        if(!pending)reviewBrowserContinuation(task,{taskId:task.id,requestId:value.previous.requestId,digest:value.previous.digest});
+        if(this.state.usedRequestIds.includes(hash(value.requestId)))return reject('conflict','This identity cannot be safely retired. Its pending input is kept.');
+      }
+      return this.commit(state=>{
+        const current=this.task(state,value.taskId);
+        if(!request&&!state.usedRequestIds.includes(retired)){this.claimRequest(state,value.requestId);state.usedRequestIds.push(retired);}
+        const {browserContinuationAttempt:_pending,...session}=current.session??emptyTaskSession();current.session={...session,revision:session.revision+1};current.updatedAt=this.time();
+        return {kind:request?'cleared-terminal' as const:'retired-unstarted' as const,task:current,taskId:current.id,requestId:value.requestId,receipt};
+      });
+    });
+  }
+
   async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
     input = clone(input);
     if(input.submittedDraft!==undefined){try{input.submittedDraft=Schema.decodeUnknownSync(SubmittedComposerDraftSchema,{onExcessProperty:'error'})(input.submittedDraft);if(!Number.isSafeInteger(input.submittedDraft.revision))throw Error('Invalid revision.');}catch{return reject('invalid','Submitted composer draft is invalid.');}}
+    if(input.browserContinuation!==undefined){try{input.browserContinuation=readBrowserContinuationReceipt(input.browserContinuation);if(input.kind!=='browser'||input.submittedDraft||input.artifactId)throw Error();}catch{return reject('invalid','The browser continuation receipt is invalid. Existing work is kept.');}}
     let boundSubmittedDraft:ComposerDraft|undefined;
     const controller = new AbortController();
     const begun = await this.exclusive(async () => {
@@ -673,10 +713,19 @@ export class Companion {
           if (!artifact || latest(artifact.revisions).revision !== input.expectedRevision) reject('conflict', 'Artifact changed. Reload before revising.');
         }
         this.validRefs(task, sourceRefs);
+        if(input.browserContinuation){
+          const receipt=input.browserContinuation,review=reviewBrowserContinuation(task,{taskId:task.id,requestId:receipt.previousRequestId,digest:receipt.previousDigest});
+          const pending=pendingBrowserContinuation(task);if(!pending||pending.phase!=='prepared'||pending.input.requestId!==input.requestId||pending.input.prompt!==input.prompt||hash(pending.input.previous.binding)!==receipt.bindingDigest||hash(pending.input.url)!==receipt.startPageDigest||pending.input.previous.requestId!==receipt.previousRequestId||pending.input.previous.digest!==receipt.previousDigest)reject('conflict','The exact pending browser intent is unavailable. No browser was started.');
+          if(input.requestId===receipt.previousRequestId||sourceRefs.length||hash(review.binding)!==receipt.bindingDigest||hash(input.prompt)!==receipt.promptDigest)reject('conflict',BROWSER_CONTINUATION_CHANGED);
+          if(review.uncertain)reject('conflict',BROWSER_CONTINUATION_UNCERTAIN);
+          if(task.requests.some(request=>request.status==='running'))reject('conflict','Wait for the current request to finish before planning remaining browser work.');
+          let scope:{url:string;origin:string;continuation:unknown};try{scope=JSON.parse(input.executionScope??'');if(typeof scope.url!=='string'||new URL(scope.url).href!==scope.url||new URL(scope.url).origin!==review.origin||scope.origin!==review.origin||hash(scope.url)!==receipt.startPageDigest||JSON.stringify(scope.continuation)!==JSON.stringify(receipt))throw Error();}catch{reject('conflict','The exact browser continuation scope is unavailable. Existing work is kept.');}
+        }
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
-        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
         return { ...(['explain','create','revise'].includes(input.kind)?{taskHistory:projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });

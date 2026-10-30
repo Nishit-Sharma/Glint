@@ -1,3 +1,4 @@
+import type {BrowserContinuationReceipt} from '../../shared/browser-continuation';
 import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
 import { Companion, CompanionError } from '../../core/companion';
@@ -79,10 +80,10 @@ export class BrowserCoordinator {
     }
     throw Error('Task session could not be saved.');
   }
-  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; submittedDraft?:ComposerDraft; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
+  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
     if (input.transmissionApproved !== true) throw Error('Approve transmission of this task history and the selected browser origin before planning.');
     const endpointKey = this.planner.endpointKey;
-    return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [], ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url }) }, async ctx => {
+    return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [],...(input.continuation?{browserContinuation:input.continuation}:{}), ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url,...(input.continuation?{continuation:input.continuation}:{}) }) }, async ctx => {
       let browser: LocalBrowser | undefined;
       const stop = () => { void browser?.close().catch(()=>{}); };
       ctx.signal.addEventListener('abort', stop, { once: true });
