@@ -1,6 +1,7 @@
 import type { ExperimentResult, ExperimentSpec, Expression } from './types';
 
 type Quantity = { value: number; dimensions: Record<string, number> };
+export type ExperimentTraceStep={id:string;op:Expression['op'];inputs:string[];value:number;unit:string;name?:string;exponent?:number};
 const units = new Set(['1', 'm', 's', 'kg', 'K', 'A', 'mol', 'cd', 'USD']);
 const fail = (reason: string): never => { throw new Error(`Invalid experiment: ${reason}`); };
 const dimensions = (unit = '1'): Record<string, number> => {
@@ -30,7 +31,7 @@ const combine = (a: Record<string, number>, b: Record<string, number>, sign: num
 };
 
 /** Bounded arithmetic AST; no source text, JavaScript, functions, or property access is executed. */
-export function evaluateExperiment(spec: ExperimentSpec, inputs: Record<string, number>): ExperimentResult {
+function calculateExperiment(spec: ExperimentSpec, inputs: Record<string, number>, steps?:ExperimentTraceStep[]): ExperimentResult {
   if (!Array.isArray(spec.variables) || spec.variables.length > 16 || !Array.isArray(spec.assumptions) || spec.assumptions.length > 16) fail('too many inputs or assumptions');
   const variables = new Map<string, Quantity>();
   for (const variable of spec.variables) {
@@ -42,7 +43,7 @@ export function evaluateExperiment(spec: ExperimentSpec, inputs: Record<string, 
   }
   if (Object.keys(inputs).some(name => !variables.has(name))) fail('unknown input');
   let nodes = 0;
-  const evaluate = (expression: Expression, depth: number): Quantity => {
+  const evaluate = (expression: Expression, depth: number, id:string): Quantity => {
     if (++nodes > 128 || depth > 20 || !expression || typeof expression !== 'object') return fail('expression exceeds bounds');
     let result: Quantity;
     switch (expression.op) {
@@ -50,11 +51,11 @@ export function evaluateExperiment(spec: ExperimentSpec, inputs: Record<string, 
       case 'variable': { const value = variables.get(expression.name); if (!value) return fail('unknown variable'); result = value; break; }
       case 'power': {
         if (!Number.isInteger(expression.exponent) || Math.abs(expression.exponent) > 8) return fail('power must be an integer from -8 to 8');
-        const base = evaluate(expression.base, depth + 1);
+        const base = evaluate(expression.base, depth + 1, id+'.base');
         result = { value: base.value ** expression.exponent, dimensions: Object.fromEntries(Object.entries(base.dimensions).map(([unit, power]) => [unit, power * expression.exponent])) }; break;
       }
       case 'add': case 'subtract': case 'multiply': case 'divide': {
-        const a = evaluate(expression.left, depth + 1), b = evaluate(expression.right, depth + 1);
+        const a = evaluate(expression.left, depth + 1, id+'.left'), b = evaluate(expression.right, depth + 1, id+'.right');
         if (expression.op === 'add' || expression.op === 'subtract') {
           if (unitLabel(a.dimensions) !== unitLabel(b.dimensions)) return fail('addition requires matching units');
           result = { value: expression.op === 'add' ? a.value + b.value : a.value - b.value, dimensions: a.dimensions };
@@ -67,8 +68,16 @@ export function evaluateExperiment(spec: ExperimentSpec, inputs: Record<string, 
       default: return fail('unsupported operation');
     }
     if (!Number.isFinite(result.value) || Math.abs(result.value) > 1e15) return fail('non-finite or excessive result');
+    steps?.push({id,op:expression.op,inputs:expression.op==='power'?[id+'.base']:expression.op==='variable'||expression.op==='constant'?[]:[id+'.left',id+'.right'],value:result.value,unit:unitLabel(result.dimensions),...(expression.op==='variable'?{name:expression.name}:{}),...(expression.op==='power'?{exponent:expression.exponent}:{})});
     return result;
   };
-  const result = evaluate(spec.expression, 0);
+  const result = evaluate(spec.expression, 0, 'result');
   return { value: result.value, unit: unitLabel(result.dimensions), assumptions: [...spec.assumptions] };
+}
+
+export function evaluateExperiment(spec:ExperimentSpec,inputs:Record<string,number>):ExperimentResult{return calculateExperiment(spec,inputs);}
+
+/** Trace only the same bounded calculation; no additional case or source text is evaluated. */
+export function evaluateExperimentWithTrace(spec:ExperimentSpec,inputs:Record<string,number>){
+ const steps:ExperimentTraceStep[]=[];return {result:calculateExperiment(spec,inputs,steps),steps};
 }

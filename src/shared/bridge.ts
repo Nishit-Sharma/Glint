@@ -53,8 +53,8 @@ export type Command =
   | {type:'workflow.prepare';taskId:string;basis:ArtifactRef}
   | {type:'truth.review';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction';retryOf?:string}
   | {type:'truth.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;mode?:'table'|'prediction'}
-  | {type:'experiment.practice';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];inputs:Record<string,number>;prediction:number;reasoning:string;retryOf?:string}
-  | {type:'experiment.practice.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];inputs:Record<string,number>}
+  | {type:'experiment.practice';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];inputs:Record<string,number>;demonstratedInputs?:Record<string,number>[];prediction:number;reasoning:string;retryOf?:string}
+  | {type:'experiment.practice.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];inputs:Record<string,number>;demonstratedInputs?:Record<string,number>[]}
   | {type:'packing.practice';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;previewCount:number;preview:ArtifactRef;count:number;prediction:number;retryOf?:string}
   | {type:'packing.practice.inspect';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;previewCount:number;preview:ArtifactRef;count:number}
   | {type:'packing.review';taskId:string;basis:ArtifactRef;expectedSourceRefs:readonly SourceRef[];sourceId:string;start:number;end:number;quote:string;confirmed:true;count:number;retryOf?:string}
