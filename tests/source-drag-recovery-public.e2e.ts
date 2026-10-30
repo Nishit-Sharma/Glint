@@ -26,7 +26,7 @@ test('unavailable drop offers keyboard recovery to the explicit window picker',a
    const bridge=window.companion,invoke=bridge.invoke.bind(bridge);
    Object.defineProperty(bridge,'invoke',{configurable:true,value:(command:Command)=>{if(['source.drag.cancel','source.choose','context.pending','context.capture'].includes(command.type))return Reflect.get(window,'__recoveryInvoke')(command);if(command.type==='export.propose'||command.type==='export.approve'||command.type==='export.inspect')return invoke(command);return invoke(command);}});
   });
-  const anchor=page.getByRole('button',{name:'Open Window Companion',exact:true});
+  const anchor=page.getByRole('button',{name:'Open Glint',exact:true});
   await fixture.emit({type:'source.drag',state:{kind:'blocked',message:'No eligible window here. Press Down Arrow to choose one.'}});
   await expect(anchor.getByRole('status')).toHaveText('No eligible window here. Press Down Arrow to choose one.');
   await anchor.focus();await page.keyboard.press('ArrowDown');

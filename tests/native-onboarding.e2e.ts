@@ -34,7 +34,7 @@ test('fresh native character choice reaches local value and preserves bot, selec
   await expect(current.page.locator('#main').getByRole('checkbox',{name:/Arrive by 17:50/})).toBeChecked();expect(await invoke<BotState>(current.page,{type:'bots.get'})).toEqual(catalog);
   const restored=await invoke<Task>(current.page,{type:'tasks.get',taskId:id});expect(restored.assignedBotId).toBe(saved.assignedBotId);expect(restored.requests).toEqual([]);expect(restored.actions).toEqual([]);expect(restored.sources).toEqual(saved.sources);
   await expect(current.page.locator('.workspace:not([hidden])')).toHaveAttribute('data-surface-reveal',/^(settled|cancelled)$/);
-  const png=await current.app.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows().find(window=>window.getTitle()==='Window Companion')!.webContents.capturePage()).toPNG().toString('base64'));
+  const png=await current.app.evaluate(async({BrowserWindow})=>(await BrowserWindow.getAllWindows().find(window=>window.getTitle()==='Glint')!.webContents.capturePage()).toPNG().toString('base64'));
   await writeFile('evidence/native-onboarding.png',Buffer.from(png,'base64'));
   await writeFile('evidence/native-onboarding.json',JSON.stringify({utc:new Date().toISOString(),scope:'Actual Electron first-run UI/IPC/stores/normal quit and relaunch; local bundled example. No native input chord, external target capture, provider call or browser action.',platform:platform(),arch:arch(),botIdentityRestored:true,taskRestored:true,draftRestored:true,moduleChoiceRestored:true,automaticWindowSources:0,requests:0,actions:0},null,2));
  }finally{await current.app.close().catch(()=>{});await rm(directory,{recursive:true,force:true});}

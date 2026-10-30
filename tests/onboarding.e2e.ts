@@ -7,7 +7,7 @@ import {settleCapture} from './settled-capture';
 test('original 3D choice persists, continues into an honest editable local example, and needs no provider',async({page})=>{
  const fixture=await OnboardingFixture.open(page);
  try{
-  await expect(page.getByRole('heading',{name:'Choose your companion'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Choose your companion'})).toBeVisible();await expect(page.getByText('Glint · Pick a shape. Change it anytime.',{exact:true})).toBeVisible();
   const shapes=page.getByRole('radiogroup',{name:'Companion shape'});await expect(shapes.getByRole('radio')).toHaveCount(5);
   for(const name of ['Dumpling','Onigiri','Mushroom','Star','Dollop'])await expect(shapes.getByRole('radio',{name,exact:true})).toBeVisible();
   await expect(page.getByText('Crescent',{exact:true})).toHaveCount(0);await expect(shapes.locator('canvas')).toHaveCount(5);
@@ -60,7 +60,7 @@ test('multiple identities remain opt-in and follow assigned threads through head
   await expect(page.locator('.chrome .character-slot img')).toHaveAttribute('src',/./);await expect(page.getByRole('textbox',{name:'Ask about this task',exact:true})).toHaveValue('Second task draft');
   await settleCapture(page);await page.screenshot({path:'evidence/onboarding/thread-star.png'});
   await page.setViewportSize({width:360,height:440});await page.getByRole('button',{name:'Switch to compact companion',exact:true}).click();await expect(page.locator('.character-control-companion')).toBeVisible();await settleCapture(page);await page.screenshot({path:'evidence/onboarding/compact-star.png'});
-  await page.setViewportSize({width:100,height:100});await fixture.emit({type:'surface',mode:'anchor'});await expect(page.getByRole('button',{name:'Open Window Companion'})).toBeVisible();await page.screenshot({path:'evidence/onboarding/anchor-star.png'});
+  await page.setViewportSize({width:100,height:100});await fixture.emit({type:'surface',mode:'anchor'});await expect(page.getByRole('button',{name:'Open Glint'})).toBeVisible();await page.screenshot({path:'evidence/onboarding/anchor-star.png'});
   await fixture.emit({type:'surface',mode:'workspace'});await page.setViewportSize({width:1120,height:760});await page.getByRole('button',{name:'Observatory visit',exact:true}).click();await expect(page.getByRole('textbox',{name:'Ask about this task',exact:true})).toHaveValue('First task draft');
   await fixture.restart();await expect(page.getByRole('textbox',{name:'Ask about this task',exact:true})).toHaveValue('First task draft');
   expect((await fixture.core.getTask(first.id)).assignedBotId).toBe(catalog.bots[0].id);expect((await fixture.core.getTask(second.id)).assignedBotId).toBe(catalog.bots[1].id);

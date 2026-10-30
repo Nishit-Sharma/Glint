@@ -33,7 +33,7 @@ it.each([
   const kept=await core.getTask(task.id);
   expect(kept.requests.at(-1)).toMatchObject({status:'failed',error:'Companion could not open its browser. Your task is kept.'});expect(kept.session?.draft).toBe(draft.text);expect(kept.session?.browserContext).toEqual(prior);expect(kept.session?.runs).toEqual([]);expect(run).not.toHaveBeenCalled();
   expect(kept.requests.at(-1)?.browserStart).toEqual({origin:'https://example.invalid',recordedAt:expect.any(String)});
-  expect.soft(publicErrorMessage(error)).toBe('Companion could not open its browser. Your task is kept.');expect(publicErrorMessage(new Error("Error invoking remote method 'companion:command': Error: Companion could not open its browser. Your task is kept."))).toBe('Companion could not open its browser. Your task is kept.');
+  expect.soft(publicErrorMessage(error)).toBe('Glint could not open its browser. Your task is kept.');expect(publicErrorMessage(new Error("Error invoking remote method 'companion:command': Error: Companion could not open its browser. Your task is kept."))).toBe('Glint could not open its browser. Your task is kept.');
   expect(status).toHaveBeenCalledOnce();expect(external.dialog).toHaveBeenCalledOnce();expect(external.launch).toHaveBeenCalledOnce();expect(external.launch).toHaveBeenCalledWith({headless:false,chromiumSandbox:true});
  }finally{service.close();await core.close();await rm(dir,{recursive:true,force:true});}
 });
@@ -49,7 +49,7 @@ it('failed inspection leaves the prior action uncertain without asking for an ou
   const failure=await service.inspect({taskId:task.id,runId:'old-write',operationId:'unknown-effect',url:'https://example.invalid/receipt'}).catch(error=>error);
   const after=await core.getTask(task.id);expect(after.session?.runs[0].operations[0]).toMatchObject({id:'unknown-effect',status:'uncertain'});expect(after.session?.runs[0].operations[0].reconciliation).toBeUndefined();
   expect(external.dialog).toHaveBeenCalledOnce();expect(external.launch).toHaveBeenCalledOnce();expect(status).not.toHaveBeenCalled();expect(run).not.toHaveBeenCalled();
-  expect(publicErrorMessage(failure)).toBe('Companion could not open its browser. Your task is kept.');
+  expect(publicErrorMessage(failure)).toBe('Glint could not open its browser. Your task is kept.');
  }finally{service.close();await core.close();await rm(dir,{recursive:true,force:true});}
 });
 

@@ -4,7 +4,7 @@ import {BrowserFixture} from './browser-fixture';
 test('public anchor describes one snapshot and issues Escape cancellation',async({page})=>{
  const fixture=await BrowserFixture.open(page,'anchor',4193);
  try{
-  const anchor=page.getByRole('button',{name:'Open Window Companion',exact:true});
+  const anchor=page.getByRole('button',{name:'Open Glint',exact:true});
   await expect(anchor).toBeVisible();
   await expect(anchor).toHaveAccessibleDescription('Drag onto a source window to attach and capture one local snapshot. Nothing is sent or followed automatically. Press Down Arrow to choose a window with the keyboard.');
   const before=await fixture.core.getTask(fixture.taskA.id);

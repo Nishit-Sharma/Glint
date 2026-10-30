@@ -9,7 +9,7 @@ import {createControlledRenderer} from './controlled-renderer.fixture';
 
 const messages=[
  ['Choice lists in open shadow roots cannot be observed safely yet. Choose another page.','This page’s dropdown cannot be read safely yet. Choose another page.'],
- ['This page uses deferred rendering that cannot be observed safely. Choose a narrower page.','This page renders content in a way Companion cannot safely read yet. Choose a narrower page.'],
+ ['This page uses deferred rendering that cannot be observed safely. Choose a narrower page.','This page renders content in a way Glint cannot safely read yet. Choose a narrower page.'],
  ['This choice list exceeds the observation limit; choose a narrower page.','This dropdown is too large to read safely. Choose a narrower page.'],
  ['This page exceeds the observation limit; choose a narrower page.','This page is too large to read safely. Choose a narrower page.'],
  ['This page exceeds the combined observation limit; choose a narrower page.','This page is too large to read safely. Choose a narrower page.'],

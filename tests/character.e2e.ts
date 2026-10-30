@@ -156,7 +156,7 @@ test('Appearance saves on its own boundary, reconciles a lost reply, and keeps t
   await expect(page.getByRole('button',{name:'Choose task: Task Alpha'})).toBeVisible();
   await page.screenshot({path:output+'/compact.png'});
   await page.getByRole('button',{name:'Collapse to edge anchor',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Open Window Companion',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open Glint',exact:true})).toBeVisible();
   await expect(page.locator('[data-character-render=live]')).toHaveCount(1);
   await page.screenshot({path:output+'/anchor.png'});
  }finally{await fixture.close();}
@@ -253,7 +253,7 @@ test('real compact widths keep the character, meaningful result and composer thr
   await page.setViewportSize({width:360,height:440});await expect(page.getByRole('textbox',{name:'Ask companion',exact:true})).toBeVisible();await expect(page.locator('[data-character-render=live]')).toHaveCount(1);await page.screenshot({path:output+'/compact-360-result.png'});
   await page.getByRole('button',{name:'Open task workspace',exact:true}).click();await page.setViewportSize({width:1120,height:744});await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal','settled');await page.screenshot({path:output+'/workspace-result.png'});
   await page.getByRole('button',{name:'Customize Companion'}).click();await expect(page.getByRole('dialog',{name:'Make it yours',exact:true})).toBeVisible();await expect(page.getByRole('tablist')).toHaveCount(0);await page.screenshot({path:output+'/appearance-default-result.png'});
-  await page.keyboard.press('Escape');await page.getByRole('button',{name:'Collapse to edge anchor',exact:true}).click();await expect(page.getByRole('button',{name:'Open Window Companion',exact:true})).toBeVisible();await page.setViewportSize({width:74,height:64});await page.screenshot({path:output+'/anchor-74x64.png'});const box=await page.getByRole('button',{name:'Open Window Companion',exact:true}).boundingBox();expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(64);
+  await page.keyboard.press('Escape');await page.getByRole('button',{name:'Collapse to edge anchor',exact:true}).click();await expect(page.getByRole('button',{name:'Open Glint',exact:true})).toBeVisible();await page.setViewportSize({width:74,height:64});await page.screenshot({path:output+'/anchor-74x64.png'});const box=await page.getByRole('button',{name:'Open Glint',exact:true}).boundingBox();expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(64);
  }finally{await fixture.close();}
 });
 

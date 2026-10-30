@@ -32,11 +32,21 @@ export function browserObservationErrorMessage(error:unknown):string {
  const text=error instanceof Error?error.message:'';
  return browserRecoveryKey(text)??'This page could not be read safely. Whether it loaded or changed the website is unknown.';
 }
+// Existing saved messages remain readable; only their presentation uses the product name.
+const glintCopy = new Map([
+ [BROWSER_LAUNCH_UNAVAILABLE, 'Glint could not open its browser. Your task is kept.'],
+ ['This page renders content in a way Companion cannot safely read yet. Choose a narrower page.', 'This page renders content in a way Glint cannot safely read yet. Choose a narrower page.'],
+ ['This workspace is open in another copy of Companion. Close that copy and try again.', 'This workspace is open in another copy of Glint. Close that copy and try again.'],
+ ['Choose an external window. Companion windows cannot be captured.', 'Choose an external window. Glint windows cannot be captured.'],
+ ['Allow screen recording for Companion in System Settings, then capture the window again.', 'Allow screen recording for Window Companion in System Settings, then capture the window again.'],
+]);
 /** Presentation only. Raw failures stay in the local task record for recovery. */
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
+ const branded=glintCopy.get(text);if(branded)return branded;
  const browserRecovery=browserRecoveryMessage(text)??inspectionRecoveryMessages.get(text);
- if(browserRecovery)return browserRecovery;
+ if(browserRecovery)return glintCopy.get(browserRecovery)??browserRecovery;
+ if([...glintCopy.values()].includes(text))return text;
  if([RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT].includes(text)||text===RESPONSE_BRANCH_IMAGE_LIMIT||publicMessages.has(text)||savedWorkMessages.has(text)||text===MODULE_EXPORT_RECOVERY||text===MODULE_REVISION_RECOVERY)return text;
  if(text==='Browser inspection stopped.'||text==='Stopped checking. The earlier action still needs review.')return 'Stopped checking. The earlier action still needs review.';
  if(/native source targeting is unavailable/i.test(text))return 'Drag attachment is unavailable on this device. Press Down Arrow to choose a window.';
@@ -58,11 +68,11 @@ export function publicErrorMessage(error:unknown):string {
   return 'This calculation could not be completed. Review the inputs and units.';
  }
  if(/already exists/i.test(text))return 'A file already exists at this destination. Choose a new filename.';
- if(/another companion|store lock|recovery.*guarded/i.test(text))return 'This workspace is open in another copy of Companion. Close that copy and try again.';
+ if(/another companion|store lock|recovery.*guarded/i.test(text))return 'This workspace is open in another copy of Glint. Close that copy and try again.';
  if(/store.*(unreadable|incompatible|persistence failed)/i.test(text))return 'This workspace could not be opened. Keep its files for recovery and reopen the app.';
  if(/ENOSPC|disk.*full/i.test(text))return 'Your disk is full. Free some space and try again.';
  if(/EACCES|EPERM|permission denied/i.test(text))return 'The app cannot access this file or folder. Choose another location or check its permissions.';
- if(/screen recording|screen capture.*permission/i.test(text))return 'Allow screen recording for Companion in System Settings, then capture the window again.';
+ if(/screen recording|screen capture.*permission/i.test(text))return 'Allow screen recording for Window Companion in System Settings, then capture the window again.';
  if(/selected capture exceeds|image.*exceeds.*8 MiB/i.test(text))return 'This image is too large. Choose a smaller image or resize the source window before capturing it again.';
  if(/references exceed.*32 MiB/i.test(text))return 'The selected snapshots are too large together. Capture smaller source windows before continuing.';
  if(/secure storage.*unavailable/i.test(text))return 'Secure storage is unavailable. Your connection was not saved. Reopen the app and try again.';

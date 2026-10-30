@@ -118,7 +118,7 @@ for(const change of ['scroll','move-return','replace','paint-expansion','resize'
    if(change==='replace'){const replacement=document.createElement('span');replacement.className='character-slot';replacement.dataset.characterRender='static';slot.replaceWith(replacement);}
    if(change==='paint-expansion'){root.style.filter='blur(3px)';root.style.filter='';}
   },change);
-  release();await expect(page.getByRole('button',{name:'Open Window Companion',exact:true})).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-presentation-exit','skipped');await expect(page.locator('.t-tig,[data-presentation-exit-snapshot]')).toHaveCount(0);
+  release();await expect(page.getByRole('button',{name:'Open Glint',exact:true})).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-presentation-exit','skipped');await expect(page.locator('.t-tig,[data-presentation-exit-snapshot]')).toHaveCount(0);
   expect(fixture.commands.filter(command=>command.type==='presentation.finish')).toHaveLength(1);expect(fixture.commands.filter(command=>command.type==='presentation.reveal')).toHaveLength(1);
  }finally{release();await fixture.close();}
 });
@@ -129,7 +129,7 @@ test('geometry invalidation during raw PNG decode cannot relatch after returning
   await page.evaluate(()=>{const original=HTMLImageElement.prototype.decode;let held=false;HTMLImageElement.prototype.decode=function(){const decoded=original.call(this);if(!held&&this.src.startsWith('data:image/png;base64,')){held=true;return decoded.then(()=>new Promise<void>(resolve=>Reflect.set(window,'__releaseCoverageDecode',resolve)));}return decoded;};});
   await page.getByRole('button',{name:'Collapse to edge anchor',exact:true}).click();await expect.poll(()=>page.evaluate(()=>typeof Reflect.get(window,'__releaseCoverageDecode'))).toBe('function');
   await page.evaluate(()=>{const root=document.getElementById('root')!;root.style.paddingTop='2px';root.style.paddingTop='';Reflect.get(window,'__releaseCoverageDecode')();});
-  await expect(page.getByRole('button',{name:'Open Window Companion',exact:true})).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-presentation-exit','skipped');await expect(page.locator('.t-tig,[data-presentation-exit-snapshot]')).toHaveCount(0);expect(fixture.commands.filter(command=>command.type==='presentation.finish')).toHaveLength(1);
+  await expect(page.getByRole('button',{name:'Open Glint',exact:true})).toBeVisible();await expect(page.locator('html')).toHaveAttribute('data-presentation-exit','skipped');await expect(page.locator('.t-tig,[data-presentation-exit-snapshot]')).toHaveCount(0);expect(fixture.commands.filter(command=>command.type==='presentation.finish')).toHaveLength(1);
  }finally{await fixture.close();}
 });
 

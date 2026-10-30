@@ -79,7 +79,7 @@ export function CharacterAnchor({onOpen,onChooseWindow}:{onOpen:()=>void;onChoos
  const cancel=()=>{start.current=undefined;moved.current=true;void window.companion.invoke({type:'source.drag.cancel'}).catch(()=>{});};
  useEffect(()=>window.companion.subscribe(event=>{if(event.type==='source.drag'){setDrag(event.state);if(event.state.kind==='idle')start.current=undefined;else moved.current=true;}}),[]);
  const message=drag.kind==='target'?`Release to attach and capture one local snapshot of ${drag.title||'Untitled window'} in ${drag.ownerName}. Nothing is sent or followed automatically. Escape cancels.`:drag.kind==='blocked'?drag.message:drag.kind==='searching'?'Choose a source window. Escape cancels.':'';
- return <button type="button" className="anchor" data-source-drag={drag.kind} aria-label="Open Window Companion" aria-describedby={description} title={'Open '+characterLabel(session.profile)+' · Drag onto a window to capture one local snapshot, or press Down Arrow to choose one'}
+ return <button type="button" className="anchor" data-source-drag={drag.kind} aria-label="Open Glint" aria-describedby={description} title={'Open '+characterLabel(session.profile)+' · Drag onto a window to capture one local snapshot, or press Down Arrow to choose one'}
   onPointerDown={event=>{if(event.isPrimary&&event.button===0){start.current={x:event.clientX,y:event.clientY};moved.current=false;event.currentTarget.setPointerCapture(event.pointerId);}}}
   onPointerMove={event=>{if(start.current&&Math.hypot(event.clientX-start.current.x,event.clientY-start.current.y)>=6)moved.current=true;}}
   onPointerUp={()=>{start.current=undefined;}} onPointerCancel={cancel} onLostPointerCapture={event=>{if(event.buttons!==0)cancel();}}

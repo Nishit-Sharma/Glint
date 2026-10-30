@@ -3,7 +3,7 @@ import {writeFile} from 'node:fs/promises';
 import {browserLaunchRendererEntry} from './browser-launch-renderer.fixture';
 import {settleCapture} from './settled-capture';
 
-const safe='Companion could not open its browser. Your task is kept.';
+const safe='Glint could not open its browser. Your task is kept.';
 const workspace=(page:Page)=>page.locator('.workspace:visible');
 async function frame(page:Page,anchor:Locator,name:string){
  await anchor.scrollIntoViewIfNeeded();await settleCapture(page);await expect(anchor).toBeVisible();await expect(anchor).toBeInViewport({ratio:1});
@@ -23,7 +23,7 @@ test('public browser entry retains a prior uncertain action and draft across a c
   const before=(await f.core.getTask(task.id)).session!.runs[0].operations[0];expect(before).toMatchObject({id:'synthetic-unknown-action',status:'uncertain'});
   entry.setMode('failure');const raw='Keep this exact unsent browser question.';await prompt.fill(raw);await workspace(page).getByRole('button',{name:'Ask',exact:true}).click();
   const failure=workspace(page).locator('.conversation-turn').filter({hasText:raw});await expect(failure.getByText(safe,{exact:true})).toBeVisible();await expect(prompt).toHaveValue(raw);
-  await expect.poll(async()=>(await f.core.getTask(task.id)).requests.at(-1)?.status).toBe('failed');const after=await f.core.getTask(task.id);expect(after.session?.draft).toBe(raw);expect(after.session?.runs[0].operations[0]).toEqual(before);expect(after.requests.at(-1)?.error).toBe(safe);expect(after.sources).toEqual(task.sources);expect(after.artifacts).toEqual(task.artifacts);
+  await expect.poll(async()=>(await f.core.getTask(task.id)).requests.at(-1)?.status).toBe('failed');const after=await f.core.getTask(task.id);expect(after.session?.draft).toBe(raw);expect(after.session?.runs[0].operations[0]).toEqual(before);expect(after.requests.at(-1)?.error).toBe('Companion could not open its browser. Your task is kept.');expect(after.sources).toEqual(task.sources);expect(after.artifacts).toEqual(task.artifacts);
   await expect(workspace(page).getByRole('button',{name:/^(Install browser|Repair browser|Finish setup)$/})).toHaveCount(0);
   await frame(page,failure.getByText(safe,{exact:true}),'full-launch-failure');
   await previous.getByLabel('Page with the outcome',{exact:true}).fill('https://owned.example/receipt');await previous.getByRole('button',{name:'Inspect outcome',exact:true}).click();await expect(previous.getByRole('alert')).toHaveText(safe);await expect(previous.getByRole('button',{name:'Inspect outcome',exact:true})).toBeVisible();

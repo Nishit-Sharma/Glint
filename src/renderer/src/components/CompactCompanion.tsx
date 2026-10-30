@@ -103,7 +103,7 @@ export function CompactCompanion({character,active,compactFit,task,loaded,busy,a
   </div>}
   <main ref={main} tabIndex={-1} className="compact-main" aria-label="Current source and request">
   <div className="compact-content" ref={content}>
-   {fitFailed&&<p className="warning" role="alert">The opening was interrupted. Close and reopen Companion to try again. Your task is kept.</p>}
+   {fitFailed&&<p className="warning" role="alert">The opening was interrupted. Close and reopen Glint to try again. Your task is kept.</p>}
    {error&&<div className="message error" role="alert"><span>{publicErrorMessage(error)}</span><Button title="Dismiss error" kind="icon" onClick={onDismissError}>×</Button></div>}
    {contextContent?contextContent:!loaded?<p className="loading">Opening…</p>:!task?<div className="context-welcome"><h2>What’s on your screen?</h2><p>Use your shortcut to understand a window and find useful next steps.</p><Button onClick={onStartContext}>Use screen context</Button></div>:<>
     {task.status==='paused'&&<p className="warning">Task paused. Resume in the workspace.</p>}

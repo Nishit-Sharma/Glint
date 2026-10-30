@@ -15,12 +15,12 @@ test('normal launch is capture-free and own window protection preserves internal
   expect(await page.evaluate(()=>window.companion.invoke({type:'tasks.list'}))).toEqual([]);
   await expect(page.locator('.context-intake')).toHaveCount(0);
   const panel=await app.evaluate(({BrowserWindow})=>{
-   const window=BrowserWindow.getAllWindows().find(window=>window.getTitle()==='Window Companion')!;
+   const window=BrowserWindow.getAllWindows().find(window=>window.getTitle()==='Glint')!;
    return {protected:window.isContentProtected(),visible:window.isVisible()};
   });
   expect(panel.protected).toBe(process.platform==='darwin'||process.platform==='win32');expect(panel.visible).toBe(true);
   const snapshot=await app.evaluate(async({BrowserWindow})=>{
-   const window=BrowserWindow.getAllWindows().find(window=>window.getTitle()==='Window Companion')!;
+   const window=BrowserWindow.getAllWindows().find(window=>window.getTitle()==='Glint')!;
    const image=await window.webContents.capturePage();return {size:image.getSize(),empty:image.isEmpty()};
   });
   expect(snapshot.empty).toBe(false);expect(snapshot.size.width).toBeGreaterThan(0);

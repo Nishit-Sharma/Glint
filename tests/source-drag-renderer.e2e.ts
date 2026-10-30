@@ -71,7 +71,7 @@ test.use({viewport:{width:1080,height:720},reducedMotion:'reduce'});
 test('anchor preserves ordinary click and suppresses a dragged click while renderer commands remain cancel or choose only',async({page})=>{
  const fixture=await BrowserFixture.open(page,'anchor');
  try{
-  const boundary=await sourceBoundary(page,fixture),anchor=page.getByRole('button',{name:'Open Window Companion',exact:true});await expect(anchor).toBeVisible();
+  const boundary=await sourceBoundary(page,fixture),anchor=page.getByRole('button',{name:'Open Glint',exact:true});await expect(anchor).toBeVisible();
   await anchor.click();await expect(page.locator('.workspace')).toBeVisible();const opened=fixture.commands.filter(command=>command.type==='surface.expand').length;
   await fixture.emit({type:'surface',mode:'anchor'});const box=await anchor.boundingBox();if(!box)throw Error('Anchor is unavailable.');
   await page.mouse.move(box.x+20,box.y+20);await page.mouse.down();await page.mouse.move(box.x+40,box.y+30);await page.mouse.up();
@@ -82,7 +82,7 @@ test('anchor preserves ordinary click and suppresses a dragged click while rende
 test('keyboard source choice captures only the chosen window without automatically asking a model',async({page})=>{
  const fixture=await BrowserFixture.open(page,'anchor');
  try{
-  const boundary=await sourceBoundary(page,fixture),anchor=page.getByRole('button',{name:'Open Window Companion',exact:true});await expect(anchor).toBeVisible();await anchor.focus();await page.keyboard.press('ArrowDown');
+  const boundary=await sourceBoundary(page,fixture),anchor=page.getByRole('button',{name:'Open Glint',exact:true});await expect(anchor).toBeVisible();await anchor.focus();await page.keyboard.press('ArrowDown');
   const intake=page.getByRole('region',{name:'Screen context',exact:true}),choices=intake.getByRole('group',{name:'Window to inspect',exact:true});
   await expect(intake.getByRole('heading',{name:'Which window?',exact:true})).toBeVisible();expect(boundary.captures()).toBe(0);
   await viewportFrame(page,choices,'native-choose');
