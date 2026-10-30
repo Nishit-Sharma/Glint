@@ -284,20 +284,29 @@ async function fitCompact(c:Extract<Command,{type:'surface.fit'}>):Promise<Compa
   fit.phase=c.phase
   const request=++fit.request
   let bounds:Electron.Rectangle,maxHeight:number
-  const detached=placementMode==='detached'
+  let detached=placementMode==='detached'
+  const freePlacement=()=>{
+    const current=panel.getBounds(),work=screen.getDisplayMatching(current).workArea
+    const maxHeight=Math.floor(work.height)
+    if(maxHeight<compactMinimumHeight||work.width<360)return null
+    const height=Math.max(compactMinimumHeight,Math.min(c.height,maxHeight))
+    return {maxHeight,bounds:{x:Math.max(work.x,Math.min(current.x,work.x+work.width-360)),y:Math.max(work.y,Math.min(current.y,work.y+work.height-height)),width:360,height}}
+  }
   if(id&&!detached){
     let source:NativeWindow
     try{source=await native.inspect(id)}catch{return null}
     if(!owns()||fit.request!==request||attachedWindowId!==id||attachedOwnerProcessId!==undefined&&source.owner.processId!==attachedOwnerProcessId)return null
-    const work=screen.getDisplayMatching(source.bounds).workArea,placed=surfacePlacement('companion',source.bounds,work,c.height)
-    if(!placed.placement.panelBounds)return null
-    bounds=placed.placement.panelBounds;maxHeight=placed.maxHeight
+    // A native user move can win while source inspection is in flight. Retain
+    // its position while fitting content; the source binding stays unchanged.
+    detached=placementMode==='detached'
+    if(detached){const free=freePlacement();if(!free)return null;({bounds,maxHeight}=free)}
+    else{
+      const work=screen.getDisplayMatching(source.bounds).workArea,placed=surfacePlacement('companion',source.bounds,work,c.height)
+      if(!placed.placement.panelBounds)return null
+      bounds=placed.placement.panelBounds;maxHeight=placed.maxHeight
+    }
   }else{
-    const current=panel.getBounds(),work=screen.getDisplayMatching(current).workArea
-    maxHeight=Math.floor(work.height)
-    if(maxHeight<compactMinimumHeight||work.width<360)return null
-    const height=Math.max(compactMinimumHeight,Math.min(c.height,maxHeight))
-    bounds={x:Math.max(work.x,Math.min(current.x,work.x+work.width-360)),y:Math.max(work.y,Math.min(current.y,work.y+work.height-height)),width:360,height}
+    const free=freePlacement();if(!free)return null;({bounds,maxHeight}=free)
   }
   if(!owns()||fit.request!==request)return null
   compactHeight=Math.max(compactMinimumHeight,c.height);fit.maxHeight=maxHeight
@@ -395,6 +404,8 @@ async function attach(id:string,mode:typeof viewMode='companion',activate=true,e
   return commitAttachment(source,mode,activate,epoch,entrance)
 }
 function commitAttachment(source:NativeWindow,mode:typeof viewMode,activate:boolean,epoch:number,entrance?:Electron.Rectangle){
+  // A stale monitor reflow must not undo a newer native user placement.
+  if(!activate&&placementMode==='detached')return null
   attachedWindowId=source.id
   attachedOwnerProcessId=source.owner.processId
   attachedSourceInfo={id:source.id,title:source.title,ownerName:source.owner.name}
@@ -507,6 +518,17 @@ async function activateSourcePicker(){
   const expansion=expand('workspace');expectedSurface=surfaceEpoch;await expansion;guard();
   const activation:ContextActivation={activationId:id,tucked,choices,origin:'source-picker',intent:'attach',...(ownerTaskId?{ownerTaskId}:{newTask:true})};intake.activation=activation;emit({type:'context.activate',activation});
  }catch(error){if(contextIntake===intake)contextIntake=undefined;throw error;}
+}
+function installNativeWindowMove(){
+ // Electron emits will-move only for manual native moves, not setBounds or
+ // setPosition. The anchor retains its separate character-to-source gesture.
+ panel.on('will-move',(_event,bounds)=>{
+  if(quitting||panel.getSize()[0]<=100||collapsePresentation||entrancePresentation)return
+  // Free placement applies to this open panel only. Keep the selected source,
+  // document-follow authority and polling; an explicit reopen repositions it.
+  placementMode='detached'
+  if(viewMode==='workspace')panelBounds={...bounds}
+ })
 }
 function installNativeSourceDrag(){
  sourceDragPreview=createSourceDragPreview(()=>panel.getBounds());
@@ -1030,6 +1052,7 @@ app.whenReady().then(async()=>{
   if(process.platform==='darwin'||process.platform==='win32')panel.setContentProtection(true)
   panel.webContents.setWindowOpenHandler(()=>({action:'deny'}));panel.webContents.on('will-navigate',e=>e.preventDefault());panel.on('close',e=>{if(!quitApproved){e.preventDefault();if(!quitting)void requestCollapse()}})
   installNativeSourceDrag()
+  installNativeWindowMove()
   ipcMain.handle('companion:command',async(event,value)=>{
     try{
       if(event.sender!==panel.webContents||event.senderFrame!==panel.webContents.mainFrame)throw Error('Untrusted companion caller.')
@@ -1054,7 +1077,7 @@ app.whenReady().then(async()=>{
   const trayImage=nativeImage.createFromDataURL(trayImageDataUrl).resize({width:18,height:18});if(process.platform==='darwin')trayImage.setTemplateImage(true)
   if(!testNoGlobalInput){tray=new Tray(trayImage);tray.setToolTip('Glint');tray.setContextMenu(Menu.buildFromTemplate([{label:'Use screen context',click:()=>void activateContext()},{label:'Open Glint',click:()=>void expand()},{type:'separator'},{label:'Follow selected window this session…',click:()=>void command({type:'source.follow.enable'}).catch(error=>dialog.showMessageBox(panel,{type:'info',message:'Document following is paused',detail:publicErrorMessage(error)}))},{label:'Stop document following',click:()=>{retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');}},{label:'Document follow status…',click:()=>{const state=documentFollow.read();void dialog.showMessageBox(panel,{type:'info',message:state.kind==='off'?'Document following is off':state.automaticSnapshots==='on'?'Selected-window snapshots are on':state.automaticSnapshots==='paused'?'Selected-window snapshots are paused':'Document metadata only',detail:state.reason});}},{type:'separator'},{label:'Quit Glint',click:()=>app.quit()}]));tray.on('click',()=>void expand())}
   monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000)
-}).catch(error=>{if(quitting||quitApproved)return;console.error('Companion startup failed:',error.message);dialog.showErrorBox('Companion could not open',publicErrorMessage(error));app.quit()})
+}).catch(error=>{if(quitting||quitApproved)return;console.error('Companion startup failed:',error.message);dialog.showErrorBox('Glint could not open',publicErrorMessage(error));app.quit()})
 let quitEpoch=0,quitting=false,quitApproved=false,quitInProgress=false,finalizingQuit=false,exitPending:{id:string;captureStarted:boolean}|undefined,exitTimeout:ReturnType<typeof setTimeout>|undefined
 const quitDrafts=createQuitDraftBarrier({
  send:quitId=>emit({type:'draft.flush',quitId}),

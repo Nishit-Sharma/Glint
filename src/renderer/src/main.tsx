@@ -7,4 +7,6 @@ import './vendor/transitions/ui-generation.css';
 import './vendor/transitions/text-image-generation.css';
 import './style.css';
 import './app-surface.css';
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+import './window-drag.css';
+import {WindowDragGrip} from './components/WindowDragGrip';
+createRoot(document.getElementById('root')!).render(<React.StrictMode><WindowDragGrip/><App/></React.StrictMode>);
