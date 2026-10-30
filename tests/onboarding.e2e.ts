@@ -10,7 +10,7 @@ test('original 3D choice persists, continues into an honest editable local examp
   await expect(page.getByRole('heading',{name:'Choose your companion'})).toBeVisible();
   const shapes=page.getByRole('radiogroup',{name:'Companion shape'});await expect(shapes.getByRole('radio')).toHaveCount(5);
   for(const name of ['Dumpling','Onigiri','Mushroom','Star','Dollop'])await expect(shapes.getByRole('radio',{name,exact:true})).toBeVisible();
-  await expect(page.getByText('Crescent',{exact:true})).toHaveCount(0);await expect(page.locator('canvas')).toHaveCount(1);
+  await expect(page.getByText('Crescent',{exact:true})).toHaveCount(0);await expect(shapes.locator('canvas')).toHaveCount(5);
   await settleCapture(page);await page.screenshot({path:'evidence/onboarding/picker-desktop.png'});
   await page.getByRole('radio',{name:'Sage',exact:true}).click();await expect(page.locator('.choice-colors small')).toHaveText('Sage');
   const previews=await shapes.locator('img').evaluateAll(images=>images.map(image=>(image as HTMLImageElement).src));expect(new Set(previews).size).toBe(5);

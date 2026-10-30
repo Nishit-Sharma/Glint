@@ -1,11 +1,12 @@
 import * as THREE from './vendor/three.module.min.js';
 import { RoomEnvironment } from './vendor/RoomEnvironment.js';
+import {originalPalette,recolorOriginalMaterials} from './material-color.js';
 export function createOriginalView(canvas,look) {
  const resources=new Set();let rendererForDisposal;
  const own=resource=>{resources.add(resource);return resource;};
  const release=resource=>{if(resources.delete(resource))resource.dispose();};
  const dispose=()=>{for(const resource of [...resources].reverse()){try{release(resource);}catch{}}try{rendererForDisposal?.forceContextLoss();}catch{}};
- const palette={dough:'#d6b590',iris:'#8793d0',sage:'#81a993',apricot:'#d29b82',rose:'#c68d9e',sky:'#7aabca',butter:'#ccb66e'};
+ const palette=originalPalette;
  const currentColor=palette[look.color],currentFace=look.face;
  const metrics={frames:0,models:{}};
  try {
@@ -60,9 +61,10 @@ function bodyGeometry(kind){if(['soup','sprout','bell','mushroom'].includes(kind
 function grain(){const c=document.createElement('canvas');c.width=c.height=128;const ctx=c.getContext('2d'),im=ctx.createImageData(128,128);let s=1329;for(let i=0;i<im.data.length;i+=4){s=(s*1664525+1013904223)>>>0;const n=120+(s%17);im.data[i]=im.data[i+1]=im.data[i+2]=n;im.data[i+3]=255}ctx.putImageData(im,0,0);const t=own(new THREE.CanvasTexture(c));t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(4,4);return t}
 const noise=grain();
 function model(kind){const group=new THREE.Group(),face=new THREE.Group();const mat=own(new THREE.MeshPhysicalMaterial({color:currentColor,roughness:['dumpling','soup'].includes(kind)?.55:.43,metalness:0,clearcoat:.16,clearcoatRoughness:.4,sheen:.22,sheenRoughness:.8,sheenColor:new THREE.Color('#d8d9ed'),bumpMap:noise,bumpScale:['dumpling','soup'].includes(kind)?.0005:.0015,envMapIntensity:.45}));
+ let foldMaterial;
  const body=new THREE.Mesh(bodyGeometry(kind),mat);body.castShadow=true;body.receiveShadow=true;group.add(body,face);
  if(kind==='dumpling'){
-  const foldMat=own(mat.clone());foldMat.color.lerp(new THREE.Color('#fff3dc'),.075);foldMat.roughness=.58;
+  const foldMat=own(mat.clone());foldMaterial=foldMat;foldMat.color.lerp(new THREE.Color('#fff3dc'),.075);foldMat.roughness=.58;
   const seam=[];for(let j=0;j<=64;j++){const u=-.98+1.96*j/64,r=Math.sqrt(1-u*u);seam.push(new THREE.Vector3(1.1*u,.73*r+.007,.014*Math.sin(u*5*Math.PI)))}
   const ridge=new THREE.Mesh(own(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(seam),90,.032,8,false)),foldMat);ridge.castShadow=true;group.add(ridge);
   for(const u of [-.70,-.44,-.16,.16,.44,.70]){const r=Math.sqrt(1-u*u),pts=[];for(let j=0;j<=12;j++){const t=j/12,q=Math.cos(t*.80);pts.push(new THREE.Vector3(1.1*u+.043*Math.sin(t*Math.PI),.73*r-(.73*r+.51*Math.pow(r,.27))*.5*(1-q)+.008,.60*r*Math.sin(t*.80)*(1-.14*q)+.012));}
@@ -85,13 +87,13 @@ function model(kind){const group=new THREE.Group(),face=new THREE.Group();const 
  }
  const pts=[];for(let i=0;i<17;i++){const x=-style.mouth+2*style.mouth*i/16,y=mouthY+style.curve*((x/style.mouth)**2),s=surface(x,y);pts.push(s.p.addScaledVector(s.n,.012))}const mouth=new THREE.Mesh(own(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),24,.013,8,false)),dark);face.add(mouth);
  const zero=kind==='onigiri'?.76:kind==='mushroom'?.78:kind==='soup'?.68:kind==='star'?1.13:kind==='sprout'?.71:kind==='bell'?.69:kind==='pillow'?.88:kind==='bean'?.95:kind==='drop'?1.03:kind==='bloom'?.95:kind==='dumpling'?.53:.70;group.position.y=zero;group.rotation.set(-.08,.08,.02);
- const baseline={y:zero};metrics.models[kind]={bodyTriangles:body.geometry.index.count/3};return{group,body,face,eyes,mouth,mat,rim,baseline,kind,gaze};}
+ const baseline={y:zero};metrics.models[kind]={bodyTriangles:body.geometry.index.count/3};return{group,body,face,eyes,mouth,mat,rim,baseline,kind,gaze,recolor:color=>recolorOriginalMaterials(mat,rim,foldMaterial,color)};}
 function createView(canvas,kind,{dark=false,transparent=false,mini=false}={}){const renderer=own(new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,powerPreference:'low-power',preserveDrawingBuffer:true}));rendererForDisposal=renderer;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.92;renderer.shadowMap.enabled=!mini;renderer.shadowMap.type=THREE.VSMShadowMap;
  const scene=new THREE.Scene();const camera=new THREE.PerspectiveCamera(29,1,.1,50);camera.position.set(1.5,1.65,5.5);camera.lookAt(0,.88,0);const pmrem=own(new THREE.PMREMGenerator(renderer)),room=own(new RoomEnvironment());const environment=own(pmrem.fromScene(room,.06)),env=environment.texture;scene.environment=env;release(room);release(pmrem);
  scene.add(new THREE.HemisphereLight('#e8edff','#7c6d70',.7));const key=new THREE.DirectionalLight('#fff7ee',1.9);key.position.set(-3,8,4);key.castShadow=!mini;key.shadow.mapSize.set(512,512);key.shadow.camera.left=key.shadow.camera.bottom=-3;key.shadow.camera.right=key.shadow.camera.top=3;own(key.shadow);key.shadow.normalBias=.025;key.shadow.bias=-.0003;key.shadow.radius=10;key.shadow.blurSamples=10;scene.add(key);const rimLight=new THREE.DirectionalLight('#d1ddff',1.2);rimLight.position.set(2,3,-3);scene.add(rimLight);
  const m=model(kind);scene.add(m.group);const floor=new THREE.Mesh(own(new THREE.PlaneGeometry(200,200)),own(new THREE.ShadowMaterial({color:'#282737',opacity:dark?.25:.12})));floor.rotation.x=-Math.PI/2;floor.position.y=-.01;floor.receiveShadow=true;scene.add(floor);
  const v={renderer,scene,camera,m,canvas,dark,mini,floor,run:null,lastPose:null,renderCount:0};
- v.render=()=>{const w=canvas.clientWidth||320,h=canvas.clientHeight||320,dpr=Math.min(devicePixelRatio,2);if(w!==v.width||h!==v.height||dpr!==v.pixelRatio){if(dpr!==v.pixelRatio)renderer.setPixelRatio(dpr);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();v.width=w;v.height=h;v.pixelRatio=dpr;}renderer.setClearColor(dark?'#20232b':'#f3f2ef',transparent?0:1);const grp=v.m.group;grp.updateMatrix();const pos=v.m.body.geometry.attributes.position,ele=grp.matrix.elements;let low=Infinity;for(let i=0;i<pos.count;i++)low=Math.min(low,pos.getX(i)*ele[1]+pos.getY(i)*ele[5]+pos.getZ(i)*ele[9]+ele[13]);if(!v.held)grp.position.y+=.015-low;renderer.render(scene,camera);metrics.frames++;v.renderCount++;metrics.models[v.m.kind].drawCalls=renderer.info.render.calls;metrics.models[v.m.kind].triangles=renderer.info.render.triangles;};
+ v.render=()=>{const w=canvas.clientWidth||320,h=canvas.clientHeight||320,dpr=Math.min(devicePixelRatio,2);if(w!==v.width||h!==v.height||dpr!==v.pixelRatio){if(dpr!==v.pixelRatio)renderer.setPixelRatio(dpr);renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();v.width=w;v.height=h;v.pixelRatio=dpr;}renderer.setClearColor(dark?'#20232b':'#f3f2ef',transparent?0:1);const grp=v.m.group;grp.updateMatrix();const pos=v.m.body.geometry.attributes.position,ele=grp.matrix.elements;let low=Infinity;for(let i=0;i<pos.count;i++)low=Math.min(low,pos.getX(i)*ele[1]+pos.getY(i)*ele[5]+pos.getZ(i)*ele[9]+ele[13]);if(!v.held)grp.position.y+=.015+(v.lift??0)-low;renderer.render(scene,camera);metrics.frames++;v.renderCount++;metrics.models[v.m.kind].drawCalls=renderer.info.render.calls;metrics.models[v.m.kind].triangles=renderer.info.render.triangles;};
  v.render();return v;}
  const view=createView(canvas,look.shape,{transparent:true,dark:true});
  view.camera.position.set(1.2,1.5,4.8);view.camera.lookAt(0,view.m.baseline.y+.08,0);view.floor.material.opacity=.22;

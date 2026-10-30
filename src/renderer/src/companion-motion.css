@@ -1,0 +1,18 @@
+.bot-art[data-character-state="loading"]>.bot-live{visibility:hidden}
+/* Tiny original 3D renders stay quiet on reading and identity surfaces. */
+.bot-image>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.bot-art>.bot-image{position:absolute;inset:0;width:100%;height:100%}
+.character-shapes .bot-image{height:47px;width:59px}
+[data-companion-motion="quiet"]{
+ animation:companion-thumbnail-life var(--companion-duration,8s) ease-in-out var(--companion-delay,0s) infinite;
+ animation-play-state:paused;
+ transform-origin:50% 85%;
+}
+[data-companion-motion="quiet"][data-motion-visible="true"]{animation-play-state:running}
+@keyframes companion-thumbnail-life{
+ 0%,68%,100%{transform:translateY(0) rotate(0) scale(1)}
+ 75%{transform:translateY(-1px) rotate(-.8deg) scale(.993,1.012)}
+ 83%{transform:translateY(0) rotate(.6deg) scale(1.012,.988)}
+ 91%{transform:translateY(-.4px) rotate(-.25deg) scale(1)}
+}
+@media(prefers-reduced-motion:reduce){[data-companion-motion="quiet"]{animation:none;transform:none}}
