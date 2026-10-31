@@ -8,6 +8,7 @@ import {DocumentStampSchema,DocumentChangeSchema} from '../shared/document-sourc
 import type { Task } from './types';
 import { TaskSessionSchema,BrowserStartReceiptSchema } from './task-session';
 import {TaskArchiveSchema} from '../shared/task-archive';
+import {ProjectSchema,type Project} from '../shared/projects';
 
 const list = <A, I, R>(schema: Schema.Schema<A, I, R>) => Schema.mutable(Schema.Array(schema));
 const optionalText = Schema.optional(Schema.String);
@@ -18,7 +19,7 @@ const sourceFields = {
 };
 const Ref = Schema.Struct({ sourceId: Schema.String, version: Schema.Int, digest: Schema.String });
 const SourceVersion = Schema.Struct({ ...sourceFields, version: Schema.Int, digest: Schema.String, capturedAt: Schema.String });
-const Source = Schema.Struct({ id: Schema.String, currentVersion: Schema.Int, versions: list(SourceVersion), freshness: Schema.Literal('fresh', 'refresh-required'), staleReason: optionalText, documentChange:Schema.optional(DocumentChangeSchema) });
+const Source = Schema.Struct({ projectOrigin:Schema.optional(Schema.Struct({projectId:Schema.String,sourceKey:Schema.String,taskId:Schema.String,reference:Ref,copiedVersion:Schema.Int.pipe(Schema.positive()),copiedDigest:Schema.String})), id: Schema.String, currentVersion: Schema.Int, versions: list(SourceVersion), freshness: Schema.Literal('fresh', 'refresh-required'), staleReason: optionalText, documentChange:Schema.optional(DocumentChangeSchema) });
 const ArtifactRevision = Schema.Struct({ revision: Schema.Int, title: Schema.String, content: Schema.String, mimeType: Schema.String, encoding: Schema.optional(Schema.Literal('utf8', 'base64')), sourceRefs: list(Ref), digest: Schema.String, createdAt: Schema.String });
 const Artifact = Schema.Struct({ id: Schema.String, revisions: list(ArtifactRevision) });
 const Request = Schema.Struct({ memory:Schema.optional(MemoryUseSchema), id: Schema.String, kind: Schema.String, prompt: Schema.String, digest: Schema.String, status: Schema.Literal('running', 'completed', 'cancelled', 'interrupted', 'failed'), sourceRefs: list(Ref), startedAt: Schema.String, finishedAt: optionalText, artifactId: optionalText, answer: Schema.optional(Schema.Struct({ artifactId: Schema.String, revision: Schema.Int, digest: Schema.String })), targetArtifactId: optionalText, expectedRevision: Schema.optional(Schema.Int), error: optionalText, browserStart:Schema.optional(BrowserStartReceiptSchema),browserContinuation:Schema.optional(BrowserContinuationReceiptSchema) });
@@ -31,9 +32,9 @@ const Evidence = Schema.Struct({ path: Schema.String, byteLength: Schema.Int, di
 const Action = Schema.Struct({ proposal: Proposal, status: Schema.Literal('proposed', 'approved', 'executing', 'verified', 'failed', 'uncertain', 'retired'), approvalId: optionalText, approvalRetiredAt: optionalText, requestId: optionalText, evidence: Schema.optional(Evidence), error: optionalText });
 const taskFields = { id: Schema.String, title: Schema.String, goal: Schema.String, status: Schema.Literal('active', 'paused'), createdAt: Schema.String, updatedAt: Schema.String, sources: list(Source), artifacts: list(Artifact), requests: list(Request), procedures: list(Procedure), checkpoints: list(Checkpoint), actions: list(Action), memory: Schema.Struct({ enabled: Schema.Literal(false) }) };
 const LegacyStateSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), tasks: list(Schema.Struct(taskFields)), usedRequestIds: list(Schema.String) });
-const TaskSchema = Schema.Struct({ ...taskFields, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema),archive:Schema.optional(TaskArchiveSchema) }).pipe(Schema.filter(task=>!task.archive||task.status==='paused'));
-const StateSchema = Schema.Struct({ userMemory:Schema.optional(UserMemorySchema),schemaVersion: Schema.Literal(2), tasks: list(TaskSchema), usedRequestIds: list(Schema.String) });
-export interface State { userMemory?:UserMemory;schemaVersion: 2; tasks: Task[]; usedRequestIds: string[] }
+const TaskSchema = Schema.Struct({ ...taskFields, projectId:optionalText, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema),archive:Schema.optional(TaskArchiveSchema) }).pipe(Schema.filter(task=>!task.archive||task.status==='paused'));
+const StateSchema = Schema.Struct({ userMemory:Schema.optional(UserMemorySchema),schemaVersion: Schema.Literal(2), tasks: list(TaskSchema), usedRequestIds: list(Schema.String),projects:Schema.optional(list(ProjectSchema)) }).pipe(Schema.filter(state=>new Set(state.projects?.map(project=>project.id)).size===(state.projects?.length??0)&&state.tasks.every(task=>!task.projectId||state.projects?.some(project=>project.id===task.projectId))));
+export interface State { userMemory?:UserMemory;schemaVersion: 2; tasks: Task[]; usedRequestIds: string[]; projects?:Project[] }
 export class StateValidationError extends Error {
   constructor(cause: unknown) { super('Task-store draft failed validation; existing data was preserved.', { cause }); this.name = 'StateValidationError'; }
 }

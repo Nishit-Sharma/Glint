@@ -22,9 +22,11 @@ import type {SourceTextSaveInspectionInput} from './source-text-save'
 import type {TaskHandoffSave} from './task-handoff';
 import type {TaskArchiveChange} from './task-archive';
 import type {SavedDocumentSourceInput} from './saved-document-source';
+import type {ProjectCommand} from './projects';
 
 export type Command =
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
+  | ProjectCommand
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
   | {type:'experiment.source.inspect';input:SourceFormulaInput}
   | {type:'capture.settings.get'} | {type:'capture.settings.revoke';expectedRevision:number}

@@ -35,6 +35,27 @@ import {conceptProposal,conceptSource} from './concept-map.fixture';
 // Bundle the production host handler. Only OS/network boundaries are substituted;
 // source versions, request authority and all durable writes use the actual core.
 const cleanups:Array<()=>Promise<void>>=[]
+describe('Projects production path',()=>{
+ it('reuses saved project instructions across member tasks and excludes them from unrelated requests',async()=>{
+  const f=await fixture(),owner:Task=await f.command({type:'tasks.create',title:'Project research'}),sibling:Task=await f.command({type:'tasks.create',title:'Project checklist'}),outside:Task=await f.command({type:'tasks.create',title:'Unrelated work'}),project=await f.command({type:'projects.create',name:'Night visits'}),instructions='PROJECT_GUIDANCE: Use metric units. Mark missing evidence.';
+  await f.command({type:'projects.update',projectId:project.id,expectedRevision:1,name:project.name,instructions});
+  for(const task of [owner,sibling])await f.command({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+  await f.core.saveComposerDraft(owner.id,0,{text:'PRIVATE_UNSENT_PROJECT_DRAFT',kind:'create'});
+  for(const [index,task] of [owner,sibling,outside].entries())await f.command({type:'model.run',taskId:task.id,requestId:'project-request-'+index,kind:'explain',prompt:'Explain the visit evidence.',sourceIds:[]});
+  expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?','Send this request to OpenAI?','Send this request to OpenAI?']);
+  for(const index of [0,1]){expect(f.calls.details[index].detail).toContain(instructions);expect(f.calls.provider[index].projectInstructions).toEqual({projectId:project.id,name:project.name,revision:2,text:instructions});}
+  expect(f.calls.provider[2].projectInstructions).toBeUndefined();expect(f.calls.details[2].detail).not.toContain('PROJECT_GUIDANCE');expect(JSON.stringify(f.calls.provider[2])).not.toContain('PROJECT_GUIDANCE');expect(JSON.stringify(f.calls.provider)).not.toContain('PRIVATE_UNSENT_PROJECT_DRAFT');expect(f.calls.captures).toBe(0);
+ });
+ it('cancels an obsolete project instruction review before provider transmission',async()=>{
+  const f=await fixture(),task:Task=await f.command({type:'tasks.create',title:'Changing project'}),project=await f.command({type:'projects.create',name:'Night visits'});
+  await f.command({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+  let entered!:()=>void,approve!:(decision:{response:number})=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});
+  f.seams.confirm=async()=>{entered();return new Promise(resolve=>{approve=resolve;});};
+  const running=f.command({type:'model.run',taskId:task.id,requestId:'pending-project-review',kind:'explain',prompt:'Explain the evidence.',sourceIds:[]});
+  await waiting;await f.command({type:'projects.update',projectId:project.id,expectedRevision:1,name:project.name,instructions:'Updated before sending.'});approve({response:1});
+  await expect(running).rejects.toThrow('Project context changed');const result=await f.core.getTask(task.id);expect(result.requests.at(-1)?.status).toBe('cancelled');expect(f.calls.provider).toEqual([]);expect(result.artifacts).toEqual([]);
+ });
+});
 describe('Concept map production path',()=>{
  it('retains the existing send approval, transmits only selected text and hides raw generation before saving exact relationships',async()=>{
   const f=await fixture(),created=await f.core.createTask({title:'Owned concept map'}),task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Owned evaporation notes',content:conceptSource}),source=task.sources[0],version=source.versions[0],ref={sourceId:source.id,version:version.version,digest:version.digest};

@@ -14,6 +14,7 @@ import { projectTaskDialogue } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
+import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectInstructions} from '../shared/projects';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
 import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
@@ -273,6 +274,81 @@ export class Companion {
 
   listTasks(): Promise<Task[]> { return this.exclusive(() => clone(this.state.tasks)); }
   getTask(taskId: string): Promise<Task> { return this.exclusive(() => clone(this.task(this.state, taskId))); }
+  private project(state:State,id:string):Project{
+    const project=state.projects?.find(item=>item.id===id);
+    return project??reject('not-found','Project was not found.');
+  }
+  private projectGuidance(state:State,task:Task):ProjectInstructions|undefined{
+    if(!task.projectId)return undefined;
+    const project=this.project(state,task.projectId);
+    return {projectId:project.id,name:project.name,revision:project.revision,text:project.instructions};
+  }
+  private cancelProjectRequests(task:Task){
+    this.cancelRunning(task,'Project context changed during this request.');
+  }
+  projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
+  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|Task>{
+    const command=readProjectCommand(input);
+    return this.exclusive(async()=>{
+      assertCurrent();
+      if(command.type==='projects.list')return clone(this.state.projects??[]);
+      const result=await this.commit(state=>{
+        assertCurrent();
+        if(command.type==='projects.create'){
+          const name=command.name.trim(),existing=state.projects?.find(project=>project.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+          if(existing)return existing;
+          const time=this.time(),project:Project={id:randomUUID(),name,instructions:'',revision:1,createdAt:time,updatedAt:time,sources:[]};
+          (state.projects??=[]).push(project);return project;
+        }
+        if(command.type==='projects.assign'){
+          const task=this.task(state,command.taskId);
+          if(command.projectId)this.project(state,command.projectId);
+          if((task.projectId??null)===command.projectId)return task;
+          if((task.projectId??null)!==command.expectedProjectId)reject('conflict','This task moved to another project. Reload before moving it again.');
+          if(command.projectId)task.projectId=command.projectId;else delete task.projectId;
+          this.cancelProjectRequests(task);task.updatedAt=this.time();return task;
+        }
+        const project=this.project(state,command.projectId);
+        if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions)return project;
+        if(project.revision!==command.expectedRevision)reject('conflict','This project changed. Reload its saved details before trying again.');
+        if(command.type==='projects.update'){
+          const name=command.name.trim();
+          if(state.projects?.some(other=>other.id!==project.id&&other.name.toLocaleLowerCase()===name.toLocaleLowerCase()))reject('conflict','Another project already uses this name.');
+          project.name=name;project.instructions=command.instructions;
+          for(const task of state.tasks)if(task.projectId===project.id)this.cancelProjectRequests(task);
+        }else if(command.type==='projects.sources.add'){
+          const task=this.task(state,command.taskId);
+          if(task.projectId!==project.id)reject('conflict','Move this task into the project before sharing its source.');
+          this.validRefs(task,[command.reference]);
+          const version=task.sources.find(source=>source.id===command.reference.sourceId)!.versions.at(-1)!;
+          if(version.kind==='window')reject('invalid','Share saved text or images. Window captures stay with their original task.');
+          if(project.sources.some(source=>projectSourceMatches(source,task.id,command.reference)))return project;
+          if(project.sources.length>=64)reject('invalid','A project can share at most 64 saved sources.');
+          project.sources.push({id:randomUUID(),taskId:task.id,reference:clone(command.reference)});
+        }else if(command.type==='projects.sources.remove'){
+          if(!project.sources.some(source=>source.id===command.sourceKey))return project;
+          project.sources=project.sources.filter(source=>source.id!==command.sourceKey);
+        }else{
+          const task=this.task(state,command.taskId),shared=project.sources.find(source=>source.id===command.sourceKey);
+          if(task.projectId!==project.id)reject('conflict','Move this task into the project before adding its sources.');
+          if(!shared)return reject('not-found','This shared source was removed.');
+          const version=projectSourceVersion(shared,state.tasks);
+          if(!version||version.kind==='window')return reject('not-found','The original saved source is unavailable. Existing task copies are kept.');
+          if(projectSourceInTask(task,project.id,shared))return task;
+          const browserContext=task.session?.browserContext;
+          this.cancelProjectRequests(task);
+          const ref=this.appendSource(task,{kind:version.kind,label:version.label,content:version.content,role:version.role});
+          if(browserContext)task.session={...task.session!,browserContext};
+          task.sources.find(source=>source.id===ref.sourceId)!.projectOrigin={projectId:project.id,sourceKey:shared.id,taskId:shared.taskId,reference:clone(shared.reference),copiedVersion:ref.version,copiedDigest:ref.digest};
+          return task;
+        }
+        if(project.revision===Number.MAX_SAFE_INTEGER)reject('invalid','Project revision limit reached. Your saved project is kept.');
+        project.revision++;project.updatedAt=this.time();return project;
+      });
+      for(const task of this.state.tasks)this.abortCancelled(task);
+      return result;
+    });
+  }
   saveComposerDraft(taskId:string,expectedDraftRevision:number,value:{text:string;kind:ComposerKind}):Promise<ComposerDraft>{
     let next:typeof ComposerValueSchema.Type;
     try{next=Schema.decodeUnknownSync(ComposerValueSchema,{onExcessProperty:'error'})(value);}catch{return Promise.reject(new CompanionError('invalid','Composer draft needs bounded text and a supported request type.'));}
@@ -759,7 +835,8 @@ export class Companion {
         const expected=selectUserMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt:input.prompt}).receipt;
         if(JSON.stringify(expected)!==JSON.stringify(input.memory))reject('conflict',MEMORY_CHANGED);
       }
-      const digest = hash(JSON.stringify({ ...input, sourceIds: input.sourceIds === undefined ? undefined : sourceRefs.map(ref => ref.sourceId), sourceRefs }));
+      const projectInstructions=input.kind==='browser'?undefined:this.projectGuidance(this.state,task);
+      const digest = hash(JSON.stringify({ ...input, sourceIds: input.sourceIds === undefined ? undefined : sourceRefs.map(ref => ref.sourceId), sourceRefs,...(projectInstructions?{projectInstructions}:{}) }));
       const existing = task.requests.find(request => request.id === input.requestId);
       if (existing) {
         // Existing stores may contain the previous payload-only digest for an unscoped request.
@@ -790,7 +867,7 @@ export class Companion {
         task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
-        return { ...(['explain','create','revise'].includes(input.kind)?{taskHistory:projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        return { ...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
       return { context };

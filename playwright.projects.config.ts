@@ -1,0 +1,3 @@
+import {defineConfig} from '@playwright/test';
+process.env.WINDOW_COMPANION_TEST_PORT='4186';
+export default defineConfig({testDir:'tests',testMatch:'projects-public.e2e.ts',outputDir:'evidence/projects/results',workers:1,fullyParallel:false,retries:0,maxFailures:1,timeout:90000,expect:{timeout:7000},use:{baseURL:'http://127.0.0.1:4186',headless:true,viewport:{width:1080,height:800},reducedMotion:'reduce',trace:'retain-on-failure'},webServer:{command:'./node_modules/.bin/vite --config vite.projects.config.ts',url:'http://127.0.0.1:4186',reuseExistingServer:false,timeout:30000},reporter:[['list'],['json',{outputFile:'evidence/projects/results.json'}]]});

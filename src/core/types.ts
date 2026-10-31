@@ -22,6 +22,7 @@ export interface SourceVersion extends SourceInput {
 }
 export interface Source {
   id: string; currentVersion: number; versions: SourceVersion[];
+  projectOrigin?: {projectId:string;sourceKey:string;taskId:string;reference:SourceRef;copiedVersion:number;copiedDigest:string};
   freshness: 'fresh' | 'refresh-required'; staleReason?: string;
   documentChange?: DocumentChange;
 }
@@ -76,6 +77,7 @@ export interface ExportAction {
 }
 export interface Task {
   id: string; title: string; goal: string; status: 'active' | 'paused';
+  projectId?: string;
   archive?: import('../shared/task-archive').TaskArchive;
   assignedBotId?: string;
   provenance?: 'local-example';
@@ -97,7 +99,7 @@ export interface ProcedureInput {
   originArtifact?: { artifactId: string; revision: number };
 }
 /** The detached task's sources contain only the request's selected current versions. */
-export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; signal: AbortSignal }
+export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; signal: AbortSignal }
 export interface RequestInput {
   browserContinuation?:BrowserContinuationReceipt;
   /** Host-selected user-authored memory, validated against the current ledger. */
