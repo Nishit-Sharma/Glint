@@ -29,8 +29,11 @@ async function formatting(surface:Locator){
 async function inert(surface:Locator){
  await expect(surface).toContainText('Image reference: Tracking pixel');
  await expect(surface).toContainText('image not loaded.');
- await expect(surface.locator('a[href],img,script,iframe,object,embed,form,button,video,audio,source')).toHaveCount(0);
+ await expect(surface.locator('a[href],img,script,iframe,object,embed,form,video,audio,source')).toHaveCount(0);
  await expect(surface.locator('[onclick],[onerror],[src],[href]')).toHaveCount(0);
+ await expect(surface.locator('button')).toHaveCount(1);
+ await expect(surface.getByRole('button',{name:'Copy code block',exact:true})).toHaveCount(1);
+ expect(fixture.commands.filter(command=>command.type==='code-block.copy')).toEqual([]);
  await expect(surface.getByRole('checkbox')).toBeDisabled();
  await expect(surface.getByRole('checkbox')).toBeChecked();
  expect(fixture.externalRequests).toEqual([]);

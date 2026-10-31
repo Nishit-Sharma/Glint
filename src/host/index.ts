@@ -1,3 +1,4 @@
+import {readCodeBlockCopy,writeCodeBlockCopy} from '../shared/code-block-copy';
 import {ContentBackups,ContentBackupGate,recoverContentRestore} from './content-backup';
 import {isContentBackupCommand,readContentBackupCommand} from '../shared/content-backup';
 import {DocumentSpeech} from './document-speech';
@@ -59,7 +60,7 @@ import {documentStampChange,persistedDocumentStamp,type DocumentBinding,type Run
 import {taskHistoryReview} from './request-review'
 import {BotPreferences} from './bot-preferences'
 import {readBotCommand} from '../shared/bot-catalog'
-import {app,BrowserWindow,Menu,Tray,dialog,globalShortcut,ipcMain,nativeImage,safeStorage,screen,session,systemPreferences} from 'electron'
+import {app,BrowserWindow,clipboard,Menu,Tray,dialog,globalShortcut,ipcMain,nativeImage,safeStorage,screen,session,systemPreferences} from 'electron'
 import {readFile,writeFile,mkdir,rm,realpath} from 'node:fs/promises'
 import {mkdirSync} from 'node:fs'
 import {join,resolve,basename} from 'node:path'
@@ -198,6 +199,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(c.type==='code-block.copy')return readCodeBlockCopy(c);
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
   if(String(c.type).startsWith('cli.'))return readCliCommand(c);
   if(String(c.type).startsWith('github.'))return readPublicGithubCommand(c);
@@ -916,6 +918,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(isSpeechCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Listening selection changed.');};const result=await documentSpeech.command(c,guard);if(c.type==='speech.select'||c.type==='speech.generate')changed(c.taskId);return result;}
   if(isCodeCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error(CODE_WORKSPACE_ERROR);};const result=await codeWorkspaces.command(c,guard);if(['code.file.open','code.file.reload','code.file.save'].includes(c.type))changed(c.taskId);return result;}
   switch(c.type){
+    case 'code-block.copy':return writeCodeBlockCopy(c,text=>clipboard.writeText(text))
     case 'conversation.export.preview':return conversationExports.preview(c)
     case 'conversation.export.save':return conversationExports.save(c,async snapshot=>{
       const choice=await dialog.showSaveDialog(panel,{title:'Save conversation transcript',defaultPath:`${snapshot.title.replace(/[^\w -]/g,'').slice(0,70)||'conversation'}-conversation.${snapshot.format==='markdown'?'md':'json'}`,filters:[{name:snapshot.format==='markdown'?'Markdown':'JSON',extensions:[snapshot.format==='markdown'?'md':'json']}],properties:['createDirectory','dontAddToRecent']})

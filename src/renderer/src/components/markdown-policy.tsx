@@ -1,5 +1,7 @@
 import {createElement} from 'react';
 import {defaultRehypePlugins,type Components} from 'streamdown';
+import {CodeBlock} from './CodeBlock';
+import {codeBlockSourcePlugin} from './code-block-source';
 import './markdown.css';
 
 const elements=['p','strong','em','code','pre','ul','ol','li','h1','h2','h3','h4','h5','h6','blockquote','hr','br','del','table','thead','tbody','tr','th','td','span','a','img','input','sup','sub'];
@@ -7,11 +9,11 @@ const elements=['p','strong','em','code','pre','ul','ol','li','h1','h2','h3','h4
 export const markdownPolicy={
  skipHtml:true,
  allowedElements:elements,
- rehypePlugins:[defaultRehypePlugins.sanitize],
+ rehypePlugins:[defaultRehypePlugins.sanitize,codeBlockSourcePlugin],
  urlTransform:(url:string,key:string,node:{tagName:string})=>((node.tagName==='a'&&key==='href')||(node.tagName==='img'&&key==='src'))?url:'',
 };
 
-export function markdownComponents(hiddenHeadingLine?:number):Components{
+export function markdownComponents(hiddenHeadingLine?:number,copyEnabled=true):Components{
  const components:Components={
   strong:({children})=><strong>{children}</strong>,
   em:({children})=><em>{children}</em>,
@@ -21,7 +23,7 @@ export function markdownComponents(hiddenHeadingLine?:number):Components{
   img:({alt,src})=><span className="markdown-image-reference">Image reference{alt?`: ${alt}`:''}{src?` (${src})`:''} — image not loaded.</span>,
   input:({type,checked})=>type==='checkbox'?<input type="checkbox" checked={Boolean(checked)} disabled readOnly aria-label={checked?'Checked task':'Unchecked task'}/>:null,
   li:({children,className})=><li className={className?.split(/\s+/).includes('task-list-item')?'task-list-item':undefined}>{children}</li>,
-  pre:({children})=><pre tabIndex={0} role="region" aria-label="Code block">{children}</pre>,
+  pre:({children,node})=><CodeBlock text={typeof node?.data?.glintCodeCopy==='string'?node.data.glintCodeCopy:undefined} enabled={copyEnabled}>{children}</CodeBlock>,
   code:({children,className})=><code className={className}>{children}</code>,
   table:({children})=><div className="markdown-table-scroll" tabIndex={0} role="region" aria-label="Table"><table>{children}</table></div>,
  };

@@ -25,3 +25,9 @@
 .readable-text.markdown-content :is(pre,.markdown-table-scroll):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
 .readable-text.markdown-content pre:has(code:is(.language-window-transcription,.language-text)),.rich-document-body pre:has(code:is(.language-window-transcription,.language-text)){white-space:pre-wrap;overflow-wrap:anywhere}
+
+.readable-text.markdown-content .markdown-code-block{min-width:0;max-width:100%;margin-block:1em;background:#0002;border-radius:7px}
+.readable-text.markdown-content .markdown-code-actions{display:flex;align-items:center;justify-content:flex-end;gap:.75em;padding:6px 8px;min-width:0;border-bottom:1px solid var(--line)}
+.readable-text.markdown-content .markdown-code-actions button{flex-shrink:0;min-height:34px;padding:4px 10px;font-size:12px}
+.readable-text.markdown-content .markdown-code-status{min-width:0;color:var(--muted);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.readable-text.markdown-content .markdown-code-block pre{margin:0;background:none}

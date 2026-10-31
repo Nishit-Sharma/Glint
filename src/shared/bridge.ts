@@ -38,7 +38,10 @@ import type {ConversationExportCommand} from './conversation-export';
 import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
 import type {TaskAttentionCommand} from './task-attention';
 
+import type {CodeBlockCopyCommand} from './code-block-copy';
+
 export type Command =
+  | CodeBlockCopyCommand
   | {type:'cli.preferences.get'}
   | ({type:'cli.preferences.update'} & CliPreferencesUpdate)
   | {type:'cli.preview';taskId:string}

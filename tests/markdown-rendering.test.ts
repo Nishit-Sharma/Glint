@@ -56,9 +56,11 @@ describe('saved Markdown rendering',()=>{
    expect(html).toContain('Image reference: Tracking pixel');
    expect(html).toContain('image not loaded.');
    expect(html).toContain('Unsafe link');
-   expect(html).not.toMatch(/<(?:a|img|script|iframe|object|embed|form|button|Widget)\b/);
+   expect(html).not.toMatch(/<(?:a|img|script|iframe|object|embed|form|Widget)\b/);
    expect(html).not.toMatch(/<[^>]*\s(?:href|src|onerror|onclick)=/i);
    expect(html).toContain('<code');
+   expect(html.match(/<button\b/g)).toHaveLength(1);
+   expect(html).toContain('aria-label="Copy code block"');
   }
  });
 });
