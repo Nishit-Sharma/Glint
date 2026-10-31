@@ -108,6 +108,7 @@ export class LocalBrowser {
   private busy = false;
   private userControl = false;
   private closed = false;
+  private pathPrefix?:string;
   private blocked = 0;
   private blockedRedirects = 0;
   private releaseStop = () => {};
@@ -125,13 +126,16 @@ export class LocalBrowser {
       }
     });
   }
-  static async open(options: { taskId: string; origin: string; url: string; headless?: boolean; signal?: AbortSignal; onWindowOwner?:BrowserWindowOwner }): Promise<LocalBrowser> {
+  static async open(options: { taskId: string; origin: string; url: string; pathPrefix?:string; headless?: boolean; signal?: AbortSignal; onWindowOwner?:BrowserWindowOwner }): Promise<LocalBrowser> {
     if (options.signal?.aborted) throw Error('Browser request was stopped before launch.');
     const origin = new URL(options.origin);
     if (!options.taskId || origin.origin !== options.origin || origin.username || origin.password || !['http:', 'https:'].includes(origin.protocol) || (origin.protocol === 'http:' && origin.hostname !== '127.0.0.1')) throw Error('Use an exact authorized HTTPS origin, or the synthetic loopback site.');
     const initial=new URL(options.url);
     if(initial.username||initial.password)throw Error('The initial page address must not contain sign-in details.');
     if (initial.origin !== origin.origin) throw Error('Initial URL is outside the authorized origin.');
+    const prefix=options.pathPrefix;
+    if(prefix!==undefined&&(!prefix.startsWith('/')||!prefix.endsWith('/')||/[?#\\]/.test(prefix)||new URL(prefix,origin).origin!==origin.origin||new URL(prefix,origin).pathname!==prefix))throw Error('Use a normalized browser path prefix beginning and ending with /.');
+    if(prefix!==undefined&&!initial.pathname.startsWith(prefix))throw Error('Initial URL is outside the authorized path prefix.');
     let browser: Browser;
     try { browser = await chromium.launch({ headless: options.headless ?? true, chromiumSandbox:true }); }
     catch (error) {
@@ -162,6 +166,7 @@ export class LocalBrowser {
       const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false, permissions: [] });
       const page = await context.newPage();
       const owner = new LocalBrowser(browser, context, page, options.taskId, origin.origin);
+      owner.pathPrefix=prefix;
       opened=owner;
       owner.releaseStop = releaseStop;
       owner.releaseWindowOwner = releaseOwner;
@@ -171,7 +176,7 @@ export class LocalBrowser {
         let allowed = false;
         try {
           const url = new URL(request.url());
-          allowed = !owner.closed && !options.signal?.aborted && !url.username && !url.password && url.origin === owner.origin && ['http:', 'https:'].includes(url.protocol);
+          allowed = !owner.closed && !options.signal?.aborted && !url.username && !url.password && url.origin === owner.origin && ['http:', 'https:'].includes(url.protocol) && (prefix===undefined||url.pathname.startsWith(prefix));
         } catch { /* rejected below */ }
         if (allowed && !['GET', 'HEAD'].includes(request.method())) {
           const grant = owner.active;
@@ -248,6 +253,7 @@ export class LocalBrowser {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(form.method)) throw Error('This form method is not supported.');
     const method = Schema.decodeUnknownSync(Schema.Literal('POST', 'PUT', 'PATCH', 'DELETE'))(form.method);
     if (new URL(form.url).origin !== this.origin) throw Error('The form targets another website. Authorize that site separately.');
+    if(this.pathPrefix!==undefined&&!new URL(form.url).pathname.startsWith(this.pathPrefix))throw Error('The form targets a path outside this workflow. Edit and review the saved path before another attempt.');
     const {formFields,...write}=form;
     return { target: structuredClone(descriptor), write: { ...write, method }, formFields };
   }
@@ -348,7 +354,7 @@ export class LocalBrowser {
     const proposal = this.proposals.get(proposalId);
     if (!proposal || proposal.status !== 'proposed') throw Error('Proposal is missing or already executed.');
     if(proposal.intent.kind==='select'&&write)throw Error('Selecting a choice cannot authorize a POST, PUT, PATCH or DELETE request. Review a form submission separately.');
-    if (write && (new URL(write.url).origin !== this.origin || new URL(write.url).username || new URL(write.url).password || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(write.method) || write.body.length > 100_000)) throw Error('Write scope is outside this browser authority.');
+    if (write && (new URL(write.url).origin !== this.origin || new URL(write.url).username || new URL(write.url).password || this.pathPrefix!==undefined&&!new URL(write.url).pathname.startsWith(this.pathPrefix) || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(write.method) || write.body.length > 100_000)) throw Error('Write scope is outside this browser authority.');
     const token = randomUUID(); this.grants.set(proposalId, { token, used: false, ...(write ? { write: { method: write.method, url: write.url, digest: digest(write.body) } } : {}) }); return token;
   }
   async execute(proposalId: string, token: string,signal?:AbortSignal): Promise<{ proposal: BrowserProposal; receipt?: Grant['receipt'] }> {

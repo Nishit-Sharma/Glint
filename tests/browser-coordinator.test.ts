@@ -79,11 +79,12 @@ it('cancels a real browser while approval is pending and ignores a late approval
 });
 
 it('keeps a successful website write uncertain when the host stops before acknowledgement and never auto-replays it', async () => {
-  let commits = 0, wrote!: () => void;
+  let commits = 0, initialGets = 0, wrote!: () => void;
   const committed = new Promise<void>(resolve => { wrote = resolve; });
   const server = createServer((req, res) => {
     if (req.method === 'POST') { commits++; wrote(); return; }
     if (req.url === '/receipt') { res.setHeader('content-type', 'text/html'); res.end('<h1>Recorded trip #1</h1><p>The synthetic trip was recorded once.</p>'); return; }
+    initialGets++;
     res.setHeader('content-type', 'text/html'); res.end('<h1>Test receipt</h1><form action="/commit" method="post"><button>Submit</button></form>');
   });
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -102,10 +103,11 @@ it('keeps a successful website write uncertain when the host stops before acknow
     expect(restored.requests.at(-1)?.status).toBe('interrupted');
     expect(restored.session?.runs[0]?.operations[0]?.status).toBe('uncertain');
     expect(commits).toBe(1);
+    const beforeRetryGets=initialGets;
     let retryApprovals = 0;
     const retry = await new BrowserCoordinator(core, planner).run({ taskId: task.id, requestId: 'new-write', goal: 'Submit again', origin, url: origin, transmissionApproved: true, approveAction: async () => { retryApprovals++; return { approved: true, write: { method: 'POST', url: `${origin}/commit`, body: '' } }; } });
     expect(retry.status).toBe('failed'); expect(retry.error).toContain('uncertain outcome');
-    expect(retryApprovals).toBe(0);
+    expect(retryApprovals).toBe(0); expect(initialGets).toBe(beforeRetryGets);
     expect(commits).toBe(1);
     const review = new BrowserReconciliation(core), operation = restored.session?.runs[0]?.operations[0];
     if (!operation) throw Error('Missing durable action');

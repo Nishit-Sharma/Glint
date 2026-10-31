@@ -380,6 +380,7 @@ export class Companion {
     return this.exclusive(()=>{
       const task=this.task(this.state,taskId),request=task.requests.find(request=>request.id===requestId);
       if(task.status!=='active'||request?.kind!=='browser'||request.status!=='running')return reject('conflict','The browser request stopped before its starting website was recorded.');
+      if(task.session?.runs.some(run=>run.origin===origin&&run.operations.some(operation=>operation.status==='uncertain')))return reject('conflict','An earlier action on this site has an uncertain outcome. Inspect and reconcile it before opening another browser.');
       if(request.browserStart){if(request.browserStart.origin!==origin)return reject('conflict','The browser starting website changed. Start a new request.');return clone(request.browserStart);}
       if(task.session?.runs.some(run=>run.id===requestId))return reject('conflict','The browser already has an observation. Its starting website cannot be recorded retrospectively.');
       return this.commit(state=>{const task=this.task(state,taskId),request=task.requests.find(request=>request.id===requestId)!;request.browserStart=receipt;task.updatedAt=this.time();return receipt;});

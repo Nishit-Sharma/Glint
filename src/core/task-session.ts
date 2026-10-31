@@ -41,6 +41,7 @@ export const TaskSessionSchema = Schema.Struct({
   browserContext: Schema.optional(Schema.Struct({ origin: text, url: text, requestId: id })),
   runs: Schema.Array(Schema.Struct({
     id, endpointKey: id, origin: text, browserId: id,
+    workflow:Schema.optional(Schema.Struct({artifactId:id,revision:Schema.Int.pipe(Schema.positive()),digest:id})),
     initialObservation: BrowserObservationSchema,
     operations: Schema.Array(BrowserOperationSchema).pipe(Schema.maxItems(64)),
   })).pipe(Schema.maxItems(100)),

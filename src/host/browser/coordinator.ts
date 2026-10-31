@@ -5,7 +5,7 @@ import { Schema } from 'effect';
 import { Companion, CompanionError } from '../../core/companion';
 import { emptyTaskSession, type TaskSession, type BrowserObservation, type ComposerDraft } from '../../core/task-session';
 import { modelModuleText, parseModelModule, parseModuleAnswer, type ModelModuleDraft } from '../../core/interactive-modules';
-import type { Task } from '../../core/types';
+import type { Task,ArtifactRef } from '../../core/types';
 import {readTaskArtifactText} from '../../core/task-dialogue';
 import {browserObservationErrorMessage,BROWSER_CLEANUP_UNCONFIRMED,BROWSER_ACTION_NOT_RUN} from '../../shared/public-messages';
 import { LocalBrowser, BrowserObservationChangedError, ExpectedFormFields, type FormValuesMismatch, type BrowserProposal, type WriteScope, type BrowserWindowOwner } from './local-browser';
@@ -33,6 +33,7 @@ const safeActionFailures=new Set([
  'This form changes its submitted fields and needs a dedicated reviewed adapter.',
  'This form method is not supported.',
  'The form targets another website. Authorize that site separately.',
+ 'The form targets a path outside this workflow. Edit and review the saved path before another attempt.',
 ]);
 function browserActionFailure(error:unknown):string{
  if(error instanceof Error&&safeActionFailures.has(error.message))return error.message;
@@ -73,18 +74,18 @@ export function taskContext(task: Task, currentRequestId: string, current?: {obs
 /** One host-owned loop; request state is authoritative in Companion, not a second agent ledger. */
 export class BrowserCoordinator {
   constructor(private readonly core: Companion, private readonly planner: BrowserPlanner) {}
-  private async patch(taskId: string, change: (session: TaskSession) => TaskSession) {
+  private async patch(taskId: string, change: (session: TaskSession) => TaskSession,artifactRefs?:ArtifactRef[]) {
     for (let retry = 0; retry < 4; retry++) {
       const task = await this.core.getTask(taskId), session = task.session ?? emptyTaskSession();
-      try { return await this.core.replaceSession(taskId, session.revision, change(session)); }
+      try { return await this.core.replaceSession(taskId, session.revision, change(session),artifactRefs?{sourceRefs:[],artifactRefs,requireActive:true}:undefined); }
       catch (error) { if (!(error instanceof CompanionError) || error.code !== 'conflict' || retry === 3) throw error; }
     }
     throw Error('Task session could not be saved.');
   }
-  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; control?:BrowserControl; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
+  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; expectedArtifacts?:ArtifactRef[]; workflow?:ArtifactRef; pathPrefix?:string; control?:BrowserControl; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
     if (input.transmissionApproved !== true) throw Error('Approve transmission of this task history and the selected browser origin before planning.');
     const endpointKey = this.planner.endpointKey;
-    return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [],...(input.continuation?{browserContinuation:input.continuation}:{}), ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url,...(input.continuation?{continuation:input.continuation}:{}) }) }, async ctx => {
+    return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [],...(input.expectedArtifacts?{expectedArtifacts:input.expectedArtifacts}:{}),...(input.continuation?{browserContinuation:input.continuation}:{}), ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url,...(input.pathPrefix?{pathPrefix:input.pathPrefix}:{}),...(input.continuation?{continuation:input.continuation}:{}) }) }, async ctx => {
       let browser: LocalBrowser | undefined;
       const control=input.control??new BrowserControl();
       const stop = () => { void browser?.close().catch(()=>{}); };
@@ -95,12 +96,12 @@ export class BrowserCoordinator {
         if(ctx.signal.aborted)throw Error('Stopped before opening the browser.');
         await this.core.recordBrowserStartingSite(input.taskId,input.requestId,input.origin);
         if(ctx.signal.aborted)throw Error('Stopped before opening the browser.');
-        browser = await LocalBrowser.open({ taskId: input.taskId, origin: input.origin, url: input.url, headless: input.headless, signal: ctx.signal,onWindowOwner:input.onWindowOwner });
+        browser = await LocalBrowser.open({ taskId: input.taskId, origin: input.origin, url: input.url,pathPrefix:input.pathPrefix, headless: input.headless, signal: ctx.signal,onWindowOwner:input.onWindowOwner });
         if (ctx.signal.aborted) throw Error('Stopped before observing the browser.');
         let observation:BrowserObservation;
         try { observation = await browser.observe(); } catch(error) { throw Error(browserObservationErrorMessage(error)); }
         input.onProgress?.(`Reading ${observation.title || 'the selected page'}…`);
-        await this.core.beginBrowserRun(input.taskId,{id:input.requestId,endpointKey,origin:input.origin,browserId:browser.id,initialObservation:observation},ctx.task.session?.contextRevision??0);
+        await this.core.beginBrowserRun(input.taskId,{id:input.requestId,endpointKey,origin:input.origin,browserId:browser.id,initialObservation:observation,...(input.workflow?{workflow:input.workflow}:{})},ctx.task.session?.contextRevision??0);
         control.attach(ctx.signal,async()=>{browser!.yieldToUser();await browser!.bringToFront();});
         const boundBrowser=browser;
         const assertRecoveryOwner=(current:Task)=>{
@@ -180,7 +181,7 @@ export class BrowserCoordinator {
           await this.patch(input.taskId, session => {
             if (session.runs.some(run => run.origin === input.origin && run.operations.some(operation => operation.status === 'uncertain'))) throw Error('An earlier action on this site has an uncertain outcome. Inspect and reconcile it before another interaction.');
             return { ...session, runs: session.runs.map(run => ({ ...run, operations: run.operations.map(operation => operation.id !== proposal.id ? operation : { ...operation, status: 'executing' }) })) };
-          });
+          },input.expectedArtifacts);
           if (ctx.signal.aborted) {
             await this.patch(input.taskId,session=>({...session,runs:session.runs.map(run=>run.id!==input.requestId?run:{...run,operations:run.operations.map(operation=>operation.id!==proposal.id?operation:{...operation,status:'retired',error:'This request stopped before the action was run.'})})}));
             throw Error('Stopped before browser execution.');

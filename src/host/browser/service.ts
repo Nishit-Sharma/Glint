@@ -12,13 +12,16 @@ import { BrowserCoordinator, browserPlannerPrompt, parseBrowserPlan } from './co
 import { BrowserReconciliation,untilInspectionStopped } from './reconciliation';
 import type {ComposerDraft} from '../../core/task-session';
 import type {BrowserWindowOwner} from './local-browser';
+import {currentBrowserWorkflow,workflowInvocation,type BrowserWorkflowRun} from '../../shared/browser-workflow';
+import {runAuthoredBrowserWorkflow} from './workflow-service';
 
 type PlannerProvider = { status(): Promise<ConnectionStatus>; run(input: MetaRunInput): Promise<string> };
 type Route = { key: string; provider: PlannerProvider };
+type ActiveControl={control:BrowserControl;origin:string;binding:{kind:'provider';routeKey:string}|{kind:'workflow';workflow:BrowserWorkflowRun['workflow'];pathPrefix:string}};
 /** Human-facing host boundary. No renderer boolean can approve transmission or execution. */
 export class BrowserService {
   private readonly reconciliation: BrowserReconciliation;
-  private readonly controls=new Map<string,{control:BrowserControl;origin:string;routeKey:string}>();
+  private readonly controls=new Map<string,ActiveControl>();
   private readonly returning=new Set<BrowserControl>();
   private readonly lifetime = new AbortController();
   constructor(private readonly core: Companion, private readonly options: {
@@ -52,7 +55,7 @@ export class BrowserService {
     const service = this;
     const control=new BrowserControl(),controlKey=JSON.stringify([input.taskId,input.requestId]);
     if(this.controls.has(controlKey))throw Error('This browser request is already running.');
-    this.controls.set(controlKey,{control,origin:url.origin,routeKey:route.key});
+    this.controls.set(controlKey,{control,origin:url.origin,binding:{kind:'provider',routeKey:route.key}});
     try {
     const result = await coordinator.run({ taskId: input.taskId, requestId: input.requestId, goal: input.prompt,...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), url: url.href, origin: url.origin, transmissionApproved: true,control,
       ...(input.continuation?{continuation:{previousRequestId:input.continuation.selection.requestId,previousDigest:input.continuation.selection.digest,bindingDigest:createHash('sha256').update(input.continuation.binding).digest('hex'),startPageDigest:createHash('sha256').update(url.href).digest('hex'),promptDigest:createHash('sha256').update(input.prompt).digest('hex')}}:{}),
@@ -92,20 +95,40 @@ export class BrowserService {
     return this.core.getTask(input.taskId);
     } finally {control.close();this.controls.delete(controlKey);}
   }
+  async runWorkflow(input:BrowserWorkflowRun,assertHostCurrent:()=>void=()=>{}){
+    const assertCurrent=()=>{assertHostCurrent();if(this.lifetime.signal.aborted)throw Error('This browser session has closed. Start a new request.');};
+    assertCurrent();
+    const workflow=currentBrowserWorkflow(await this.core.getTask(input.taskId),input.workflow);workflowInvocation(workflow,input.url,input.inputs);assertCurrent();
+    const control=new BrowserControl(),key=JSON.stringify([input.taskId,input.requestId]);
+    if(this.controls.has(key))throw Error('This browser request is already running.');
+    this.controls.set(key,{control,origin:workflow.origin,binding:{kind:'workflow',workflow:input.workflow,pathPrefix:workflow.pathPrefix}});
+    try{return await runAuthoredBrowserWorkflow(this.core,input,{control,panel:this.options.panel,assertCurrent,changed:this.options.changed,headless:this.options.headless,onWindowOwner:this.options.onWindowOwner});}
+    finally{control.close();this.controls.delete(key);}
+  }
   controlStatus(input:{taskId:string;requestId:string}):BrowserControlReply{return this.controls.get(JSON.stringify([input.taskId,input.requestId]))?.control.status()??{mode:'unavailable'};}
+  private async assertControlBinding(taskId:string,current:ActiveControl){
+    if(this.lifetime.signal.aborted)throw Error('This browser control is no longer active.');
+    if(current.binding.kind==='provider'){
+      if(this.options.route().key!==current.binding.routeKey)throw Error('This browser request changed. Stop it and review a new request.');
+    }else currentBrowserWorkflow(await this.core.getTask(taskId),current.binding.workflow);
+  }
   async changeControl(input:{taskId:string;requestId:string;id:string;action:'take'|'return'}):Promise<BrowserControlReply>{
     const key=JSON.stringify([input.taskId,input.requestId]),current=this.controls.get(key);
     if(!current||current.control.status().id!==input.id||this.lifetime.signal.aborted)throw Error('This browser control is no longer active.');
     if(input.action==='take')return current.control.take();
     if(current.control.status().mode!=='user')throw Error('Wait until browser work is paused before returning control.');
     const requestSignal=current.control.requestSignal;
-    if(!requestSignal||requestSignal.aborted||this.options.route().key!==current.routeKey)throw Error('This browser request changed. Stop it and review a new request.');
+    if(!requestSignal||requestSignal.aborted)throw Error('This browser request changed. Stop it and review a new request.');
+    await this.assertControlBinding(input.taskId,current);
+    if(this.controls.get(key)!==current||requestSignal.aborted||this.lifetime.signal.aborted)throw Error('This browser control is no longer active.');
     const signal=AbortSignal.any([requestSignal,this.lifetime.signal]);
     if(this.returning.has(current.control))throw Error('Browser control return is already being reviewed.');
     this.returning.add(current.control);
     try {
-    const decision=await dialog.showMessageBox(this.options.panel(),{type:'question',signal,message:'Return browser control to Glint?',detail:`Website: ${current.origin}\n\nGlint will read the current page again and send its visible content and ordinary field values to the previously approved AI service. Do not enter passwords or other private data. ${BROWSER_MANUAL_CONTROL_LIMITS.join('\n\n')}`,buttons:['Keep control','Return control'],defaultId:0,cancelId:0});
-    if(this.controls.get(key)!==current||signal.aborted||this.options.route().key!==current.routeKey)throw Error('This browser control is no longer active.');
+    const continuation=current.binding.kind==='workflow'?`Glint will read the current page again and continue the exact reviewed saved workflow. No model request is made. Every request must remain within the saved path ${current.binding.pathPrefix}.`:'Glint will read the current page again and send its visible content and ordinary field values to the previously approved AI service.';
+    const decision=await dialog.showMessageBox(this.options.panel(),{type:'question',signal,message:'Return browser control to Glint?',detail:`Website: ${current.origin}\n\n${continuation} Do not enter passwords or other private data. ${BROWSER_MANUAL_CONTROL_LIMITS.join('\n\n')}`,buttons:['Keep control','Return control'],defaultId:0,cancelId:0});
+    await this.assertControlBinding(input.taskId,current);
+    if(this.controls.get(key)!==current||signal.aborted)throw Error('This browser control is no longer active.');
     return decision.response===1?current.control.returnToAgent():current.control.status();
     } finally {this.returning.delete(current.control);}
   }

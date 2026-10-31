@@ -1,6 +1,7 @@
 import type {MemoryChange} from './user-memory';
 import type {DocumentImportOwner,DocumentImportAdd} from './document-import';
 import type {BrowserContinuationInput} from './browser-continuation';
+import type {BrowserWorkflowSave,BrowserWorkflowRun} from './browser-workflow';
 import type {TargetPracticeInput,TargetPracticeSubmission} from '../learning/experiment-target-practice';
 import type {SourceFormulaInput,SourceFormulaCommand} from '../learning/source-formula';
 import type {DocumentRecipeRequest,DocumentRecipeSave,DocumentRecipeInspection} from './document-recipe';
@@ -71,6 +72,8 @@ export type Command =
   | {type:'module.document';taskId:string;artifactId:string;artifactRevision:number;sessionRevision:number}
   | {type:'workflow.window.review';taskId:string;requestId:string;candidate:ArtifactRef;review:unknown}
   | {type:'workflow.example';taskId:string;requestId:string}
+  | ({type:'browser.workflow.save'} & BrowserWorkflowSave)
+  | ({type:'browser.workflow.run'} & BrowserWorkflowRun)
   | {type:'helper.create';taskId:string;requestId:string}
   | {type:'helper.document.create';taskId:string;requestId:string}
   | ({type:'helper.document.preview'} & DocumentRecipeRequest)
