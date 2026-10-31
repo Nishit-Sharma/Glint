@@ -1,3 +1,5 @@
+import {DocumentSpeech} from './document-speech';
+import {isSpeechCommand,readSpeechCommand} from '../shared/document-speech';
 import {CodeWorkspaces} from './code-workspace';
 import {isCodeCommand,readCodeCommand,CODE_WORKSPACE_ERROR} from '../shared/code-workspace';
 import {readConversationAttemptReceipt} from '../shared/conversation-attempt';
@@ -145,6 +147,7 @@ let currentViewTaskId:string|undefined
 const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md']}]});return choice.canceled?undefined:choice.filePaths[0];})
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))
+const documentSpeech=new DocumentSpeech({directory:dataDir,core:{getTask:id=>core.getTask(id),replaceSession:(...args)=>core.replaceSession(...args)}})
 const codeWorkspaces=new CodeWorkspaces({directory:dataDir,core:{getTask:id=>core.getTask(id),saveArtifact:(...args)=>core.saveArtifact(...args)},choose:async()=>{const selected=await dialog.showOpenDialog(panel,{title:'Choose local code folder',message:'Browse supported text and code files locally. Each file write needs its own review.',properties:['openDirectory','dontAddToRecent']});return selected.canceled?undefined:selected.filePaths[0];}})
 const learningDrafts=new LearningDraftStore({directory:dataDir,lookupTask:async id=>(await core.listTasks()).find(task=>task.id===id)})
 const browserWindowOwners=new Map<number,number>()
@@ -184,6 +187,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
@@ -873,6 +877,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
   if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
+  if(isSpeechCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Listening selection changed.');};const result=await documentSpeech.command(c,guard);if(c.type==='speech.select'||c.type==='speech.generate')changed(c.taskId);return result;}
   if(isCodeCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error(CODE_WORKSPACE_ERROR);};const result=await codeWorkspaces.command(c,guard);if(['code.file.open','code.file.reload','code.file.save'].includes(c.type))changed(c.taskId);return result;}
   switch(c.type){
     case 'conversation.export.preview':return conversationExports.preview(c)
@@ -1043,7 +1048,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const intake=contextIntake;const result:ContextPending=quitting||!intake||!intake.activation?{kind:'none'}:intake.capturing?{kind:'busy'}:{kind:'ready',activation:structuredClone(intake.activation)};
       return result;
     }
-    case 'context.view':{
+    case 'context.view':documentSpeech.cancel();{
       const requestedTaskChanged=requestedViewTaskId!==c.taskId;
       if(requestedTaskChanged||currentViewTaskId!==c.taskId){sourceDrag?.cancel();sourceContextEpoch++;}
       // A requested task change permanently retires the scoped gesture.
@@ -1316,6 +1321,7 @@ const quitDrafts=createQuitDraftBarrier({
  confirmDiscard:async reason=>{const options={type:'warning',message:'Quit without saving unfinished work?',detail:reason+'\n\nKeep the app open to retain your unsent messages and practice edits, or quit without saving the unconfirmed edits.',buttons:['Keep app open','Quit without saving'],defaultId:0,cancelId:0} as const;const result=await (panel&&!panel.isDestroyed()?dialog.showMessageBox(panel,{...options,buttons:[...options.buttons]}):dialog.showMessageBox({...options,buttons:[...options.buttons]}));return result.response===1;},
 })
 async function stopForQuit(){
+ await documentSpeech.close();
  sourceDrag?.cancel();sourceDragPreview?.clear();sourceContextEpoch++
  retireDocumentFollow('App closing. A new user gesture is required after restart.');quitting=true;quitEpoch++;keyEpoch++;contextIntake=undefined;modifierShortcut.stop();globalShortcut.unregisterAll();shortcutRegistered=false;if(monitor){clearInterval(monitor);monitor=undefined;}
  await retireRecurringGrants();

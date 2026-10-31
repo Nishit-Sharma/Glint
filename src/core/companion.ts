@@ -55,7 +55,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {speech:_speech,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
