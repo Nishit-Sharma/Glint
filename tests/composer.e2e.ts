@@ -12,7 +12,7 @@ test('request options remain inside the composer and can be opened by pointer an
   expect(bounds.x).toBeGreaterThanOrEqual(input.x);expect(bounds.y).toBeGreaterThanOrEqual(input.y);expect(bounds.right).toBeLessThanOrEqual(input.right);expect(bounds.bottom).toBeLessThanOrEqual(input.bottom);
   await button.click();await expect(page.getByLabel('Companion request type',{exact:true})).toBeVisible();await button.click();await expect(page.getByLabel('Companion request type',{exact:true})).toBeHidden();
   await button.focus();await page.keyboard.press('Enter');await expect(page.getByLabel('Companion request type',{exact:true})).toBeVisible();await expect(button).toBeFocused();
-  for(const name of ['Use screen context','Image','Paste text','Use a browser']){await page.keyboard.press('Tab');await expect(page.getByRole('button',{name,exact:true})).toBeFocused();}
+  for(const name of ['Use screen context','Image','Paste text','Use a browser','Build concept map']){await page.keyboard.press('Tab');await expect(page.getByRole('button',{name,exact:true})).toBeFocused();}
   await page.keyboard.press('Tab');await expect(page.locator('.compact-companion .request-sources>summary')).toBeFocused();await page.keyboard.press('Tab');await expect(page.getByLabel('Companion request type',{exact:true})).toBeFocused();
  }finally{await fixture.close()}
 });

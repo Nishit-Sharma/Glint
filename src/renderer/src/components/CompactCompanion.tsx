@@ -105,7 +105,7 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
     <span className={'compact-source-status'+(stale||uncaptured?' stale':'')}>{uncaptured?'Not captured':stale?'Refresh required':version?.kind==='window'?'Snapshot':version?'Saved':''}</span>
     {uncaptured?<Button kind="text" disabled={busy} onClick={onCaptureAttached}>Capture</Button>:version?.kind==='window'?<Button kind="icon" title="Refresh selected source snapshot" disabled={busy} onClick={()=>onRefresh(selected!)}><RefreshCw size={12}/></Button>:<Button kind="text" title={version?'Manage sources':'Add source'} onClick={()=>onWorkspace('sources')}>{scopeIds.length?'Review':'Add source'}</Button>}
    </div>
-   <span className="sr-only">{uncaptured?'This window has not been captured. ':''}{scopeIds.length} selected task references will be used. Capture this window again before each new request.</span>
+   <span className="sr-only">{uncaptured?'This window has not been captured. ':''}{scopeIds.length} selected task references will be used. Frozen snapshots expire after five minutes. Refresh when the source changes.</span>
   </div>}
   <main ref={main} tabIndex={-1} className="compact-main" aria-label="Current source and request">
   <div className="compact-content" ref={content}>

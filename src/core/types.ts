@@ -101,6 +101,7 @@ export interface ProcedureInput {
 /** The detached task's sources contain only the request's selected current versions. */
 export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; signal: AbortSignal }
 export interface RequestInput {
+  queuedFollowup?:{id:string;revision:number;basis:string;scope:string};
   browserContinuation?:BrowserContinuationReceipt;
   /** Host-selected user-authored memory, validated against the current ledger. */
   memory?:MemoryUse;

@@ -1,3 +1,4 @@
+import type {QueueCommand} from './queued-followup';
 import type {RecurringWorkChange} from './recurring-work';
 import type {MemoryChange} from './user-memory';
 import type {DocumentImportOwner,DocumentImportAdd} from './document-import';
@@ -47,6 +48,7 @@ export type Command =
   | ({type:'tasks.archive'} & TaskArchiveChange)
   | {type:'tasks.checkpoint';taskId:string;note:string}
   | {type:'task-pins.get'} | {type:'task-pins.set';taskId:string;pinned:boolean}
+  | QueueCommand
   | {type:'draft.save';taskId:string;expectedRevision:number;draft:Pick<ComposerDraft,'text'|'kind'>}
   | {type:'draft.flushed';quitId:string;error?:string}
   | {type:'learning-drafts.read'}

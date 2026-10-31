@@ -1,3 +1,4 @@
+import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
 import {emptyUserMemory,readMemoryChange,readMemoryUse,selectUserMemory,memoryConsent,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
@@ -53,7 +54,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,...rest}=session;
+  const {draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -423,6 +424,34 @@ export class Companion {
       task.session={...session,draft:next.text,draftKind:next.kind,draftRevision:current.revision+1,revision:session.revision+1};task.updatedAt=this.time();
       return readComposerDraft(task.session);
     }));
+  }
+  private queuedBasis(task:Task,sourceRefs:readonly SourceRef[],precedingRequestIds:readonly string[]):string{
+    const allowed=new Set(precedingRequestIds);
+    const artifacts=task.artifacts.filter(artifact=>!task.requests.some(request=>allowed.has(request.id)&&request.answer?.artifactId===artifact.id&&request.answer.revision===artifact.revisions.at(-1)?.revision&&request.answer.digest===artifact.revisions.at(-1)?.digest));
+    return hash(JSON.stringify({taskId:task.id,title:task.title,goal:task.goal,status:task.status,assignedBotId:task.assignedBotId,project:this.projectGuidance(this.state,task),contextRevision:task.session?.contextRevision??0,browser:task.session?.browserContext??null,sourceRefs,checkpoints:task.checkpoints,artifacts:artifacts.map(artifact=>({id:artifact.id,revisions:artifact.revisions.map(revision=>({revision:revision.revision,digest:revision.digest}))})),requests:task.requests.filter(request=>!allowed.has(request.id))}));
+  }
+  queuedFollowupBasis(taskId:string,sourceRefs:readonly SourceRef[],precedingRequestIds:readonly string[]):Promise<string>{
+    return this.exclusive(()=>{const task=this.task(this.state,taskId);this.validRefs(task,[...sourceRefs]);return this.queuedBasis(task,sourceRefs,precedingRequestIds);});
+  }
+  saveQueuedFollowup(taskId:string,value:QueuedFollowup,expectedRevision:number,submittedDraft?:ComposerDraft):Promise<Task>{
+    const item=Schema.decodeUnknownSync(QueuedFollowupSchema,{onExcessProperty:'error'})(value);
+    return this.exclusive(()=>this.commit(state=>{
+      const task=this.task(state,taskId),session=task.session??emptyTaskSession(),items=[...(session.queuedFollowups??[])],index=items.findIndex(entry=>entry.id===item.id),existing=items[index];
+      if(task.status!=='active'||task.session?.browserContext)reject('conflict','Queued follow-ups support active text tasks only. Browser actions require their own review.');
+      if(existing?.revision===item.revision&&JSON.stringify(existing)===JSON.stringify(item))return task;
+      if((existing?.revision??0)!==expectedRevision||existing&&(existing.status==='dispatched'||existing.status==='cancelled')||item.revision!==expectedRevision+1)reject('conflict','This queued follow-up changed. Reload before editing.');
+      if(this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis)reject('conflict','The queued context changed before saving. Your text is kept.');
+      this.validRefs(task,[...item.sourceRefs]);
+      if(index<0){if(items.length>=100)reject('invalid','This task has reached its saved follow-up limit.');if(state.usedRequestIds.includes(item.id)||state.tasks.some(owner=>owner.id!==taskId&&owner.session?.queuedFollowups?.some(entry=>entry.id===item.id)))reject('conflict','This follow-up identity is already used.');items.push(item);}else{items[index]=item;for(let position=index+1;position<items.length;position++)if(items[position].status==='queued')items[position]={...items[position],status:'held',reason:'An earlier queued message changed. Review this follow-up before queueing it again.'};}
+      const current=readComposerDraft(session),consume=submittedDraft&&sameComposerDraft(current,submittedDraft)&&submittedDraft.text.trim()===item.prompt.trim()&&submittedDraft.kind===item.kind;
+      task.session={...session,queuedFollowups:items,revision:session.revision+1,...(consume?{draft:'',draftKind:current.kind,draftRevision:current.revision}:{})};task.updatedAt=this.time();return task;
+    }));
+  }
+  cancelQueuedFollowup(taskId:string,id:string,expectedRevision:number):Promise<Task>{
+    return this.exclusive(()=>this.commit(state=>{const task=this.task(state,taskId),session=task.session??emptyTaskSession(),items=[...(session.queuedFollowups??[])],index=items.findIndex(item=>item.id===id),item=items[index];if(!item||item.revision!==expectedRevision||!['queued','held'].includes(item.status))reject('conflict','This follow-up changed. Reload before cancelling.');items[index]={...item,revision:item.revision+1,status:'cancelled',reason:'Cancelled before dispatch.'};for(let position=index+1;position<items.length;position++)if(items[position].status==='queued')items[position]={...items[position],status:'held',reason:'An earlier queued message was cancelled. Review this follow-up before queueing it again.'};task.session={...session,revision:session.revision+1,queuedFollowups:items};task.updatedAt=this.time();return task;}));
+  }
+  holdQueuedFollowups(taskId:string,reason:string,id?:string):Promise<Task>{
+    return this.exclusive(()=>this.commit(state=>{const task=this.task(state,taskId),session=task.session??emptyTaskSession(),items=session.queuedFollowups?.map(item=>item.status==='queued'&&(!id||item.id===id)?{...item,status:'held' as const,reason}:item);if(items)task.session={...session,revision:session.revision+1,queuedFollowups:items};return task;}));
   }
   /** Host-only CAS, not a renderer/model command. Uses the same atomic ledger as requests/exports. */
   replaceSession(taskId: string, expectedRevision: number, next: TaskSession, guard?:SessionCommitGuard): Promise<TaskSession> {
@@ -929,6 +958,7 @@ export class Companion {
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
+        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
         task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));

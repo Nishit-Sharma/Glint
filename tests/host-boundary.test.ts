@@ -42,9 +42,9 @@ describe('Projects production path',()=>{
   for(const task of [owner,sibling])await f.command({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
   await f.core.saveComposerDraft(owner.id,0,{text:'PRIVATE_UNSENT_PROJECT_DRAFT',kind:'create'});
   for(const [index,task] of [owner,sibling,outside].entries())await f.command({type:'model.run',taskId:task.id,requestId:'project-request-'+index,kind:'explain',prompt:'Explain the visit evidence.',sourceIds:[]});
-  expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?','Send this request to OpenAI?','Send this request to OpenAI?']);
-  for(const index of [0,1]){expect(f.calls.details[index].detail).toContain(instructions);expect(f.calls.provider[index].projectInstructions).toEqual({projectId:project.id,name:project.name,revision:2,text:instructions});}
-  expect(f.calls.provider[2].projectInstructions).toBeUndefined();expect(f.calls.details[2].detail).not.toContain('PROJECT_GUIDANCE');expect(JSON.stringify(f.calls.provider[2])).not.toContain('PROJECT_GUIDANCE');expect(JSON.stringify(f.calls.provider)).not.toContain('PRIVATE_UNSENT_PROJECT_DRAFT');expect(f.calls.captures).toBe(0);
+  expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?']);
+  for(const index of [0,1]){if(index===0)expect(f.calls.details[index].detail).toContain(instructions);expect(f.calls.provider[index].projectInstructions).toEqual({projectId:project.id,name:project.name,revision:2,text:instructions});}
+  expect(f.calls.provider[2].projectInstructions).toBeUndefined();expect(JSON.stringify(f.calls.provider[2])).not.toContain('PROJECT_GUIDANCE');expect(JSON.stringify(f.calls.provider)).not.toContain('PRIVATE_UNSENT_PROJECT_DRAFT');expect(f.calls.captures).toBe(0);
  });
  it('cancels an obsolete project instruction review before provider transmission',async()=>{
   const f=await fixture(),task:Task=await f.command({type:'tasks.create',title:'Changing project'}),project=await f.command({type:'projects.create',name:'Night visits'});
@@ -265,7 +265,7 @@ async function fixture(settingsBytes?:string){
   const storeFs=`import * as fs from 'node:fs/promises';export const mkdir=fs.mkdir,open=fs.open,readFile=fs.readFile,rm=fs.rm;export const rename=async(...args)=>{await ${seam}.storeBeforeRename?.();return fs.rename(...args);};`
   const hostFs=`import * as fs from 'node:fs/promises';export const mkdir=fs.mkdir,readFile=fs.readFile,writeFile=fs.writeFile,rm=fs.rm;export const realpath=async(path,...args)=>{await ${seam}.applicationPath?.(String(path));return fs.realpath(path,...args);};`
   const outfile=join(dir,'host-under-test.cjs')
-  await build({stdin:{contents:await readFile(join(root,'src/host/index.ts'),'utf8')+'\nexport {command,validate,createCompanion,attach,monitorAttached,activateShortcut,stopForQuit,beginQuit,quitDrafts,recurringWorkRunner};export const resumeForTest=()=>{quitting=false};export const stopMonitor=()=>{if(monitor)clearInterval(monitor)};export const setCore=async c=>{core=c;captureSettings=await CaptureSettings.open(dataDir);botPreferences=await BotPreferences.open(dataDir,core)};export const setPanel=p=>{panel=p};export const captureCache=captures;',resolveDir:join(root,'src/host'),sourcefile:join(root,'src/host/index.ts'),loader:'ts'},bundle:true,platform:'node',format:'cjs',define:{'import.meta.url':JSON.stringify(pathToFileURL(outfile).href)},packages:'external',outfile,plugins:[{name:'inert-host-boundaries',setup(b){b.onResolve({filter:/^node:fs\/promises$/},a=>a.importer.endsWith('/capture-settings.ts')?{path:a.path,namespace:'fixture-fs'}:a.importer.endsWith('/core/store.ts')?{path:a.path,namespace:'fixture-store-fs'}:a.importer.endsWith('/index.ts')?{path:a.path,namespace:'fixture-host-fs'}:undefined);b.onLoad({filter:/.*/,namespace:'fixture-fs'},()=>({contents:captureFs,loader:'js'}));b.onLoad({filter:/.*/,namespace:'fixture-store-fs'},()=>({contents:storeFs,loader:'js'}));b.onLoad({filter:/.*/,namespace:'fixture-host-fs'},()=>({contents:hostFs,loader:'js'}));b.onResolve({filter:/^(electron|\.\/provider|\.\/codex-provider|\.\/native)$/},a=>({path:a.path,namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:a.path==='electron'?electron:a.path==='./native'?native:provider,loader:'js'}))}}]})
+  await build({stdin:{contents:await readFile(join(root,'src/host/index.ts'),'utf8')+'\nexport {command,dispatchCompanionCommand,validate,createCompanion,attach,monitorAttached,activateShortcut,stopForQuit,beginQuit,quitDrafts,recurringWorkRunner};export const resumeForTest=()=>{quitting=false};export const stopMonitor=()=>{if(monitor)clearInterval(monitor)};export const setCore=async c=>{core=c;captureSettings=await CaptureSettings.open(dataDir);botPreferences=await BotPreferences.open(dataDir,core)};export const setPanel=p=>{panel=p};export const captureCache=captures;export const setBrowserServiceForTest=value=>{browserService=value};export const invokeCompanionForTest=value=>dispatchCompanionCommand({sender:panel.webContents,senderFrame:panel.webContents.mainFrame},value);',resolveDir:join(root,'src/host'),sourcefile:join(root,'src/host/index.ts'),loader:'ts'},bundle:true,platform:'node',format:'cjs',define:{'import.meta.url':JSON.stringify(pathToFileURL(outfile).href)},packages:'external',outfile,plugins:[{name:'inert-host-boundaries',setup(b){b.onResolve({filter:/^node:fs\/promises$/},a=>a.importer.endsWith('/capture-settings.ts')?{path:a.path,namespace:'fixture-fs'}:a.importer.endsWith('/core/store.ts')?{path:a.path,namespace:'fixture-store-fs'}:a.importer.endsWith('/index.ts')?{path:a.path,namespace:'fixture-host-fs'}:undefined);b.onLoad({filter:/.*/,namespace:'fixture-fs'},()=>({contents:captureFs,loader:'js'}));b.onLoad({filter:/.*/,namespace:'fixture-store-fs'},()=>({contents:storeFs,loader:'js'}));b.onLoad({filter:/.*/,namespace:'fixture-host-fs'},()=>({contents:hostFs,loader:'js'}));b.onResolve({filter:/^(electron|\.\/provider|\.\/codex-provider|\.\/native)$/},a=>({path:a.path,namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:a.path==='electron'?electron:a.path==='./native'?native:provider,loader:'js'}))}}]})
   const previous=process.env.WINDOW_COMPANION_DATA_DIR;process.env.WINDOW_COMPANION_DATA_DIR=dir
   let host:any;const loadHost=createRequire(pathToFileURL(outfile));
   try{host=loadHost(outfile)}finally{if(previous===undefined)delete process.env.WINDOW_COMPANION_DATA_DIR;else process.env.WINDOW_COMPANION_DATA_DIR=previous}
@@ -275,7 +275,7 @@ async function fixture(settingsBytes?:string){
   host.setPanel({isDestroyed:()=>false,isVisible:()=>visible,hide:()=>{visible=false},setAlwaysOnTop:()=>{},webContents:{isLoading:()=>false,capturePage:async()=>{calls.presentationCaptures++;return seams.presentationCapture();},send:(_topic:string,event:any)=>{calls.events.push(event);if(event.type==='draft.flush')seams.quitFlush?.(event.quitId);if(event.type==='presentation.prepare'&&seams.autoPresentation)presentationAcks.push(host.command({type:'presentation.capture',exitId:event.exitId}));if(event.type==='presentation.exit'&&seams.autoPresentation)presentationAcks.push(host.command({type:'presentation.finish',exitId:event.exitId}).then(()=>event.purpose==='collapse'?host.command({type:'presentation.reveal',exitId:event.exitId}):null));if(event.type==='presentation.enter')presentationAcks.push(host.command({type:'presentation.show',entranceId:event.entranceId}));}},setMinimumSize:(w:number,h:number)=>{minimum=[w,h]},setBounds:(b:typeof bounds)=>{bounds=b},getBounds:()=>bounds,getSize:()=>[bounds.width,bounds.height],show:()=>{visible=true;calls.shows++},showInactive:()=>{visible=true}})
   cleanups.push(async()=>{host.stopMonitor();await host.recurringWorkRunner.stop();await core.close();evictHostFixture(loadHost,outfile);Reflect.deleteProperty(globalThis,key)})
   const command=async(c:unknown):Promise<any>=>host.command(host.validate(c))
-  return {core,command,calls,seams,recurringWorkRunner:host.recurringWorkRunner,directory:dir,stop:host.stopForQuit,beginQuit:host.beginQuit,barrier:host.quitDrafts,resume:host.resumeForTest,hide:()=>{visible=false;},nativeQuitCalls:()=>seams.quitCalls,shortcut:host.activateShortcut,settlePresentation:async()=>{await Promise.resolve();for(let index=0;index<presentationAcks.length;index++)await presentationAcks[index]},bounds:()=>bounds,minimum:()=>minimum,attach:host.attach,monitor:host.monitorAttached,cache:host.captureCache as Map<string,any>,setConfigured:(v:boolean)=>{configured=v},setResponse:(v:number)=>{response=v},setOutput:(v:string)=>{output=v},setCapture:(size:number,name:string)=>{bytes=size;label=name}}
+  return {core,command,setBrowserService:(value:unknown)=>host.setBrowserServiceForTest(value),ipcCommand:(value:unknown)=>host.invokeCompanionForTest(value),untrustedCommand:(value:unknown)=>host.dispatchCompanionCommand({sender:{},senderFrame:{}},value),calls,seams,recurringWorkRunner:host.recurringWorkRunner,directory:dir,stop:host.stopForQuit,beginQuit:host.beginQuit,barrier:host.quitDrafts,resume:host.resumeForTest,hide:()=>{visible=false;},nativeQuitCalls:()=>seams.quitCalls,shortcut:host.activateShortcut,settlePresentation:async()=>{await Promise.resolve();for(let index=0;index<presentationAcks.length;index++)await presentationAcks[index]},bounds:()=>bounds,minimum:()=>minimum,attach:host.attach,monitor:host.monitorAttached,cache:host.captureCache as Map<string,any>,setConfigured:(v:boolean)=>{configured=v},setResponse:(v:number)=>{response=v},setOutput:(v:string)=>{output=v},setCapture:(size:number,name:string)=>{bytes=size;label=name}}
 }
 describe('Prepared exit capture authority',()=>{
  it('captures once after preparation and rejects stale acknowledgements and late delivery',async()=>{
@@ -320,8 +320,40 @@ describe('Shutdown admission and draft durability',()=>{
     f.setResponse(1);await f.beginQuit();await expect.poll(()=>f.nativeQuitCalls()).toBe(1);
   });
 });
+describe('Ordinary Ask transmission consent',()=>{
+ it('sends deliberate Asks with current context and renews only changed provider account-session consent',async()=>{
+  const f=await fixture(),a=await f.core.createTask({title:'First synthetic task'}),b=await f.core.createTask({title:'Second synthetic task'});
+  const ask=(id:string,taskId=a.id)=>f.command({type:'model.run',taskId,requestId:id,kind:'explain',prompt:'Explain this synthetic question.',sourceIds:[]});
+  await ask('initial');expect(f.calls.details[0].detail).toContain('Ask sends your explicit questions and drafts immediately');expect(f.calls.details[0].detail).toContain('even when those sources are now deselected');
+  f.setResponse(0);await ask('follow-up',b.id);
+  await f.command({type:'memory.change',expectedRevision:0,change:{kind:'save',text:'Use synthetic examples.',topics:[]}});await ask('changed-memory');
+  await f.command({type:'response-preferences.update',expectedRevision:0,enabled:true,text:'Keep answers concise.'});await ask('changed-guidance');
+  expect(f.calls.provider).toHaveLength(4);expect(f.calls.confirmations).toHaveLength(1);expect(f.calls.provider.at(-1).taskContext).toContain('Keep answers concise.');
+  f.seams.recurringAccount='different-private-account';await expect(ask('changed-external-account')).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(4);
+  f.setResponse(1);await ask('approved-account');expect(f.calls.provider.at(-1).expectedAccountScope).toBe('different-private-account');
+  await f.command({type:'connection.select',provider:'codex'});f.setResponse(0);await expect(ask('changed-route')).rejects.toThrow('not authorized');
+  await f.command({type:'connection.disconnect'});await f.command({type:'connection.select',provider:'codex'});await expect(ask('after-disconnect')).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(5);
+ });
+ it('holds an account change during initial review before transmission',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Account race'});f.seams.confirm=async()=>{f.seams.recurringAccount='changed-during-review';return {response:1};};
+  await expect(f.command({type:'model.run',taskId:task.id,requestId:'account-race',kind:'explain',prompt:'Synthetic question.',sourceIds:[]})).rejects.toThrow('connection or instructions changed');expect(f.calls.provider).toHaveLength(0);
+ });
+ it('ordinary consent does not authorize an automatic screen brief, revision or structured request',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Synthetic request boundaries'}),saved=await f.core.saveArtifact(task.id,{title:'Synthetic draft',content:'Original synthetic content.'});
+  await f.command({type:'model.run',taskId:task.id,requestId:'initial',kind:'create',prompt:'Write a synthetic note.',sourceIds:[]});f.setResponse(0);
+  for(const kind of ['brief','revise','experiment','procedure'] as const)await expect(f.command({type:'model.run',taskId:task.id,requestId:kind,kind,prompt:'Synthetic request.',sourceIds:[],...(kind==='revise'?{artifactId:saved.artifactId}:{})})).rejects.toThrow('not authorized');
+  expect(f.calls.confirmations).toHaveLength(5);expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
+ });
+ it('a cancelled initial consent cannot authorize a later Ask',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Synthetic consent cancellation'}),barrier=hold(),confirm=f.seams.confirm;
+  f.seams.confirm=async(...args)=>{barrier.enter();await barrier.wait;return confirm(...args);};
+  const pending=f.command({type:'model.run',taskId:task.id,requestId:'cancel-in-consent',kind:'explain',prompt:'Synthetic first question.',sourceIds:[]});await barrier.started;await f.command({type:'model.cancel',taskId:task.id,requestId:'cancel-in-consent'});barrier.release();await expect(pending).rejects.toThrow();
+  f.seams.confirm=confirm;f.setResponse(0);await expect(f.command({type:'model.run',taskId:task.id,requestId:'later',kind:'explain',prompt:'Synthetic next question.',sourceIds:[]})).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(0);expect(f.calls.confirmations).toHaveLength(2);
+ });
+});
+
 describe('Production host authority and capture boundaries',()=>{
-  it('reuses one frozen capture for two separately approved ordinary requests',async()=>{
+  it('reuses one frozen capture and the initial connection consent for ordinary follow-ups',async()=>{
     const f=await fixture(),task=await f.command({type:'tasks.create',title:'Frozen context follow-up'});
     const captured:Task=await f.command({type:'windows.capture',taskId:task.id,windowId:'window:1'});
     const source=captured.sources[0],version=source.versions[0];
@@ -330,7 +362,7 @@ describe('Production host authority and capture boundaries',()=>{
       expect(done.requests.at(-1)?.status).toBe('completed');
     }
     expect(f.calls.captures).toBe(1);
-    expect(f.calls.confirmations).toEqual(['Capture this window?','Send this request to OpenAI?','Send this request to OpenAI?']);
+    expect(f.calls.confirmations).toEqual(['Capture this window?','Send this request to OpenAI?']);
     expect(f.calls.provider).toHaveLength(2);
     for(const request of f.calls.provider){
       expect(request.sources).toHaveLength(1);
@@ -372,22 +404,21 @@ describe('Production host authority and capture boundaries',()=>{
       await f.command({type:'model.run',taskId,requestId,kind:'explain',prompt:'Use my selected source.',sourceIds:[sourceId]});
     }
     expect(f.calls.provider.map(request=>request.sources.map((source:any)=>source.content))).toEqual([['data:image/png;base64,Y2FwdHVyZS1B'],['data:image/png;base64,Y2FwdHVyZS1C'],['data:image/png;base64,Y2FwdHVyZS1B']]);
-    expect(f.calls.captures).toBe(2);expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(3);
+    expect(f.calls.captures).toBe(2);expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(1);
   });
-  it('keeps eligible frozen pixels after denial and requires approval again for retry',async()=>{
+  it('keeps eligible frozen pixels after initial denial and requires consent again for retry',async()=>{
     const f=await fixture(),task=await f.command({type:'tasks.create',title:'Denied frozen follow-up'});
     const captured:Task=await f.command({type:'windows.capture',taskId:task.id,windowId:'window:1'}),source=captured.sources[0];
-    await f.command({type:'model.run',taskId:task.id,requestId:'approved-first',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]});
     f.setResponse(0);
-    await expect(f.command({type:'model.run',taskId:task.id,requestId:'denied-follow-up',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]})).rejects.toThrow('not authorized');
-    expect(f.calls.provider).toHaveLength(1);
+    await expect(f.command({type:'model.run',taskId:task.id,requestId:'denied-first',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]})).rejects.toThrow('not authorized');
+    expect(f.calls.provider).toHaveLength(0);
     f.setResponse(1);
     await f.command({type:'model.run',taskId:task.id,requestId:'approved-retry',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]});
-    expect(f.calls.provider).toHaveLength(2);expect(f.calls.captures).toBe(1);
-    expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(3);
-    expect(f.calls.provider[1].sources[0].content).toBe('data:image/png;base64,Y2FwdHVyZS1B');
+    expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(1);
+    expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(2);
+    expect(f.calls.provider[0].sources[0].content).toBe('data:image/png;base64,Y2FwdHVyZS1B');
   });
-  it.each(['inspect','provider'] as const)('allows an approved frozen retry after cancellation during %s',async boundary=>{
+  it.each(['inspect','provider'] as const)('keeps initial connection consent for an explicit frozen retry after cancellation during %s',async boundary=>{
     const f=await fixture(),task=await f.command({type:'tasks.create',title:'Cancelled frozen request'});
     const captured:Task=await f.command({type:'windows.capture',taskId:task.id,windowId:'window:1'}),source=captured.sources[0];
     const inspect=f.seams.native.inspect,run=f.seams.run;
@@ -402,7 +433,7 @@ describe('Production host authority and capture boundaries',()=>{
     f.seams.native.inspect=inspect;f.seams.run=run;
     await f.command({type:'model.run',taskId:task.id,requestId:'retry-frozen',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]});
     expect(f.calls.provider.at(-1).sources[0].content).toBe('data:image/png;base64,Y2FwdHVyZS1B');
-    expect(f.calls.captures).toBe(1);expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(2);
+    expect(f.calls.captures).toBe(1);expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(1);
   });
   it('rejects frozen pixels invalidated while native inspection is pending',async()=>{
     const f=await fixture(),task=await f.command({type:'tasks.create',title:'Invalidated delayed inspection'});
@@ -1187,7 +1218,7 @@ function syntheticFinalTransport(route:'meta'|'codex',preparing:()=>void){
  const adapter=route==='meta'?new MetaProvider({getKey:async()=>{preparing();return 'synthetic-only';},fetch:async()=>{sent.push('meta-fetch');return new Response('data: '+JSON.stringify({id:'synthetic',object:'chat.completion.chunk',choices:[{index:0,delta:{content:'Synthetic answer'},finish_reason:null}]})+'\n\ndata: '+JSON.stringify({id:'synthetic',object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n',{headers:{'Content-Type':'text/event-stream'}});}}):new CodexProvider({cliPath:'/synthetic/no-cli',connect:async()=>({
   request:async(method:string)=>{
    if(method==='initialize')return {};
-   if(method==='account/read')return {account:{type:'chatgpt'}};
+   if(method==='account/read')return {account:{type:'chatgpt',email:'synthetic-account@example.invalid'}};
    if(method==='model/list')return {data:[{model:'gpt-6-luna',serviceTiers:[{id:'priority',name:'Fast'}],supportedReasoningEfforts:[{reasoningEffort:'medium'}]}]};
    if(method==='thread/start'){preparing();return {model:'gpt-6-luna',serviceTier:'priority',reasoningEffort:'medium',sandbox:{type:'readOnly'},thread:{id:'synthetic-thread'},instructionSources:[]};}
    if(method==='turn/start'){sent.push('codex-turn');queueMicrotask(()=>{for(const listener of listeners){listener({method:'item/completed',params:{threadId:'synthetic-thread',item:{id:'synthetic-answer',type:'agentMessage',phase:'final_answer',text:'Synthetic answer'}}});listener({method:'turn/completed',params:{threadId:'synthetic-thread',turn:{id:'synthetic-turn',status:'completed'}}});}});return {turn:{id:'synthetic-turn'}};}
@@ -1200,7 +1231,7 @@ describe('Fresh OS facts at actual adapter send boundary',()=>{
  it.each([['meta','permission'],['meta','target'],['codex','permission'],['codex','target']] as const)('blocks %s when %s changes during the final settings read',async(route,change)=>{
   const f=await fixture(captureRecord()),capture=f.seams.native.capture,barrier=hold();
   f.seams.native.capture=async(id,options)=>({...await capture(id,options),dataUrl:'data:image/png;base64,iVBORw0KGgoAAAAASUhEUgAAABAAAAAQ'});
-  const captured=await takeShortcut(f);let preparing=false,held=false;const transport=syntheticFinalTransport(route,()=>{preparing=true;});f.seams.run=input=>transport.adapter.run(input);
+  const captured=await takeShortcut(f);let preparing=false,held=false;const transport=syntheticFinalTransport(route,()=>{preparing=true;});f.seams.accountScope=async()=>{const previous=preparing;const scope=await transport.adapter.accountScope();preparing=previous;return scope;};f.seams.run=input=>transport.adapter.run(input);
   f.seams.settingsRead=async()=>{if(preparing&&!held){held=true;barrier.enter();await barrier.wait;}};
   const pending=f.command({type:'model.run',taskId:captured.task.id,requestId:'fresh-'+route+'-'+change,kind:'explain',prompt:'Synthetic only',sourceIds:[captured.sourceId]}).then(()=> 'completed',()=> 'blocked');
   await barrier.started;if(change==='permission')f.seams.native.permissionStatus=async()=>({screen:'denied'});else{const inspect=f.seams.native.inspect;f.seams.native.inspect=async id=>({...await inspect(id),documentToken:'changed-after-preparation'});}barrier.release();
@@ -1248,7 +1279,7 @@ describe('Multiple captured window final preparation',()=>{
   const f=await fixture(captureRecord()),inspect=f.seams.native.inspect,capture=f.seams.native.capture,paths={'window:1':join(f.directory,'synthetic-A'),'window:2':join(f.directory,'synthetic-B')},barrier=hold();for(const path of Object.values(paths))await writeFile(path,'Synthetic identity only');
   f.seams.native.inspect=async id=>({...await inspect(id),owner:{name:'Synthetic source',processId:1,path:paths[id as keyof typeof paths]}});
   f.seams.native.capture=async(id,options)=>({...await capture(id,options),source:await f.seams.native.inspect(id),dataUrl:'data:image/png;base64,iVBORw0KGgoAAAAASUhEUgAAABAAAAAQ'});
-  const first=await takeShortcut(f),task=await f.command({type:'windows.capture',taskId:first.task.id,windowId:'window:2'});let preparing=false,held=false;const transport=syntheticFinalTransport('meta',()=>{preparing=true;});f.seams.run=input=>transport.adapter.run(input);
+  const first=await takeShortcut(f),task=await f.command({type:'windows.capture',taskId:first.task.id,windowId:'window:2'});let preparing=false,held=false;const transport=syntheticFinalTransport('meta',()=>{preparing=true;});f.seams.accountScope=async()=>{const previous=preparing;const scope=await transport.adapter.accountScope();preparing=previous;return scope;};f.seams.run=input=>transport.adapter.run(input);
   f.seams.applicationPath=async path=>{if(preparing&&!held&&path.endsWith('synthetic-B')){held=true;barrier.enter();await barrier.wait;}};
   const pending=f.command({type:'model.run',taskId:task.id,requestId:'fresh-all-windows',kind:'explain',prompt:'Synthetic only',sourceIds:task.sources.map((source:{id:string})=>source.id)}).then(()=> 'completed',()=> 'blocked');await barrier.started;
   const before=f.seams.native.inspect;f.seams.native.inspect=async id=>({...await before(id),...(id==='window:1'?{documentToken:'first-window-changed-during-second-path-read'}:{})});barrier.release();const outcome=await pending;expect(transport.sent).toEqual([]);expect(outcome).toBe('blocked');
@@ -1297,6 +1328,7 @@ describe('Ordinary follow-up continuity',()=>{
   await f.core.runRequest({taskId:other.id,requestId:'foreign',kind:'create',prompt:'FOREIGN_SECRET',sourceIds:[]},async()=>({title:'Other',content:'FOREIGN_ANSWER'}));
   await f.command({type:'model.run',taskId:task.id,requestId:'first',kind:'explain',prompt:'Compare the walking routes.',sourceIds:[]});
   await f.core.checkpoint(task.id,'Keep the riverside option.');
+  await f.command({type:'connection.select',provider:'codex'});
   await f.command({type:'model.run',taskId:task.id,requestId:'follow',kind:'explain',prompt:'Why that one?',sourceIds:[]});
   const transmitted=f.calls.provider.at(-1),approval=f.calls.details.at(-1);
   expect(transmitted.taskContext).toContain('Compare the walking routes.');
@@ -1325,8 +1357,8 @@ describe('Task view restart authority',()=>{
   const selectingA=f.command({type:'context.view',taskId:a.id});await started;const selectingB=f.command({type:'context.view',taskId:b.id});release();await Promise.all([selectingA,selectingB]);
   const {TaskViewPreferences}=await import('../src/host/task-view-preferences');const fresh=new TaskViewPreferences(f.directory,async id=>(await f.core.listTasks()).some(task=>task.id===id));expect(await fresh.read()).toEqual({kind:'available',taskId:b.id});expect(f.calls.captures).toBe(0);expect(f.calls.provider).toEqual([]);expect((await f.core.listTasks()).flatMap(task=>task.requests)).toEqual([]);
  });
- it('declining follow-up transmission neither sends task history nor creates a completed answer',async()=>{
-  const f=await fixture(),task=await f.core.createTask({title:'Consent'});await f.command({type:'model.run',taskId:task.id,requestId:'initial',kind:'explain',prompt:'Explain the route.',sourceIds:[]});f.setResponse(0);
+ it('declining renewed connection consent neither sends follow-up history nor creates a completed answer',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Consent'});await f.command({type:'model.run',taskId:task.id,requestId:'initial',kind:'explain',prompt:'Explain the route.',sourceIds:[]});await f.command({type:'connection.select',provider:'codex'});f.setResponse(0);
   await expect(f.command({type:'model.run',taskId:task.id,requestId:'declined',kind:'explain',prompt:'Why that route?',sourceIds:[]})).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(1);const saved=await f.core.getTask(task.id);expect(saved.requests.at(-1)).toMatchObject({id:'declined',status:'failed'});expect(saved.requests.at(-1)?.answer).toBeUndefined();expect(saved.artifacts).toHaveLength(1);
  });
 });
@@ -1483,7 +1515,7 @@ describe('Opt-in response preferences production boundary',()=>{
   expect(f.calls.details[0].detail).toContain('Response preferences off.');expect(JSON.stringify(f.calls.provider[0])).not.toContain('Disabled local text');expect(JSON.stringify(await f.core.getTask(task.id))).not.toContain('Disabled local text');
   const text='Use concise explanations.\n  Keep exact Unicode α 👋.';await f.command({type:'response-preferences.update',expectedRevision:1,enabled:true,text});
   const command={type:'model.run',taskId:task.id,requestId:'exact-guidance',kind:'create',prompt:'Write a draft',sourceIds:[]};await f.command(command);await f.command(command);
-  expect(f.calls.provider).toHaveLength(2);expect(f.calls.details).toHaveLength(2);expect(f.calls.details[1].detail).toContain(text);expect(JSON.parse(f.calls.provider[1].taskContext).responsePreferences).toMatchObject({revision:2,text});
+  expect(f.calls.provider).toHaveLength(2);expect(f.calls.details).toHaveLength(1);expect(JSON.parse(f.calls.provider[1].taskContext).responsePreferences).toMatchObject({revision:2,text});
   await f.command({type:'response-preferences.update',expectedRevision:2,enabled:true,text:'New style'});await expect(f.command(command)).rejects.toThrow(/different|reus|payload/i);expect(f.calls.provider).toHaveLength(2);expect((await f.core.getTask(task.id)).session?.draft).toBe(draft.text);
  });
  it('retires approved preferences changed while native consent is open before any provider dispatch',async()=>{
@@ -1507,7 +1539,7 @@ describe('Opt-in response preferences production boundary',()=>{
 describe('Response preference fence at actual provider adapters',()=>{
  it.each(['meta','codex'] as const)('blocks %s final transmission after consent when a saved preference changes during adapter preparation',async route=>{
   const f=await fixture(),task=await f.core.createTask({title:'Final '+route+' preference fence'});await f.command({type:'response-preferences.update',expectedRevision:0,enabled:true,text:'Exact approved style'});let preparing=false;const transport=syntheticFinalTransport(route,()=>{preparing=true;}),barrier=hold();
-  f.seams.run=async input=>transport.adapter.run({...input,captureFence:{assertCurrent:input.captureFence.assertCurrent,check:async()=>{if(preparing){barrier.enter();await barrier.wait;}await input.captureFence.check();}}});
+  f.seams.accountScope=async()=>{const previous=preparing;const scope=await transport.adapter.accountScope();preparing=previous;return scope;};f.seams.run=async input=>transport.adapter.run({...input,captureFence:{assertCurrent:input.captureFence.assertCurrent,check:async()=>{if(preparing){barrier.enter();await barrier.wait;}await input.captureFence.check();}}});
   const pending=f.command({type:'model.run',taskId:task.id,requestId:'final-'+route,kind:'explain',prompt:'A synthetic text question',sourceIds:[]}).then(()=> 'completed',error=>String(error));await barrier.started;await f.command({type:'response-preferences.update',expectedRevision:1,enabled:true,text:'New unapproved style'});barrier.release();expect(await pending).not.toBe('completed');expect(transport.sent).toEqual([]);expect((await f.core.getTask(task.id)).artifacts).toEqual([]);
  });
 });
@@ -1645,7 +1677,7 @@ it('recorded text stays out of actual model consent and provider payloads includ
  await expect(f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-revise',kind:'revise',prompt:'Explain the metadata',artifactId:owned.derived.artifactId,sourceIds:[]})).rejects.toThrow('Use this answer’s controls');
  expect(f.calls.provider).toHaveLength(1);expect(f.calls.details).toHaveLength(1);
  for(const sentinel of Object.values(privateText)){expect(JSON.stringify(f.calls.provider)).not.toContain(sentinel);expect(JSON.stringify(f.calls.details)).not.toContain(sentinel);}
- f.setResponse(0);await expect(f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-denied',kind:'explain',prompt:'Another public question',sourceIds:[]})).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
+ await f.command({type:'connection.select',provider:'codex'});f.setResponse(0);await expect(f.command({type:'model.run',taskId:owned.taskId,requestId:'private-model-denied',kind:'explain',prompt:'Another public question',sourceIds:[]})).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
 });
 
 
@@ -1704,5 +1736,76 @@ describe('Scoped recurring responses',()=>{
  });
  it('does not transmit when the atomic occurrence claim fails',async()=>{
   const f=await fixture();const view=await f.command({type:'schedules.change',change:due});await f.command({type:'schedules.change',change:{kind:'resume',id:due.id,expectedRevision:view.items[0].revision}});f.seams.storeBeforeRename=async()=>{throw Error('Synthetic occurrence claim write failure');};f.recurringWorkRunner.start();await expect.poll(()=>f.recurringWorkRunner.read().state).toBe('error');await f.recurringWorkRunner.stop();expect(f.calls.provider).toEqual([]);
+ });
+});
+
+
+describe('Queued ordinary text through production IPC',()=>{
+ it('dispatches exact FIFO edited generations once, preserves newer drafts and keeps queued text out of earlier context',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Owned queue'}),first=hold(),second=hold();
+  f.seams.run=async input=>{f.calls.provider.push(input);if(f.calls.provider.length===1){first.enter();await first.wait;}else if(f.calls.provider.length===2){second.enter();await second.wait;}return 'Synthetic answer '+f.calls.provider.length;};
+  const running=f.ipcCommand({type:'model.run',taskId:task.id,requestId:'queue-parent',kind:'explain',prompt:'Initial question',sourceIds:[]});await first.started;
+  const draft=await f.core.saveComposerDraft(task.id,0,{text:'PRIVATE_QUEUED_ONE',kind:'explain'}),submit={type:'queue.submit',taskId:task.id,id:'queued-one',prompt:draft.text,kind:'explain',sourceIds:[],expectedSourceRefs:[],submittedDraft:draft};
+  await f.ipcCommand(submit);await f.ipcCommand(submit);await f.core.saveComposerDraft(task.id,1,{text:'NEWER_UNSENT_DRAFT',kind:'create'});
+  await f.ipcCommand({type:'queue.submit',taskId:task.id,id:'queued-two',prompt:'Second follow-up',kind:'create',sourceIds:[],expectedSourceRefs:[]});
+  await f.ipcCommand({type:'queue.edit',taskId:task.id,id:'queued-one',expectedRevision:1,prompt:'Edited first follow-up',kind:'explain',sourceIds:[],expectedSourceRefs:[]});
+  const held=await f.core.getTask(task.id);expect(held.session?.queuedFollowups?.[1].status).toBe('held');
+  await f.ipcCommand({type:'queue.cancel',taskId:task.id,id:'queued-two',expectedRevision:1});
+  await f.ipcCommand({type:'queue.submit',taskId:task.id,id:'queued-three',prompt:'Final follow-up',kind:'explain',sourceIds:[],expectedSourceRefs:[]});
+  expect(JSON.stringify(f.calls.provider[0])).not.toContain('PRIVATE_QUEUED_ONE');first.release();await running;await second.started;
+  expect(f.calls.provider[1].prompt).toBe('Edited first follow-up');expect(f.calls.confirmations).toHaveLength(1);second.release();
+  await expect.poll(()=>f.calls.provider.length).toBe(3);await expect.poll(async()=>(await f.core.getTask(task.id)).requests.at(-1)?.status).toBe('completed');
+  const saved=await f.core.getTask(task.id);expect(saved.requests.map(request=>request.prompt)).toEqual(['Initial question','Edited first follow-up','Final follow-up']);expect(saved.session?.draft).toBe('NEWER_UNSENT_DRAFT');expect(saved.session?.queuedFollowups?.map(item=>[item.status,item.dispatchedRequestId])).toEqual([['dispatched','queued-one'],['cancelled',undefined],['dispatched','queued-three']]);expect(f.calls.provider[2].taskContext).toContain('Edited first follow-up');expect(JSON.stringify(f.calls.provider)).not.toContain('NEWER_UNSENT_DRAFT');expect(JSON.stringify(f.calls.provider[1])).not.toContain('Final follow-up');
+ });
+ it.each(['source','project','preferences','account'] as const)('holds the exact queued text after a %s change instead of silently retargeting it',async change=>{
+  const f=await fixture(),initial=await f.core.createTask({title:'Queued context fence'}),task=await f.core.putSource(initial.id,{kind:'text',role:'fact',label:'Owned source',content:'Version one'}),source=task.sources[0],ref={sourceId:source.id,version:1,digest:source.versions[0].digest},barrier=hold();
+  f.seams.run=async input=>{f.calls.provider.push(input);barrier.enter();await barrier.wait;return 'Synthetic initial result';};
+  const running=f.ipcCommand({type:'model.run',taskId:task.id,requestId:'scope-parent',kind:'explain',prompt:'First question',sourceIds:[]}).catch(()=>undefined);await barrier.started;
+  await f.ipcCommand({type:'queue.submit',taskId:task.id,id:'scope-queue',prompt:'KEEP_EXACT_QUEUE_TEXT',kind:'explain',sourceIds:[source.id],expectedSourceRefs:[ref]});
+  if(change==='source')await f.core.putSource(task.id,{id:source.id,kind:'text',role:'fact',label:'Owned source',content:'Version two'});
+  if(change==='project'){const project=await f.ipcCommand({type:'projects.create',name:'New project'});await f.ipcCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});}
+  if(change==='preferences')await f.ipcCommand({type:'response-preferences.update',expectedRevision:0,enabled:true,text:'Changed style'});
+  if(change==='account')f.seams.recurringAccount='different-private-account';
+  barrier.release();await running;await expect.poll(async()=>(await f.core.getTask(task.id)).session?.queuedFollowups?.[0].status).toBe('held');
+  const result=await f.core.getTask(task.id);expect(result.session?.queuedFollowups?.[0].prompt).toBe('KEEP_EXACT_QUEUE_TEXT');expect(result.session?.queuedFollowups?.[0].sourceRefs).toEqual([ref]);expect(result.requests).toHaveLength(1);expect(f.calls.provider).toHaveLength(1);expect(f.calls.confirmations).toHaveLength(1);
+ });
+ it('explicitly reviews a held source snapshot and sends once through the existing grant without another modal',async()=>{
+  const f=await fixture(),created=await f.core.createTask({title:'Queue review owner'}),task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Owned source',content:'Old source'}),source=task.sources[0],barrier=hold();let first=true;
+  f.seams.run=async input=>{f.calls.provider.push(input);if(first){first=false;barrier.enter();await barrier.wait;}return 'Synthetic answer';};
+  const running=f.ipcCommand({type:'model.run',taskId:task.id,requestId:'review-parent',kind:'explain',prompt:'Initial question',sourceIds:[]});await barrier.started;
+  await f.ipcCommand({type:'queue.submit',taskId:task.id,id:'review-queue',prompt:'Exact held follow-up',kind:'explain',sourceIds:[source.id],expectedSourceRefs:[{sourceId:source.id,version:1,digest:source.versions[0].digest}]});
+  const updated=await f.core.putSource(task.id,{id:source.id,kind:'text',role:'fact',label:'Owned source',content:'Reviewed current source'});barrier.release();await running;await expect.poll(async()=>(await f.core.getTask(task.id)).session?.queuedFollowups?.[0].status).toBe('held');
+  const current=updated.sources[0].versions.at(-1)!;await f.ipcCommand({type:'queue.edit',taskId:task.id,id:'review-queue',expectedRevision:1,prompt:'Reviewed exact follow-up',kind:'explain',sourceIds:[source.id],expectedSourceRefs:[{sourceId:source.id,version:current.version,digest:current.digest}]});
+  await expect.poll(()=>f.calls.provider.length).toBe(2);await expect.poll(async()=>(await f.core.getTask(task.id)).requests.at(-1)?.status).toBe('completed');expect(f.calls.confirmations).toHaveLength(1);expect(f.calls.provider[1].sources[0].content).toBe('Reviewed current source');expect(f.calls.provider[1].prompt).toBe('Reviewed exact follow-up');
+ });
+ it('renews necessary session consent directly from explicit held review, with no intervening inference',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Retired queue session'}),barrier=hold();let first=true;
+  f.seams.run=async input=>{f.calls.provider.push(input);if(first){first=false;barrier.enter();await barrier.wait;}return 'Synthetic literal answer';};
+  const running=f.ipcCommand({type:'model.run',taskId:task.id,requestId:'retired-parent',kind:'explain',prompt:'Initial question',sourceIds:[]});await barrier.started;
+  await f.ipcCommand({type:'queue.submit',taskId:task.id,id:'retired-queue',prompt:'Reply exactly QUEUED_REVIEW_PASS',kind:'explain',sourceIds:[],expectedSourceRefs:[]});await f.ipcCommand({type:'queue.hold',taskId:task.id});barrier.release();await running;await f.stop();f.resume();expect(f.calls.provider).toHaveLength(1);
+  const review={type:'queue.edit',taskId:task.id,id:'retired-queue',expectedRevision:1,prompt:'Reply exactly QUEUED_REVIEW_PASS',kind:'explain',sourceIds:[],expectedSourceRefs:[]};f.setResponse(0);await expect(f.ipcCommand(review)).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(1);expect((await f.core.getTask(task.id)).session?.queuedFollowups?.[0]).toMatchObject({prompt:review.prompt,status:'held',revision:1});
+  f.setResponse(1);await f.ipcCommand(review);await expect.poll(()=>f.calls.provider.length).toBe(2);await expect.poll(async()=>(await f.core.getTask(task.id)).requests.at(-1)?.status).toBe('completed');expect(f.calls.provider[1].prompt).toBe(review.prompt);expect(f.calls.confirmations).toHaveLength(3);
+ });
+ it('waits for an existing IPC model preparation fence before draining another task queue',async()=>{
+  const f=await fixture(),owner=await f.core.createTask({title:'Queued owner'}),other=await f.core.createTask({title:'Preparing owner'}),producer=hold();let first=true;
+  f.seams.run=async input=>{f.calls.provider.push(input);if(first){first=false;producer.enter();await producer.wait;}return 'Synthetic answer';};
+  const initial=f.ipcCommand({type:'model.run',taskId:owner.id,requestId:'preparing-parent',kind:'explain',prompt:'Initial question',sourceIds:[]});await producer.started;await f.ipcCommand({type:'queue.submit',taskId:owner.id,id:'preparing-queue',prompt:'Queued exact question',kind:'explain',sourceIds:[],expectedSourceRefs:[]});await f.ipcCommand({type:'queue.hold',taskId:owner.id});producer.release();await initial;
+  const preparation=hold(),lease=f.core.leaseUserMemory.bind(f.core);f.core.leaseUserMemory=async(...args)=>{if(args[0]===other.id){preparation.enter();await preparation.wait;}return lease(...args);};
+  const manual=f.ipcCommand({type:'model.run',taskId:other.id,requestId:'preparing-manual',kind:'explain',prompt:'Already preparing manual question',sourceIds:[]});await preparation.started;
+  await f.ipcCommand({type:'queue.edit',taskId:owner.id,id:'preparing-queue',expectedRevision:1,prompt:'Queued exact question',kind:'explain',sourceIds:[],expectedSourceRefs:[]});expect(f.calls.provider).toHaveLength(1);preparation.release();await manual;await expect.poll(()=>f.calls.provider.length).toBe(3);await expect.poll(async()=>(await f.core.getTask(owner.id)).requests.at(-1)?.status).toBe('completed');expect(f.calls.provider.map(input=>input.prompt)).toEqual(['Initial question','Already preparing manual question','Queued exact question']);
+ });
+ it('resumes a reviewed queue when an interleaved browser IPC model-effect fence releases',async()=>{
+  const f=await fixture(),owner=await f.core.createTask({title:'Queued text owner'}),browserOwner=await f.core.createTask({title:'Browser effect owner'}),producer=hold(),browser=hold();let first=true;
+  f.seams.run=async input=>{f.calls.provider.push(input);if(first){first=false;producer.enter();await producer.wait;}return 'Synthetic queued answer';};
+  const initial=f.ipcCommand({type:'model.run',taskId:owner.id,requestId:'browser-fence-parent',kind:'explain',prompt:'Initial text question',sourceIds:[]});await producer.started;await f.ipcCommand({type:'queue.submit',taskId:owner.id,id:'browser-fence-queue',prompt:'Exact waiting follow-up',kind:'explain',sourceIds:[],expectedSourceRefs:[]});await f.ipcCommand({type:'queue.hold',taskId:owner.id});producer.release();await initial;
+  f.setBrowserService({run:async()=>{browser.enter();await browser.wait;return f.core.getTask(browserOwner.id);}});
+  const operation=f.ipcCommand({type:'browser.run',taskId:browserOwner.id,requestId:'owned-browser-fence',prompt:'Owned synthetic browser boundary',url:'https://owned.invalid'});await browser.started;
+  await f.ipcCommand({type:'queue.edit',taskId:owner.id,id:'browser-fence-queue',expectedRevision:1,prompt:'Exact waiting follow-up',kind:'explain',sourceIds:[],expectedSourceRefs:[]});expect(f.calls.provider).toHaveLength(1);expect((await f.core.getTask(owner.id)).session?.queuedFollowups?.[0].status).toBe('queued');
+  browser.release();await operation;await expect.poll(()=>f.calls.provider.length).toBe(2);await expect.poll(async()=>(await f.core.getTask(owner.id)).requests.at(-1)?.status).toBe('completed');expect(f.calls.provider[1].prompt).toBe('Exact waiting follow-up');expect(f.calls.confirmations).toHaveLength(1);expect((await f.core.getTask(browserOwner.id)).requests).toEqual([]);
+ });
+ it('rejects renderer grants and browser queue authority before any dispatch',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Queue IPC boundary'}),base={type:'queue.submit',taskId:task.id,id:'no-authority',prompt:'Text only',kind:'explain',sourceIds:[],expectedSourceRefs:[]};
+  for(const addition of [{approved:true},{scope:'a'.repeat(64)},{basis:'a'.repeat(64)},{kind:'browser'},{url:'https://owned.invalid'},{dispatchedRequestId:'forged'}])await expect(f.ipcCommand({...base,...addition})).rejects.toThrow();
+  await expect(f.untrustedCommand(base)).rejects.toThrow();await expect(f.ipcCommand(base)).rejects.toThrow('Ask directly');expect((await f.core.getTask(task.id)).requests).toEqual([]);expect(f.calls.provider).toEqual([]);expect(f.calls.confirmations).toEqual([]);
  });
 });

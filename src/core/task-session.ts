@@ -1,3 +1,4 @@
+import {QueuedFollowupSchema} from '../shared/queued-followup';
 import { Schema } from 'effect';
 import {BrowserContinuationAttemptSchema} from '../shared/browser-continuation';
 import { StoredModuleStateSchema } from './module-registry';
@@ -34,6 +35,7 @@ export const BrowserOperationSchema = Schema.Struct({
 export const TaskSessionSchema = Schema.Struct({
   /** Local pending input only; never restores browser execution authority. */
   browserContinuationAttempt:Schema.optional(BrowserContinuationAttemptSchema),
+  queuedFollowups:Schema.optional(Schema.Array(QueuedFollowupSchema).pipe(Schema.maxItems(100))),
   revision: Schema.Int.pipe(Schema.nonNegative()), draft: text,
   draftKind:Schema.optional(ComposerKindSchema),
   draftRevision:Schema.optional(Schema.Int.pipe(Schema.nonNegative())),
@@ -52,7 +54,7 @@ export const emptyTaskSession = (): TaskSession => ({ revision: 0, draft: '', ru
 
 /** Retain descriptions/results, never restore browser execution authority after host restart. */
 export function recoverTaskSession(session: TaskSession): TaskSession {
-  return { ...session, revision: session.revision + 1, runs: session.runs.map(run => ({ ...run,
+  return { ...session,...(session.queuedFollowups?{queuedFollowups:session.queuedFollowups.map(item=>item.status==='queued'?{...item,status:'held' as const,reason:'Glint restarted. Review this exact follow-up and its current context before queueing it again.'}:item)}:{}), revision: session.revision + 1, runs: session.runs.map(run => ({ ...run,
     operations: run.operations.map(operation => operation.status === 'executing'
       ? { ...operation, status: 'uncertain', error: 'The host stopped during this action. Inspect the website before another attempt.' }
       : operation.status === 'proposed' ? { ...operation, status: 'retired', error: 'Restart retired this unexecuted proposal. Observe and approve a fresh target.' } : operation),

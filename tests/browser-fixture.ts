@@ -1,3 +1,4 @@
+import {pendingFollowups} from '../src/shared/queued-followup';
 import {createRecurringWorkRunner} from '../src/host/recurring-work-runner';
 import {prepareConceptMapGeneration} from '../src/host/concept-map-generation';
 import {ResponsePreferences} from '../src/host/response-preferences';
@@ -182,6 +183,12 @@ export class BrowserFixture {
       case 'tasks.pause': return this.mutation(command.taskId, () => this.core.pause(command.taskId));
       case 'tasks.resume': return this.mutation(command.taskId, () => this.core.resume(command.taskId));
       case 'tasks.checkpoint': return this.mutation(command.taskId, () => this.core.checkpoint(command.taskId, command.note));
+      case 'queue.hold':return this.mutation(command.taskId,()=>this.core.holdQueuedFollowups(command.taskId,'Context review holds queued text.'));
+      case 'queue.cancel':return this.mutation(command.taskId,()=>this.core.cancelQueuedFollowup(command.taskId,command.id,command.expectedRevision));
+      case 'queue.submit':case 'queue.edit':{
+        const task=await this.core.getTask(command.taskId),items=task.session?.queuedFollowups??[],existing=items.find(item=>item.id===command.id),precedingRequestIds=existing?[...existing.precedingRequestIds]:[...task.requests.filter(request=>request.status==='running').map(request=>request.id),...pendingFollowups(items).map(item=>item.id)],basis=await this.core.queuedFollowupBasis(task.id,command.expectedSourceRefs,precedingRequestIds);
+        return this.mutation(task.id,()=>this.core.saveQueuedFollowup(task.id,{id:command.id,revision:(existing?.revision??0)+1,prompt:command.prompt,kind:command.kind,createdAt:existing?.createdAt??new Date().toISOString(),sourceRefs:command.expectedSourceRefs,precedingRequestIds,basis,scope:'a'.repeat(64),status:'queued'},existing?.revision??0,command.type==='queue.submit'?command.submittedDraft:undefined));
+      }
       case 'draft.save':if(this.draftSaveBarrier)await this.draftSaveBarrier;if(this.draftSaveError)throw Error(this.draftSaveError);return this.core.saveComposerDraft(command.taskId,command.expectedRevision,command.draft);
       case 'draft.flushed':return null;
       case 'learning-drafts.read':return this.learningDrafts.read();
