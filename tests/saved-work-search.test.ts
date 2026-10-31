@@ -8,11 +8,11 @@ test('literal case-insensitive search finds task goals and latest saved text fil
  const result=searchSavedWork([second,first],' mesa ');expect(result.query).toBe('mesa');expect(result.matchCount).toBe(2);expect(result.matches.map(match=>match.taskId)).toEqual(['a','b']);expect(result.matches[0].excerpt).toBe(first.artifacts[0].revisions[0].content);expect(result.matches[1]).toMatchObject({revision:2,digest:'b-2',field:'File text'});
  expect(searchSavedWork([first],'ORCHARD').matches[0]).toMatchObject({kind:'task',field:'Task goal'});expect(searchSavedWork([first],'Work a','files').matches).toEqual([]);expect(searchSavedWork([first],'mesa','tasks').matches).toEqual([]);expect(searchSavedWork([second],'[mesa]').matchCount).toBe(1);expect(searchSavedWork([first],'.*').matchCount).toBe(0);expect(searchSavedWork([first],'MESA crates.\nKeep').matchCount).toBe(1);expect(JSON.stringify([first,second])).toBe(before);
 });
-test('only current plain-text and Markdown are eligible, excluding sources, receipts, request prompts, images and internal structured artifacts',()=>{
+test('file scope uses current plain-text and Markdown, excluding sources, receipts, request prompts, images and internal structured artifacts',()=>{
  const t=task();t.goal='';t.artifacts[0].revisions[0].content='old-only';t.artifacts[0].revisions.push({...t.artifacts[0].revisions[0],revision:2,digest:'2',content:'current only'});
  for(const [mimeType,encoding] of [['application/json',undefined],['text/html',undefined],['image/png','base64'],['text/plain','base64']] as const)t.artifacts.push({id:mimeType,revisions:[{...t.artifacts[0].revisions[0],mimeType,encoding,content:'secret-only'}]});
  t.sources=[{id:'source',currentVersion:1,freshness:'fresh',versions:[{id:'source',version:1,digest:'s',kind:'text',role:'fact',label:'secret-only',content:'secret-only',capturedAt:at}]}];t.requests=[{id:'r',kind:'explain',prompt:'secret-only',status:'failed',digest:'r',sourceRefs:[],startedAt:at,error:'secret-only'}];
- expect(searchSavedWork([t],'old-only').matchCount).toBe(0);expect(searchSavedWork([t],'secret-only').matchCount).toBe(0);expect(searchSavedWork([t],'current only').matchCount).toBe(1);
+ expect(searchSavedWork([t],'old-only','files').matchCount).toBe(0);expect(searchSavedWork([t],'secret-only','files').matchCount).toBe(0);expect(searchSavedWork([t],'current only','files').matchCount).toBe(1);
  t.artifacts[0].revisions[1].mimeType='text/plain';expect(searchSavedWork([t],'current only').matchCount).toBe(1);
 });
 test('blank/oversized input is rejected and a capped result reports every searched match and exact coverage',()=>{
