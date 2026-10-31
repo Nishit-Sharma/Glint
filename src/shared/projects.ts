@@ -14,11 +14,15 @@ export type Project=typeof ProjectSchema.Type;
 export type ProjectSource=typeof ProjectSourceSchema.Type;
 export const ProjectPinsSchema=Schema.mutable(Schema.Struct({revision:PinsRevision,projectIds:Schema.mutable(Schema.Array(Id))})).pipe(Schema.filter(pins=>new Set(pins.projectIds).size===pins.projectIds.length));
 export type ProjectPins=typeof ProjectPinsSchema.Type;
+export const ProjectSidebarSchema=Schema.mutable(Schema.Struct({revision:PinsRevision,collapsed:Schema.Boolean}));
+export type ProjectSidebar=typeof ProjectSidebarSchema.Type;
 export interface ProjectInstructions {projectId:string;name:string;revision:number;text:string}
 const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.list')}),
  Schema.Struct({type:Schema.Literal('projects.pins.get')}),
  Schema.Struct({type:Schema.Literal('projects.pins.set'),projectId:Id,pinned:Schema.Boolean,expectedRevision:PinsRevision}),
+ Schema.Struct({type:Schema.Literal('projects.sidebar.get')}),
+ Schema.Struct({type:Schema.Literal('projects.sidebar.set'),collapsed:Schema.Boolean,expectedRevision:PinsRevision}),
  Schema.Struct({type:Schema.Literal('projects.create'),name:Name}),
  Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT)}),
  Schema.Struct({type:Schema.Literal('projects.assign'),taskId:Id,projectId:Schema.NullOr(Id),expectedProjectId:Schema.NullOr(Id)}),
@@ -27,7 +31,7 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.sources.use'),projectId:Id,expectedRevision:Revision,sourceKey:Id,taskId:Id}),
 );
 export type ProjectCommand=typeof CommandSchema.Type;
-export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
+export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.sidebar.get'|'projects.sidebar.set'}?ProjectSidebar:C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
 export function readProjectCommand(value:unknown):ProjectCommand{return Schema.decodeUnknownSync(CommandSchema,{onExcessProperty:'error'})(value);}
 export const projectSourceMatches=(source:ProjectSource,taskId:string,reference:SourceRef)=>source.taskId===taskId&&source.reference.sourceId===reference.sourceId&&source.reference.version===reference.version&&source.reference.digest===reference.digest;
 export function projectSourceVersion(source:ProjectSource,tasks:readonly Task[]){return tasks.find(task=>task.id===source.taskId)?.sources.find(item=>item.id===source.reference.sourceId)?.versions.find(version=>version.version===source.reference.version&&version.digest===source.reference.digest);}

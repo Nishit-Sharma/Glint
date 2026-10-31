@@ -10,7 +10,10 @@
  .task-sidebar-task-list ul{list-style:none;padding:0;margin:0}
  .task-sidebar-task-list li{margin:1px 0}
  .task-sidebar-projects{padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--line)}
- .task-sidebar .task-sidebar-projects-heading{font-weight:600}
+ .task-sidebar-projects-header{display:flex;align-items:center;gap:2px}
+ .task-sidebar .task-sidebar-projects-heading{font-weight:600;flex:1;min-width:0}
+ .task-sidebar .task-sidebar-projects-toggle{width:32px;flex:0 0 32px;padding:7px;justify-content:center}
+ .task-sidebar .task-sidebar-projects-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
  .task-sidebar .task-sidebar-project{padding-left:14px;min-width:0}
  .task-sidebar-project>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
  .task-sidebar .task-sidebar-project[aria-current=page],.task-sidebar .task-sidebar-project:hover{background:var(--soft)}

@@ -20,7 +20,7 @@ import { projectTaskDialogue, projectConversationAttemptDialogue } from './task-
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
-import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectPins,type ProjectInstructions} from '../shared/projects';
+import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
 import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
@@ -384,12 +384,20 @@ export class Companion {
     this.cancelRunning(task,'Project context changed during this request.');
   }
   projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
-  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|Task>{
+  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|Task>{
     const command=readProjectCommand(input);
     return this.exclusive(async()=>{
       assertCurrent();
       if(command.type==='projects.list')return clone(this.state.projects??[]);
       if(command.type==='projects.pins.get')return clone(this.state.projectPins??{revision:0,projectIds:[]});
+      if(command.type==='projects.sidebar.get')return clone(this.state.projectSidebar??{revision:0,collapsed:false});
+      if(command.type==='projects.sidebar.set')return this.commit(state=>{
+        assertCurrent();const sidebar=state.projectSidebar??{revision:0,collapsed:false};
+        if(sidebar.collapsed===command.collapsed)return sidebar;
+        if(sidebar.revision!==command.expectedRevision)reject('conflict','Projects visibility changed. Reload projects before trying again.');
+        if(sidebar.revision===Number.MAX_SAFE_INTEGER)reject('invalid','Projects visibility revision limit reached. Your saved preference is kept.');
+        const saved={revision:sidebar.revision+1,collapsed:command.collapsed};state.projectSidebar=saved;return saved;
+      });
       if(command.type==='projects.pins.set')return this.commit(state=>{
         assertCurrent();this.project(state,command.projectId);
         const pins=state.projectPins??{revision:0,projectIds:[]};

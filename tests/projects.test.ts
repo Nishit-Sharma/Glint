@@ -59,6 +59,32 @@ it('keeps project stars idempotent and refuses stale choices, missing projects a
  const state={schemaVersion:2,tasks:[],usedRequestIds:[],projects:[a,b],projectPins:pinned};expect(parseCurrentState(state).projectPins).toEqual(pinned);
  for(const projectPins of [{revision:1,projectIds:[a.id,a.id]},{revision:1,projectIds:['missing']},{revision:Number.MAX_SAFE_INTEGER+1,projectIds:[]},{revision:1,projectIds:[a.id],extra:true}])expect(()=>parseCurrentState({...state,projectPins})).toThrow();
 });
+it('reopens collapsed and expanded Projects without changing stars, project content or the unsent message',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Current task'}),project=await f.core.projectCommand({type:'projects.create',name:'Starred project'});
+ await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+ await f.core.saveComposerDraft(task.id,0,{text:'  Preserve this unsent draft.\n',kind:'create'});
+ const pins=await f.core.projectCommand({type:'projects.pins.set',projectId:project.id,pinned:true,expectedRevision:0}),before=await f.core.getTask(task.id);
+ expect(await f.core.projectCommand({type:'projects.sidebar.get'})).toEqual({revision:0,collapsed:false});
+ expect(await f.core.projectCommand({type:'projects.sidebar.set',collapsed:true,expectedRevision:0})).toEqual({revision:1,collapsed:true});
+ expect(await f.core.getTask(task.id)).toEqual(before);
+ await f.reopen();expect(await f.core.projectCommand({type:'projects.sidebar.get'})).toEqual({revision:1,collapsed:true});
+ const reopened={...before,session:{...before.session!,revision:before.session!.revision+1}};expect(await f.core.getTask(task.id)).toEqual(reopened);
+ expect(await f.core.projectCommand({type:'projects.sidebar.set',collapsed:false,expectedRevision:1})).toEqual({revision:2,collapsed:false});
+ expect(await f.core.getTask(task.id)).toEqual(reopened);
+ await f.reopen();expect(await f.core.projectCommand({type:'projects.sidebar.get'})).toEqual({revision:2,collapsed:false});
+ expect(await f.core.getTask(task.id)).toEqual({...before,session:{...before.session!,revision:before.session!.revision+2}});
+ expect(await f.core.projectCommand({type:'projects.pins.get'})).toEqual(pins);expect(await f.core.projectCommand({type:'projects.list'})).toEqual([project]);
+});
+it('keeps repeated Projects visibility choices idempotent and rejects stale or invalid changes',async()=>{
+ const f=await fixture(),command={type:'projects.sidebar.set' as const,collapsed:true,expectedRevision:0},collapsed=await f.core.projectCommand(command);
+ expect(await f.core.projectCommand(command)).toEqual(collapsed);
+ await expect(f.core.projectCommand({...command,collapsed:false})).rejects.toMatchObject({code:'conflict'});
+ expect(await f.core.projectCommand({type:'projects.sidebar.get'})).toEqual({revision:1,collapsed:true});
+ expect(await f.core.projectCommand({...command,collapsed:false,expectedRevision:1})).toEqual({revision:2,collapsed:false});
+ for(const value of [{...command,collapsed:'yes'},{...command,expectedRevision:-1},{...command,extra:true},{type:'projects.sidebar.get',extra:true}])expect(()=>readProjectCommand(value)).toThrow();
+ const state={schemaVersion:2,tasks:[],usedRequestIds:[],projectSidebar:{revision:2,collapsed:false}};expect(parseCurrentState(state).projectSidebar).toEqual({revision:2,collapsed:false});
+ for(const projectSidebar of [{revision:-1,collapsed:false},{revision:0,collapsed:'yes'},{revision:0,collapsed:false,extra:true}])expect(()=>parseCurrentState({...state,projectSidebar})).toThrow();
+});
 it('keeps a pending response current through project star and unstar changes',async()=>{
  const f=await fixture(),task=await f.core.createTask({title:'Owned task'}),project=await f.core.projectCommand({type:'projects.create',name:'Project'});
  await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});

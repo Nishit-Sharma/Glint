@@ -907,8 +907,8 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const choice=await dialog.showSaveDialog(panel,{title:'Save conversation transcript',defaultPath:`${snapshot.title.replace(/[^\w -]/g,'').slice(0,70)||'conversation'}-conversation.${snapshot.format==='markdown'?'md':'json'}`,filters:[{name:snapshot.format==='markdown'?'Markdown':'JSON',extensions:[snapshot.format==='markdown'?'md':'json']}],properties:['createDirectory','dontAddToRecent']})
       return choice.canceled?null:choice.filePath??null
     },()=>assertCurrentWork(lifecycle))
-    case 'projects.list':case 'projects.pins.get':return core.projectCommand(c)
-    case 'projects.pins.set':case 'projects.create':case 'projects.update':case 'projects.assign':case 'projects.sources.add':case 'projects.sources.remove':case 'projects.sources.use':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));changed();return saved;}
+    case 'projects.list':case 'projects.pins.get':case 'projects.sidebar.get':return core.projectCommand(c)
+    case 'projects.sidebar.set':case 'projects.pins.set':case 'projects.create':case 'projects.update':case 'projects.assign':case 'projects.sources.add':case 'projects.sources.remove':case 'projects.sources.use':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));changed();return saved;}
     case 'source.follow.get':return documentFollow.read()
     case 'source.follow.enable':return documentFollow.enable()
     case 'source.follow.stop':retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');return documentFollow.read()
