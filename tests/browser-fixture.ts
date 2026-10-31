@@ -48,6 +48,7 @@ export class BrowserFixture {
   loseModelAcknowledgement=false;
   readonly commands: Command[] = [];
   readonly pending = new Map<string, ModelControl>();
+  readonly modelInvocations: ModelCommand[] = [];
   readonly externalRequests: string[] = [];
   configured=true;
   checkBarrier?:Promise<void>;
@@ -234,6 +235,7 @@ export class BrowserFixture {
         const concept=prepareConceptMapGeneration(await this.core.getTask(command.taskId),command);
         const target = command.artifactId ? (await this.core.getTask(command.taskId)).artifacts.find(artifact => artifact.id === command.artifactId) : undefined;
         const result = await this.core.runRequest(concept?.request??{ taskId: command.taskId, requestId: command.requestId, kind: command.kind, prompt: command.prompt, ...(command.submittedDraft?{submittedDraft:command.submittedDraft}:{}),...(command.conversationAttempt?{conversationAttempt:command.conversationAttempt}:{}),...(command.sourceIds!==undefined?{sourceIds:command.sourceIds}:{}),...(command.expectedSourceRefs?{expectedSourceRefs:command.expectedSourceRefs}:{}), ...(target ? { artifactId: target.id, expectedRevision: target.revisions.at(-1)?.revision } : {}) }, context => new Promise((resolve, reject) => {
+          this.modelInvocations.push(command);
           const bound=concept?.bind(context);
           this.pending.set(command.requestId, { command, resolve:value=>{this.pending.delete(command.requestId);try{resolve(bound?bound.finish(value.content):value);}catch(error){reject(error);}}, reject:error=>{this.pending.delete(command.requestId);reject(error);} });
           context.signal.addEventListener('abort', () => this.pending.get(command.requestId)?.reject(new Error('Stopped by browser fixture transport')), { once: true });
