@@ -11,7 +11,7 @@ const PinsRevision=Schema.Int.pipe(Schema.nonNegative(),Schema.filter(Number.isS
 const Reference=Schema.Struct({sourceId:Id,version:Revision,digest:bounded(128).pipe(Schema.minLength(1))});
 const Name=bounded(200).pipe(Schema.filter(value=>value.trim().length>0));
 export const ProjectSourceSchema=Schema.Struct({id:Id,taskId:Id,reference:Reference});
-export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64)),memory:Schema.optional(UserMemorySchema)}));
+export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64)),memory:Schema.optional(UserMemorySchema)}));
 export type Project=typeof ProjectSchema.Type;
 export type ProjectSource=typeof ProjectSourceSchema.Type;
 export const ProjectPinsSchema=Schema.mutable(Schema.Struct({revision:PinsRevision,projectIds:Schema.mutable(Schema.Array(Id))})).pipe(Schema.filter(pins=>new Set(pins.projectIds).size===pins.projectIds.length));
@@ -33,9 +33,9 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.sidebar.get')}),
  Schema.Struct({type:Schema.Literal('projects.sidebar.set'),collapsed:Schema.Boolean,expectedRevision:PinsRevision}),
  Schema.Struct({type:Schema.Literal('projects.create'),name:Name}),
- Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean)}),
- Schema.Struct({type:Schema.Literal('projects.assign'),taskId:Id,projectId:Schema.NullOr(Id),expectedProjectId:Schema.NullOr(Id)}),
- Schema.Struct({type:Schema.Literal('projects.assign.bulk'),projectId:Schema.NullOr(Id),tasks:Assignments}),
+ Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),expectedAddSharedSourcesOnJoin:Schema.optional(Schema.Boolean)}),
+ Schema.Struct({type:Schema.Literal('projects.assign'),taskId:Id,projectId:Schema.NullOr(Id),expectedProjectId:Schema.NullOr(Id),expectedProjectRevision:Schema.optional(Revision),expectedAddSharedSourcesOnJoin:Schema.optional(Schema.Boolean)}),
+ Schema.Struct({type:Schema.Literal('projects.assign.bulk'),projectId:Schema.NullOr(Id),tasks:Assignments,expectedProjectRevision:Schema.optional(Revision),expectedAddSharedSourcesOnJoin:Schema.optional(Schema.Boolean)}),
  Schema.Struct({type:Schema.Literal('projects.sources.add'),projectId:Id,expectedRevision:Revision,taskId:Id,reference:Reference}),
  Schema.Struct({type:Schema.Literal('projects.sources.update'),projectId:Id,expectedRevision:Revision,sourceKey:Id,taskId:Id,expectedReference:Reference,reference:Reference}),
  Schema.Struct({type:Schema.Literal('projects.sources.remove'),projectId:Id,expectedRevision:Revision,sourceKey:Id}),
@@ -46,6 +46,7 @@ export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.del
 export function readProjectCommand(value:unknown):ProjectCommand{return Schema.decodeUnknownSync(CommandSchema,{onExcessProperty:'error'})(value);}
 const sameReference=(left:SourceRef,right:SourceRef)=>left.sourceId===right.sourceId&&left.version===right.version&&left.digest===right.digest;
 export const projectSourceMatches=(source:ProjectSource,taskId:string,reference:SourceRef)=>source.taskId===taskId&&sameReference(source.reference,reference);
+export function projectSourceCopyExists(task:Task,projectId:string,shared:ProjectSource):boolean{return task.sources.some(source=>shared.taskId===task.id&&source.id===shared.reference.sourceId||source.projectOrigin?.projectId===projectId&&source.projectOrigin.sourceKey===shared.id);}
 export function projectSourceVersion(source:ProjectSource,tasks:readonly Task[]){return tasks.find(task=>task.id===source.taskId)?.sources.find(item=>item.id===source.reference.sourceId)?.versions.find(version=>version.version===source.reference.version&&version.digest===source.reference.digest);}
 export function projectSourceInTask(task:Task,projectId:string,shared:ProjectSource):boolean{
  return task.sources.some(source=>{

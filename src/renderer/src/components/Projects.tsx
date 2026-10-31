@@ -1,7 +1,8 @@
 import {useEffect,useRef,useState} from 'react';
 import {Star} from 'lucide-react';
 import type {SourceVersion,Task} from '../../../core/types';
-import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,projectSourceInTask,type Project,type ProjectPins,type ProjectAssignment,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
+import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,projectSourceInTask,projectSourceCopyExists,type Project,type ProjectSource,type ProjectPins,type ProjectAssignment,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
+import {sourceRoleLabel} from '../../../shared/public-messages';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field,type Run} from '../ui';
 import './projects.css';
@@ -42,33 +43,36 @@ export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTo
 }
 
 function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpenTask,pinned,pinDisabled,onTogglePin,onReviewDelete}:{project:Project;projects:Project[];tasks:Task[];currentTaskId?:string;busy:boolean;change:Change;onOpenTask:(task:Task)=>void;pinned:boolean;pinDisabled:boolean;onTogglePin:(project:Project)=>void;onReviewDelete:()=>void}){
- const [base,setBase]=useState(project),[name,setName]=useState(project.name),[instructions,setInstructions]=useState(project.instructions),[taskChoice,setTaskChoice]=useState(''),[sourceChoice,setSourceChoice]=useState(''),[target,setTarget]=useState(currentTaskId??'');
+ const [base,setBase]=useState(project),[name,setName]=useState(project.name),[instructions,setInstructions]=useState(project.instructions),[sourceChoice,setSourceChoice]=useState(''),[target,setTarget]=useState(currentTaskId??'');
  const [useAccountMemory,setUseAccountMemory]=useState(project.useAccountMemory??true);
+ const [addSharedSourcesOnJoin,setAddSharedSourcesOnJoin]=useState(project.addSharedSourcesOnJoin??false);
  const [review,setReview]=useState<SourceUpdateReview>();
  const reviewTrigger=useRef<HTMLButtonElement|null>(null);
  const closeReview=()=>{setReview(undefined);requestAnimationFrame(()=>reviewTrigger.current?.focus());};
- const dirty=name!==base.name||instructions!==base.instructions||useAccountMemory!==(base.useAccountMemory??true),changed=base.revision!==project.revision;
- const reset=()=>{setBase(project);setName(project.name);setInstructions(project.instructions);setUseAccountMemory(project.useAccountMemory??true);};
- const navigation=useNavigationDraft(dirty,reset),latest=useRef({name,instructions,useAccountMemory});latest.current={name,instructions,useAccountMemory};
- useEffect(()=>{if(!dirty&&changed)reset();},[project.revision,dirty]);
- const members=tasks.filter(task=>task.projectId===project.id),others=tasks.filter(task=>task.projectId!==project.id),destination=members.find(task=>task.id===target),held=busy||dirty;
+ const dirty=name!==base.name||instructions!==base.instructions||useAccountMemory!==(base.useAccountMemory??true)||addSharedSourcesOnJoin!==(base.addSharedSourcesOnJoin??false),changed=base.revision!==project.revision||(base.addSharedSourcesOnJoin??false)!==(project.addSharedSourcesOnJoin??false);
+ const reset=()=>{setBase(project);setName(project.name);setInstructions(project.instructions);setUseAccountMemory(project.useAccountMemory??true);setAddSharedSourcesOnJoin(project.addSharedSourcesOnJoin??false);};
+ const navigation=useNavigationDraft(dirty,reset),latest=useRef({name,instructions,useAccountMemory,addSharedSourcesOnJoin});latest.current={name,instructions,useAccountMemory,addSharedSourcesOnJoin};
+ useEffect(()=>{if(!dirty&&changed)reset();},[project.revision,project.addSharedSourcesOnJoin,dirty]);
+ const members=tasks.filter(task=>task.projectId===project.id),destination=members.find(task=>task.id===target),held=busy||dirty;
  const candidates=members.flatMap(task=>task.sources.filter(source=>source.freshness==='fresh'&&source.versions.at(-1)?.kind!=='window').map(source=>{const version=source.versions.at(-1)!,reference={sourceId:source.id,version:source.currentVersion,digest:version.digest};return {key:task.id+':'+source.id,task,version,reference};})).filter(candidate=>!project.sources.some(source=>projectSourceMatches(source,candidate.task.id,candidate.reference)));
  const candidate=candidates.find(candidate=>candidate.key===sourceChoice);
  return <div className="project-details">
   <div className="project-heading"><strong>{project.name}</strong><button type="button" className="project-star" aria-pressed={pinned} disabled={pinDisabled} onClick={()=>onTogglePin(project)}><Star size={15} fill={pinned?'currentColor':'none'} aria-hidden="true"/>{pinned?'Unstar project':'Star project'}</button></div>
-  <form onSubmit={event=>{event.preventDefault();if(busy||!dirty||changed||!name.trim())return;const submitted={name,instructions,useAccountMemory};void change({type:'projects.update',projectId:project.id,expectedRevision:base.revision,name:name.trim(),instructions,useAccountMemory}).then(saved=>{if(saved){setBase(saved);if(latest.current.name===submitted.name&&latest.current.instructions===submitted.instructions&&latest.current.useAccountMemory===submitted.useAccountMemory){setName(saved.name);setInstructions(saved.instructions);setUseAccountMemory(saved.useAccountMemory??true);navigation();}}});}}>
+  <form onSubmit={event=>{event.preventDefault();if(busy||!dirty||changed||!name.trim())return;const submitted={name,instructions,useAccountMemory,addSharedSourcesOnJoin};void change({type:'projects.update',projectId:project.id,expectedRevision:base.revision,name:name.trim(),instructions,useAccountMemory,addSharedSourcesOnJoin,expectedAddSharedSourcesOnJoin:base.addSharedSourcesOnJoin??false}).then(saved=>{if(saved){setBase(saved);if(latest.current.name===submitted.name&&latest.current.instructions===submitted.instructions&&latest.current.useAccountMemory===submitted.useAccountMemory&&latest.current.addSharedSourcesOnJoin===submitted.addSharedSourcesOnJoin){setName(saved.name);setInstructions(saved.instructions);setUseAccountMemory(saved.useAccountMemory??true);setAddSharedSourcesOnJoin(saved.addSharedSourcesOnJoin??false);navigation();}}});}}>
    <Field label="Project name"><input value={name} maxLength={200} disabled={busy} onChange={event=>setName(event.currentTarget.value)}/></Field>
    <Field label="Project instructions"><textarea value={instructions} rows={5} maxLength={PROJECT_INSTRUCTIONS_LIMIT} disabled={busy} onChange={event=>setInstructions(event.currentTarget.value)}/></Field>
    <p className="tiny">Used with AI response requests in this project and shown before sending. Instructions do not authorize actions. Browser tasks keep their own approved scope.</p>
    <Field label="Account memory"><select value={useAccountMemory?'account':'off'} disabled={busy} onChange={event=>setUseAccountMemory(event.currentTarget.value==='account')}><option value="account">Use account memory when enabled</option><option value="off">Do not use account memory</option></select></Field>
    <p className="tiny">Controls whether saved account facts can accompany new text questions and drafts in this project. Memory in Settings must also be on. Saved facts and other projects stay unchanged.</p>
+   <Field label="Shared sources on join"><select value={addSharedSourcesOnJoin?'on':'off'} disabled={busy} onChange={event=>setAddSharedSourcesOnJoin(event.currentTarget.value==='on')}><option value="off">Do not add shared sources</option><option value="on">Add shared sources when tasks join</option></select></Field>
+   <p className="tiny">Only future joins get independent copies of the pinned shared sources. Existing copies, source selections and browser context stay unchanged. Existing members are not backfilled.</p>
    {changed&&dirty&&<p role="status">The saved project changed. Your edits are kept here. Reload saved details before editing again.</p>}
    <div className="row"><Button type="submit" disabled={busy||!dirty||changed||!name.trim()}>Save project</Button>{(dirty||changed)&&<Button disabled={busy} onClick={()=>navigation.guard(reset)}>Reload saved details</Button>}</div>
   </form>
   <ProjectMemory key={project.id} project={project} busy={held}/>
   <section aria-label="Project tasks"><h3>Tasks</h3>
    {members.length?<ul>{members.map(task=><li key={task.id}><div><button type="button" className="project-task-link" onClick={()=>onOpenTask(task)}>{task.title}</button><small>{task.archive?'Archived':task.status==='paused'?'Paused':'Active'}</small></div><Button disabled={held} title={`Remove ${task.title} from project`} onClick={()=>void change({type:'projects.assign',taskId:task.id,projectId:null,expectedProjectId:project.id})}>Remove</Button></li>)}</ul>:<p>No tasks in this project.</p>}
-   {others.length>0&&<div className="project-add"><Field label="Task to add"><select value={taskChoice} disabled={held} onChange={event=>setTaskChoice(event.currentTarget.value)}><option value="">Choose a task</option>{others.map(task=><option key={task.id} value={task.id}>{task.title}{task.projectId?' · '+(projects.find(project=>project.id===task.projectId)?.name??'Another project'):''}</option>)}</select></Field><Button disabled={held||!others.some(task=>task.id===taskChoice)} onClick={()=>{const task=others.find(task=>task.id===taskChoice);if(task)void change({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:task.projectId??null}).then(saved=>{if(saved)setTaskChoice('');});}}>Add task</Button></div>}
+   <ProjectTaskJoin project={project} projects={projects} tasks={tasks} busy={held} change={change}/>
    <ProjectBulkMove project={project} projects={projects} tasks={tasks} busy={held} change={change}/>
   </section>
   <section aria-label="Project sources"><h3>Shared sources</h3><p>Share saved text and images from a project task, then add a copy to another task. Copies keep the chosen version when the original changes.</p>
@@ -92,8 +96,26 @@ function SourceUpdatePreview({title,version}:{title:string;version:SourceVersion
  return <div><strong>{title} · version {version.version}</strong><small>{version.label}</small>{version.kind==='text'?<pre>{version.content}</pre>:version.kind==='image'?<img className="source-image" src={version.content} alt={title+': '+version.label}/>:null}</div>;
 }
 
+type JoinSourceReview={shared:ProjectSource;version?:SourceVersion;ownerTitle:string;needsCopy:boolean};
+function joinSourceReview(project:Project,tasks:Task[],joining:Task[]):JoinSourceReview[]{return project.sources.map(shared=>({shared:{...shared,reference:{...shared.reference}},version:projectSourceVersion(shared,tasks),ownerTitle:tasks.find(task=>task.id===shared.taskId)?.title??'Original task unavailable',needsCopy:joining.some(task=>!projectSourceCopyExists(task,project.id,shared))}));}
+function joinSourcesAvailable(sources:JoinSourceReview[],tasks:Task[]):boolean{return sources.every(({shared,needsCopy})=>{if(!needsCopy)return true;const version=projectSourceVersion(shared,tasks),original=tasks.find(task=>task.id===shared.taskId)?.sources.find(source=>source.id===shared.reference.sourceId);return !!version&&version.kind!=='window'&&original?.freshness==='fresh';});}
+function ProjectJoinSourcesPreview({sources}:{sources:JoinSourceReview[]}){
+ return <div className="project-move-review" role="group" aria-label="Shared sources for this join"><h4>Pinned shared sources</h4><p>Missing sources are copied as independent snapshots. Existing originals and project copies are kept, including edits and older versions. Source selections and browser context stay unchanged; review task Context before asking.</p>{sources.length?<ul>{sources.map(({shared,version,ownerTitle,needsCopy})=><li key={shared.id}><div><strong>{version?.label??'Original snapshot unavailable'}</strong><small>{ownerTitle} · shared saved version {shared.reference.version}{version?' · '+sourceRoleLabel(version.role):''}</small><p className="tiny">{needsCopy?'Add a copy only where this task has none.':'Existing task originals or copies will be kept.'}</p>{version&&version.kind!=='window'&&<details><summary>View pinned content</summary><SourceUpdatePreview title="Pinned shared source" version={version}/></details>}</div></li>)}</ul>:<p>No shared sources are saved. This join adds no source copies.</p>}</div>;
+}
+type SingleJoinReview={command:Extract<ProjectCommand,{type:'projects.assign'}>;title:string;from:string;sources:JoinSourceReview[]};
+function ProjectTaskJoin({project,projects,tasks,busy,change}:{project:Project;projects:Project[];tasks:Task[];busy:boolean;change:Change}){
+ const [choice,setChoice]=useState(''),[review,setReview]=useState<SingleJoinReview>(),alive=useRef(true),selectionHeading=useRef<HTMLHeadingElement>(null),reviewHeading=useRef<HTMLHeadingElement>(null),returnFocus=useRef(false);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const navigation=useNavigationDraft(!!review,()=>setReview(undefined)),closeReview=()=>{returnFocus.current=true;setReview(undefined);navigation();};
+ useEffect(()=>{if(review)reviewHeading.current?.focus();else if(returnFocus.current){returnFocus.current=false;selectionHeading.current?.focus();}},[review,choice]);
+ const others=tasks.filter(task=>task.projectId!==project.id),task=others.find(task=>task.id===choice),current=review?tasks.find(task=>task.id===review.command.taskId):undefined;
+ const stale=!!review&&(!current||(current.projectId??null)!==review.command.expectedProjectId||project.revision!==review.command.expectedProjectRevision||(project.addSharedSourcesOnJoin??false)!==review.command.expectedAddSharedSourcesOnJoin||!joinSourcesAvailable(review.sources,tasks));
+ const commit=(command:Extract<ProjectCommand,{type:'projects.assign'}>)=>{void change(command).then(saved=>{if(saved&&alive.current){setChoice('');closeReview();}});};
+ return <div className="project-bulk-move"><h4 ref={selectionHeading} tabIndex={-1}>Add a task</h4>{review?<div className="project-move-review" role="region" aria-label="Review project join"><h4 ref={reviewHeading} tabIndex={-1}>Add {review.title} to {project.name}?</h4><p>{review.from} → {project.name}</p><ProjectJoinSourcesPreview sources={review.sources}/>{stale&&<p role="status">The task, project or shared sources changed. Cancel and review again.</p>}<div className="row"><Button disabled={busy||stale} onClick={()=>{if(!busy&&!stale)commit(review.command);}}>Add task with shared sources</Button><Button disabled={busy} onClick={closeReview}>Cancel add</Button></div></div>:others.length?<div className="project-add"><Field label="Task to add"><select value={choice} disabled={busy} onChange={event=>setChoice(event.currentTarget.value)}><option value="">Choose a task</option>{others.map(task=><option key={task.id} value={task.id}>{task.title}{task.projectId?' · '+(projects.find(project=>project.id===task.projectId)?.name??'Another project'):''}</option>)}</select></Field><Button disabled={busy||!task} onClick={()=>{if(!task||busy)return;const command={type:'projects.assign' as const,taskId:task.id,projectId:project.id,expectedProjectId:task.projectId??null,expectedProjectRevision:project.revision,expectedAddSharedSourcesOnJoin:project.addSharedSourcesOnJoin??false};if(project.addSharedSourcesOnJoin)setReview({command,title:task.title,from:task.projectId?(projects.find(project=>project.id===task.projectId)?.name??'Another project'):'No project',sources:joinSourceReview(project,tasks,[task])});else commit(command);}}>{project.addSharedSourcesOnJoin?'Review add':'Add task'}</Button></div>:<p>No other tasks to add.</p>}</div>;
+}
+
 type BulkMoveTask=ProjectAssignment&{title:string};
-type BulkMove={phase:'choose'|'review';tasks:BulkMoveTask[]};
+type BulkMove={phase:'choose';tasks:BulkMoveTask[]}|{phase:'review';tasks:BulkMoveTask[];revision:number;addSharedSourcesOnJoin:boolean;sources:JoinSourceReview[]};
 function ProjectBulkMove({project,projects,tasks,busy,change}:{project:Project;projects:Project[];tasks:Task[];busy:boolean;change:Change}){
  const [move,setMove]=useState<BulkMove>({phase:'choose',tasks:[]}),alive=useRef(true);
  const selectionHeading=useRef<HTMLHeadingElement>(null),reviewHeading=useRef<HTMLHeadingElement>(null),returnFocus=useRef(false);
@@ -101,23 +123,24 @@ function ProjectBulkMove({project,projects,tasks,busy,change}:{project:Project;p
  const reset=()=>setMove({phase:'choose',tasks:[]}),navigation=useNavigationDraft(move.tasks.length>0,reset);
  const clear=()=>{returnFocus.current=true;reset();navigation();};
  useEffect(()=>{if(move.phase==='review')reviewHeading.current?.focus();else if(returnFocus.current){returnFocus.current=false;selectionHeading.current?.focus();}},[move.phase,move.tasks.length]);
- const others=tasks.filter(task=>task.projectId!==project.id),stale=move.tasks.some(entry=>{const task=tasks.find(task=>task.id===entry.taskId);return !task||(task.projectId??null)!==entry.expectedProjectId;});
+ const others=tasks.filter(task=>task.projectId!==project.id),stale=move.tasks.some(entry=>{const task=tasks.find(task=>task.id===entry.taskId);return !task||(task.projectId??null)!==entry.expectedProjectId;})||move.phase==='review'&&(project.revision!==move.revision||(project.addSharedSourcesOnJoin??false)!==move.addSharedSourcesOnJoin||!joinSourcesAvailable(move.sources,tasks));
  const sourceName=(id:string|null)=>id?(projects.find(project=>project.id===id)?.name??'Unavailable project'):'No project';
  return <div className="project-bulk-move">
   <h4 ref={selectionHeading} tabIndex={-1}>Move several tasks</h4>
   {!others.length&&!move.tasks.length?<p>No other tasks to move.</p>:<>
-  {stale&&<p role="alert">A selected task changed projects or is no longer available. Clear the selection and choose again.</p>}
+  {stale&&<p role="alert">A selected task, destination setting or shared source changed. Cancel or clear the selection and review again.</p>}
   {move.phase==='choose'?<>
    <fieldset className="project-bulk-select" disabled={busy}><legend>Select tasks</legend><p>Destination: <strong>{project.name}</strong></p>
     {others.map(task=><label key={task.id} className="project-move-option"><input type="checkbox" aria-label={'Select '+task.title+' for project move'} checked={move.tasks.some(entry=>entry.taskId===task.id)} onChange={event=>{const checked=event.currentTarget.checked;setMove(current=>{const selected=current.tasks.filter(entry=>entry.taskId!==task.id);return {phase:'choose',tasks:checked?[...selected,{taskId:task.id,expectedProjectId:task.projectId??null,title:task.title}]:selected};});}}/><span><strong>{task.title}</strong><small>{sourceName(task.projectId??null)}</small></span></label>)}
    </fieldset>
    <p className="tiny" role="status">{move.tasks.length} selected</p>
-   <div className="row"><Button disabled={busy||stale||!move.tasks.length} onClick={()=>setMove(current=>({...current,phase:'review'}))}>Review move</Button>{move.tasks.length>0&&<Button disabled={busy} onClick={clear}>Clear selection</Button>}</div>
+   <div className="row"><Button disabled={busy||stale||!move.tasks.length} onClick={()=>{if(busy||stale||!move.tasks.length)return;setMove({phase:'review',tasks:move.tasks,revision:project.revision,addSharedSourcesOnJoin:project.addSharedSourcesOnJoin??false,sources:project.addSharedSourcesOnJoin?joinSourceReview(project,tasks,move.tasks.map(entry=>tasks.find(task=>task.id===entry.taskId)!)):[]});}}>Review move</Button>{move.tasks.length>0&&<Button disabled={busy} onClick={clear}>Clear selection</Button>}</div>
   </>:<div className="project-move-review" role="region" aria-label="Review task move">
    <h4 ref={reviewHeading} tabIndex={-1}>Move {move.tasks.length} {move.tasks.length===1?'task':'tasks'} to {project.name}?</h4>
    <ul>{move.tasks.map(entry=><li key={entry.taskId}><div><strong>{entry.title}</strong><small>{sourceName(entry.expectedProjectId)} → {project.name}</small></div></li>)}</ul>
    <p>Tasks keep their saved work and unsent messages. Running responses in moved tasks will stop.</p>
-   <div className="row"><Button disabled={busy||stale} onClick={()=>{if(busy||stale)return;void change({type:'projects.assign.bulk',projectId:project.id,tasks:move.tasks.map(({taskId,expectedProjectId})=>({taskId,expectedProjectId}))}).then(saved=>{if(saved&&alive.current)clear();});}}>Move {move.tasks.length} {move.tasks.length===1?'task':'tasks'}</Button><Button disabled={busy} onClick={clear}>Cancel move</Button></div>
+   {move.addSharedSourcesOnJoin?<ProjectJoinSourcesPreview sources={move.sources}/>:<p>Shared sources are not added for this join.</p>}
+   <div className="row"><Button disabled={busy||stale} onClick={()=>{if(busy||stale||move.phase!=='review')return;void change({type:'projects.assign.bulk',projectId:project.id,tasks:move.tasks.map(({taskId,expectedProjectId})=>({taskId,expectedProjectId})),expectedProjectRevision:move.revision,expectedAddSharedSourcesOnJoin:move.addSharedSourcesOnJoin}).then(saved=>{if(saved&&alive.current)clear();});}}>Move {move.tasks.length} {move.tasks.length===1?'task':'tasks'}</Button><Button disabled={busy} onClick={clear}>Cancel move</Button></div>
   </div>}
   </>}
  </div>;

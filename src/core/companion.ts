@@ -21,7 +21,7 @@ import { projectTaskDialogue, projectConversationAttemptDialogue } from './task-
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
-import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
+import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,projectSourceCopyExists,type ProjectCommand,type ProjectReply,type Project,type ProjectSource,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
 import {taskDeletionBlocker,type ProjectDeletePreview,type ProjectDeleteResult} from '../shared/project-deletion';
 import {encodeProjectDeletion,findProjectDeletion} from './project-deletion-receipt';
 import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
@@ -393,6 +393,24 @@ export class Companion {
   private cancelProjectRequests(task:Task){
     this.cancelRunning(task,'Project context changed during this request.');
   }
+  private projectJoinSources(state:State,project:Project,tasks:Task[],expectedRevision?:number,expectedSetting?:boolean){
+    const enabled=project.addSharedSourcesOnJoin??false;
+    if(expectedRevision!==undefined&&expectedRevision!==project.revision||expectedSetting!==undefined&&expectedSetting!==enabled)reject('conflict','The project or shared-source setting changed. Review the join again.');
+    if(!enabled)return [];
+    if(expectedRevision===undefined||expectedSetting!==true)reject('conflict','Review the project shared sources before joining. Nothing was moved.');
+    return project.sources.filter(shared=>tasks.some(task=>!projectSourceCopyExists(task,project.id,shared))).map(shared=>{
+      const version=projectSourceVersion(shared,state.tasks),original=state.tasks.find(task=>task.id===shared.taskId)?.sources.find(source=>source.id===shared.reference.sourceId);
+      if(!version||version.kind==='window'||original?.freshness!=='fresh')return reject('conflict','A shared project source is unavailable or needs review. Nothing was moved. Review the shared sources before joining again.');
+      return {shared,version};
+    });
+  }
+  private appendProjectSource(task:Task,project:Project,shared:ProjectSource,version:SourceVersion){
+    const browserContext=task.session?.browserContext;
+    this.cancelProjectRequests(task);
+    const ref=this.appendSource(task,{kind:version.kind,label:version.label,content:version.content,role:version.role});
+    if(browserContext)task.session={...task.session!,browserContext};
+    task.sources.find(source=>source.id===ref.sourceId)!.projectOrigin={projectId:project.id,sourceKey:shared.id,taskId:shared.taskId,reference:clone(shared.reference),copiedVersion:ref.version,copiedDigest:ref.digest};
+  }
   projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
   projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|UserMemory|MemoryCommit|Task|Task[]|ProjectDeletePreview|ProjectDeleteResult>{
     const command=readProjectCommand(input);
@@ -462,14 +480,16 @@ export class Companion {
       });
       if(command.type==='projects.assign.bulk'){
         const result=await this.commit(state=>{
-          assertCurrent();if(command.projectId)this.project(state,command.projectId);
+          assertCurrent();const destination=command.projectId?this.project(state,command.projectId):undefined;
           const selected=command.tasks.map(entry=>this.task(state,entry.taskId));
           if(selected.every(task=>(task.projectId??null)===command.projectId))return {tasks:selected,movedTaskIds:[] as string[]};
           for(let index=0;index<selected.length;index++)if((selected[index].projectId??null)!==command.tasks[index].expectedProjectId)reject('conflict','A selected task moved to another project. Clear the selection and review it again.');
           const moved=selected.filter(task=>(task.projectId??null)!==command.projectId);
+          const copies=destination?this.projectJoinSources(state,destination,moved,command.expectedProjectRevision,command.expectedAddSharedSourcesOnJoin):[];
           for(const task of moved){
             if(command.projectId)task.projectId=command.projectId;else delete task.projectId;
             this.cancelProjectRequests(task);task.updatedAt=this.time();
+            if(destination)for(const {shared,version} of copies)if(!projectSourceCopyExists(task,destination.id,shared))this.appendProjectSource(task,destination,shared,version);
           }
           return {tasks:selected,movedTaskIds:moved.map(task=>task.id)};
         });
@@ -486,20 +506,27 @@ export class Companion {
         }
         if(command.type==='projects.assign'){
           const task=this.task(state,command.taskId);
-          if(command.projectId)this.project(state,command.projectId);
+          const destination=command.projectId?this.project(state,command.projectId):undefined;
           if((task.projectId??null)===command.projectId)return task;
           if((task.projectId??null)!==command.expectedProjectId)reject('conflict','This task moved to another project. Reload before moving it again.');
+          const copies=destination?this.projectJoinSources(state,destination,[task],command.expectedProjectRevision,command.expectedAddSharedSourcesOnJoin):[];
           if(command.projectId)task.projectId=command.projectId;else delete task.projectId;
-          this.cancelProjectRequests(task);task.updatedAt=this.time();return task;
+          this.cancelProjectRequests(task);task.updatedAt=this.time();
+          if(destination)for(const {shared,version} of copies)if(!projectSourceCopyExists(task,destination.id,shared))this.appendProjectSource(task,destination,shared,version);
+          return task;
         }
         const project=this.project(state,command.projectId);
-        if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions&&(project.useAccountMemory??true)===(command.useAccountMemory??project.useAccountMemory??true))return project;
+        if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions&&(project.useAccountMemory??true)===(command.useAccountMemory??project.useAccountMemory??true)&&(project.addSharedSourcesOnJoin??false)===(command.addSharedSourcesOnJoin??project.addSharedSourcesOnJoin??false))return project;
         if(command.type!=='projects.sources.update'&&project.revision!==command.expectedRevision)reject('conflict','This project changed. Reload its saved details before trying again.');
         if(command.type==='projects.update'){
+          const guidanceUnchanged=project.name===command.name.trim()&&project.instructions===command.instructions&&(project.useAccountMemory??true)===(command.useAccountMemory??project.useAccountMemory??true);
+          if(command.addSharedSourcesOnJoin!==undefined&&(command.expectedAddSharedSourcesOnJoin===undefined||command.expectedAddSharedSourcesOnJoin!==(project.addSharedSourcesOnJoin??false)))reject('conflict','The shared-source setting changed. Reload saved project details before saving.');
           const name=command.name.trim();
           if(state.projects?.some(other=>other.id!==project.id&&other.name.toLocaleLowerCase()===name.toLocaleLowerCase()))reject('conflict','Another project already uses this name.');
           project.name=name;project.instructions=command.instructions;
           if(command.useAccountMemory!==undefined)project.useAccountMemory=command.useAccountMemory;
+          if(command.addSharedSourcesOnJoin!==undefined)project.addSharedSourcesOnJoin=command.addSharedSourcesOnJoin;
+          if(guidanceUnchanged){project.updatedAt=this.time();return project;}
           for(const task of state.tasks)if(task.projectId===project.id)this.cancelProjectRequests(task);
         }else if(command.type==='projects.sources.add'){
           const task=this.task(state,command.taskId);
@@ -534,11 +561,7 @@ export class Companion {
           const version=projectSourceVersion(shared,state.tasks);
           if(!version||version.kind==='window')return reject('not-found','The original saved source is unavailable. Existing task copies are kept.');
           if(projectSourceInTask(task,project.id,shared))return task;
-          const browserContext=task.session?.browserContext;
-          this.cancelProjectRequests(task);
-          const ref=this.appendSource(task,{kind:version.kind,label:version.label,content:version.content,role:version.role});
-          if(browserContext)task.session={...task.session!,browserContext};
-          task.sources.find(source=>source.id===ref.sourceId)!.projectOrigin={projectId:project.id,sourceKey:shared.id,taskId:shared.taskId,reference:clone(shared.reference),copiedVersion:ref.version,copiedDigest:ref.digest};
+          this.appendProjectSource(task,project,shared,version);
           return task;
         }
         if(project.revision===Number.MAX_SAFE_INTEGER)reject('invalid','Project revision limit reached. Your saved project is kept.');
