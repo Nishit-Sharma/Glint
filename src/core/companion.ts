@@ -384,7 +384,7 @@ export class Companion {
     this.cancelRunning(task,'Project context changed during this request.');
   }
   projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
-  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|Task>{
+  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|Task|Task[]>{
     const command=readProjectCommand(input);
     return this.exclusive(async()=>{
       assertCurrent();
@@ -407,6 +407,22 @@ export class Companion {
         const saved={revision:pins.revision+1,projectIds:command.pinned?[...pins.projectIds,command.projectId]:pins.projectIds.filter(id=>id!==command.projectId)};
         state.projectPins=saved;return saved;
       });
+      if(command.type==='projects.assign.bulk'){
+        const result=await this.commit(state=>{
+          assertCurrent();if(command.projectId)this.project(state,command.projectId);
+          const selected=command.tasks.map(entry=>this.task(state,entry.taskId));
+          if(selected.every(task=>(task.projectId??null)===command.projectId))return {tasks:selected,movedTaskIds:[] as string[]};
+          for(let index=0;index<selected.length;index++)if((selected[index].projectId??null)!==command.tasks[index].expectedProjectId)reject('conflict','A selected task moved to another project. Clear the selection and review it again.');
+          const moved=selected.filter(task=>(task.projectId??null)!==command.projectId);
+          for(const task of moved){
+            if(command.projectId)task.projectId=command.projectId;else delete task.projectId;
+            this.cancelProjectRequests(task);task.updatedAt=this.time();
+          }
+          return {tasks:selected,movedTaskIds:moved.map(task=>task.id)};
+        });
+        const moved=new Set(result.movedTaskIds);for(const task of result.tasks)if(moved.has(task.id))this.abortCancelled(task);
+        return result.tasks;
+      }
       const result=await this.commit(state=>{
         assertCurrent();
         if(command.type==='projects.create'){

@@ -19,4 +19,12 @@
 .project-details details{margin-top:8px;max-width:100%}
 .project-details summary{font-size:12px;color:var(--muted);cursor:pointer}
 .project-details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font:inherit;font-size:13px;line-height:1.5}
+.project-bulk-move,.project-move-review{display:grid;gap:12px;min-width:0}
+.project-bulk-select{display:grid;gap:8px;border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
+.project-bulk-select legend{font-size:13px;font-weight:600;padding:0 5px}
+.project-move-option{display:flex;align-items:flex-start;gap:10px;padding:6px 0;min-width:0}
+.project-move-option>input{flex:0 0 16px;width:16px;min-height:16px;margin:3px 0 0;padding:0}
+.project-move-option>span{min-width:0;overflow-wrap:anywhere}
+.project-bulk-move h4{margin:0;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.project-bulk-move h4:focus{outline:2px solid var(--focus);outline-offset:4px}
 @media(max-width:480px){.project-details li{align-items:flex-start;flex-wrap:wrap}.project-source-actions{width:100%;justify-content:flex-start}}

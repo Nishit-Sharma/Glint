@@ -28,6 +28,49 @@ it('creates and renames a project, moves a task and reopens its original sources
  const reopened=await f.core.getTask(task.id);expect(reopened).toEqual({...before,projectId:project.id,updatedAt:reopened.updatedAt,session:{...before.session!,revision:reopened.session!.revision}});
  const ungrouped=await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:null,expectedProjectId:project.id});expect(ungrouped.projectId).toBeUndefined();expect(ungrouped.sources).toEqual(before.sources);
 });
+it('moves an exact selected task set together and reopens its saved work, drafts and browser routes',async()=>{
+ const f=await fixture(),a=await f.core.createTask({title:'First conversation'}),b=await f.core.createTask({title:'Second conversation'}),other=await f.core.createTask({title:'Unrelated conversation'});
+ const source=await f.core.projectCommand({type:'projects.create',name:'Original project'}),destination=await f.core.projectCommand({type:'projects.create',name:'Destination project'});
+ await f.core.projectCommand({type:'projects.assign',taskId:a.id,projectId:source.id,expectedProjectId:null});
+ await f.core.projectCommand({type:'projects.update',projectId:source.id,expectedRevision:1,name:source.name,instructions:'Original project guidance.'});
+ await f.core.projectCommand({type:'projects.update',projectId:destination.id,expectedRevision:1,name:destination.name,instructions:'Destination guidance.'});
+ for(const task of [a,b]){
+  await f.core.putSource(task.id,{kind:'text',label:'Saved source',role:'fact',content:task.title+' source.'});
+  await f.core.saveArtifact(task.id,{title:'Saved document',content:task.title+' document.'});
+  await f.core.saveComposerDraft(task.id,0,{text:'  '+task.title+' unsent\n',kind:'create'});
+  const current=await f.core.getTask(task.id);await f.core.replaceSession(task.id,current.session!.revision,{...current.session!,browserContext:{origin:'https://owned.invalid',url:'https://owned.invalid/'+task.id,requestId:'prior-'+task.id}});
+ }
+ const before=await Promise.all([a,b].map(task=>f.core.getTask(task.id))),unchanged=await f.core.getTask(other.id),projects=await f.core.projectCommand({type:'projects.list'});
+ const command={type:'projects.assign.bulk' as const,projectId:destination.id,tasks:[{taskId:a.id,expectedProjectId:source.id},{taskId:b.id,expectedProjectId:null}]},saved=await f.core.projectCommand(command);
+ expect(saved).toHaveLength(2);for(let index=0;index<before.length;index++)expect(saved[index]).toEqual({...before[index],projectId:destination.id,updatedAt:saved[index].updatedAt});
+ expect(await f.core.projectCommand(command)).toEqual(saved);expect(await f.core.getTask(other.id)).toEqual(unchanged);expect(await f.core.projectCommand({type:'projects.list'})).toEqual(projects);
+ await f.reopen();for(const task of saved)expect(await f.core.getTask(task.id)).toEqual({...task,session:{...task.session!,revision:task.session!.revision+1}});
+ expect(await f.core.projectCommand({type:'projects.list'})).toEqual(projects);
+});
+it('rejects missing or stale bulk members without partial moves or saved-byte changes',async()=>{
+ const f=await fixture(),a=await f.core.createTask({title:'First'}),b=await f.core.createTask({title:'Second'}),source=await f.core.projectCommand({type:'projects.create',name:'Source'}),destination=await f.core.projectCommand({type:'projects.create',name:'Destination'});
+ for(const task of [a,b])await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:source.id,expectedProjectId:null});
+ const command={type:'projects.assign.bulk' as const,projectId:destination.id,tasks:[{taskId:a.id,expectedProjectId:source.id},{taskId:b.id,expectedProjectId:source.id}]},before=await f.core.listTasks(),bytes=await readFile(join(f.directory,'tasks.json'),'utf8');
+ for(const entry of [{command:{...command,tasks:[command.tasks[0],{taskId:'missing',expectedProjectId:null}]},code:'not-found'},{command:{...command,tasks:[command.tasks[0],{taskId:b.id,expectedProjectId:null}]},code:'conflict'},{command:{...command,projectId:'missing'},code:'not-found'}]){
+  await expect(f.core.projectCommand(entry.command)).rejects.toMatchObject({code:entry.code});expect(await f.core.listTasks()).toEqual(before);expect(await readFile(join(f.directory,'tasks.json'),'utf8')).toBe(bytes);
+ }
+ for(const invalid of [{...command,tasks:[]},{...command,tasks:[command.tasks[0],command.tasks[0]]},{...command,tasks:[{taskId:a.id}]},{...command,extra:true},{...command,tasks:[{...command.tasks[0],extra:true}]}])expect(()=>readProjectCommand(invalid)).toThrow();
+ await f.core.projectCommand({type:'projects.assign',taskId:b.id,projectId:destination.id,expectedProjectId:source.id});const mixed=await f.core.listTasks();
+ await expect(f.core.projectCommand(command)).rejects.toMatchObject({code:'conflict'});expect(await f.core.listTasks()).toEqual(mixed);
+});
+it('cancels only actually moved task responses after a successful atomic bulk move',async()=>{
+ const f=await fixture(),a=await f.core.createTask({title:'Move first'}),b=await f.core.createTask({title:'Move second'}),same=await f.core.createTask({title:'Already there'}),other=await f.core.createTask({title:'Unrelated'}),source=await f.core.projectCommand({type:'projects.create',name:'Source'}),destination=await f.core.projectCommand({type:'projects.create',name:'Destination'});
+ for(const task of [a,b,other])await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:source.id,expectedProjectId:null});
+ await f.core.projectCommand({type:'projects.assign',taskId:same.id,projectId:destination.id,expectedProjectId:null});
+ const all=[a,b,same,other],contexts=new Map<string,RequestContext>(),finishes=new Map<string,(output:RequestOutput)=>void>(),ready:Promise<void>[]=[];
+ const pending=all.map(task=>{let entered!:()=>void;ready.push(new Promise<void>(done=>entered=done));return f.core.runRequest({taskId:task.id,requestId:'bulk-'+task.id,kind:'create',prompt:'Controlled pending response.'},async context=>{contexts.set(task.id,context);entered();return new Promise<RequestOutput>(done=>finishes.set(task.id,done));});});await Promise.all(ready);
+ const command={type:'projects.assign.bulk' as const,projectId:destination.id,tasks:[{taskId:a.id,expectedProjectId:source.id},{taskId:b.id,expectedProjectId:source.id},{taskId:same.id,expectedProjectId:destination.id}]},before=await f.core.listTasks();
+ await expect(f.core.projectCommand({...command,tasks:[command.tasks[0],{taskId:b.id,expectedProjectId:null}]})).rejects.toMatchObject({code:'conflict'});
+ expect(await f.core.listTasks()).toEqual(before);for(const task of all)expect(contexts.get(task.id)!.signal.aborted).toBe(false);
+ await f.core.projectCommand(command);expect(contexts.get(a.id)!.signal.aborted).toBe(true);expect(contexts.get(b.id)!.signal.aborted).toBe(true);
+ for(const task of [same,other]){expect(contexts.get(task.id)!.signal.aborted).toBe(false);expect(await f.core.getTask(task.id)).toEqual(before.find(item=>item.id===task.id));}
+ for(const task of all)finishes.get(task.id)!({title:'Controlled result',content:'Original response.'});expect((await Promise.all(pending)).map(request=>request.status)).toEqual(['cancelled','cancelled','completed','completed']);
+});
 it('stars and unstars a project across reopen without changing its saved content or task',async()=>{
  const f=await fixture(),task=await f.core.createTask({title:'Visit checklist'}),project=await f.core.projectCommand({type:'projects.create',name:'Observatory'});
  await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});

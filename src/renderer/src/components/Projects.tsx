@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {Star} from 'lucide-react';
 import type {SourceVersion,Task} from '../../../core/types';
-import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,projectSourceInTask,type Project,type ProjectPins,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
+import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,projectSourceInTask,type Project,type ProjectPins,type ProjectAssignment,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field,type Run} from '../ui';
 import './projects.css';
@@ -58,6 +58,7 @@ function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpen
   <section aria-label="Project tasks"><h3>Tasks</h3>
    {members.length?<ul>{members.map(task=><li key={task.id}><div><button type="button" className="project-task-link" onClick={()=>onOpenTask(task)}>{task.title}</button><small>{task.archive?'Archived':task.status==='paused'?'Paused':'Active'}</small></div><Button disabled={held} title={`Remove ${task.title} from project`} onClick={()=>void change({type:'projects.assign',taskId:task.id,projectId:null,expectedProjectId:project.id})}>Remove</Button></li>)}</ul>:<p>No tasks in this project.</p>}
    {others.length>0&&<div className="project-add"><Field label="Task to add"><select value={taskChoice} disabled={held} onChange={event=>setTaskChoice(event.currentTarget.value)}><option value="">Choose a task</option>{others.map(task=><option key={task.id} value={task.id}>{task.title}{task.projectId?' · '+(projects.find(project=>project.id===task.projectId)?.name??'Another project'):''}</option>)}</select></Field><Button disabled={held||!others.some(task=>task.id===taskChoice)} onClick={()=>{const task=others.find(task=>task.id===taskChoice);if(task)void change({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:task.projectId??null}).then(saved=>{if(saved)setTaskChoice('');});}}>Add task</Button></div>}
+   <ProjectBulkMove project={project} projects={projects} tasks={tasks} busy={held} change={change}/>
   </section>
   <section aria-label="Project sources"><h3>Shared sources</h3><p>Share saved text and images from a project task, then add a copy to another task. Copies keep the chosen version when the original changes.</p>
    {candidates.length>0&&<div className="project-add"><Field label="Source to share"><select value={sourceChoice} disabled={held} onChange={event=>setSourceChoice(event.currentTarget.value)}><option value="">Choose a saved source</option>{candidates.map(candidate=><option key={candidate.key} value={candidate.key}>{candidate.version.label} · {candidate.task.title} · version {candidate.version.version}</option>)}</select></Field><Button disabled={held||!candidate} onClick={()=>{if(candidate)void change({type:'projects.sources.add',projectId:project.id,expectedRevision:project.revision,taskId:candidate.task.id,reference:candidate.reference}).then(saved=>{if(saved)setSourceChoice('');});}}>Share source</Button></div>}
@@ -77,4 +78,35 @@ function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpen
 
 function SourceUpdatePreview({title,version}:{title:string;version:SourceVersion}){
  return <div><strong>{title} · version {version.version}</strong><small>{version.label}</small>{version.kind==='text'?<pre>{version.content}</pre>:version.kind==='image'?<img className="source-image" src={version.content} alt={title+': '+version.label}/>:null}</div>;
+}
+
+type BulkMoveTask=ProjectAssignment&{title:string};
+type BulkMove={phase:'choose'|'review';tasks:BulkMoveTask[]};
+function ProjectBulkMove({project,projects,tasks,busy,change}:{project:Project;projects:Project[];tasks:Task[];busy:boolean;change:Change}){
+ const [move,setMove]=useState<BulkMove>({phase:'choose',tasks:[]}),alive=useRef(true);
+ const selectionHeading=useRef<HTMLHeadingElement>(null),reviewHeading=useRef<HTMLHeadingElement>(null),returnFocus=useRef(false);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+ const reset=()=>setMove({phase:'choose',tasks:[]}),navigation=useNavigationDraft(move.tasks.length>0,reset);
+ const clear=()=>{returnFocus.current=true;reset();navigation();};
+ useEffect(()=>{if(move.phase==='review')reviewHeading.current?.focus();else if(returnFocus.current){returnFocus.current=false;selectionHeading.current?.focus();}},[move.phase,move.tasks.length]);
+ const others=tasks.filter(task=>task.projectId!==project.id),stale=move.tasks.some(entry=>{const task=tasks.find(task=>task.id===entry.taskId);return !task||(task.projectId??null)!==entry.expectedProjectId;});
+ const sourceName=(id:string|null)=>id?(projects.find(project=>project.id===id)?.name??'Unavailable project'):'No project';
+ return <div className="project-bulk-move">
+  <h4 ref={selectionHeading} tabIndex={-1}>Move several tasks</h4>
+  {!others.length&&!move.tasks.length?<p>No other tasks to move.</p>:<>
+  {stale&&<p role="alert">A selected task changed projects or is no longer available. Clear the selection and choose again.</p>}
+  {move.phase==='choose'?<>
+   <fieldset className="project-bulk-select" disabled={busy}><legend>Select tasks</legend><p>Destination: <strong>{project.name}</strong></p>
+    {others.map(task=><label key={task.id} className="project-move-option"><input type="checkbox" aria-label={'Select '+task.title+' for project move'} checked={move.tasks.some(entry=>entry.taskId===task.id)} onChange={event=>{const checked=event.currentTarget.checked;setMove(current=>{const selected=current.tasks.filter(entry=>entry.taskId!==task.id);return {phase:'choose',tasks:checked?[...selected,{taskId:task.id,expectedProjectId:task.projectId??null,title:task.title}]:selected};});}}/><span><strong>{task.title}</strong><small>{sourceName(task.projectId??null)}</small></span></label>)}
+   </fieldset>
+   <p className="tiny" role="status">{move.tasks.length} selected</p>
+   <div className="row"><Button disabled={busy||stale||!move.tasks.length} onClick={()=>setMove(current=>({...current,phase:'review'}))}>Review move</Button>{move.tasks.length>0&&<Button disabled={busy} onClick={clear}>Clear selection</Button>}</div>
+  </>:<div className="project-move-review" role="region" aria-label="Review task move">
+   <h4 ref={reviewHeading} tabIndex={-1}>Move {move.tasks.length} {move.tasks.length===1?'task':'tasks'} to {project.name}?</h4>
+   <ul>{move.tasks.map(entry=><li key={entry.taskId}><div><strong>{entry.title}</strong><small>{sourceName(entry.expectedProjectId)} → {project.name}</small></div></li>)}</ul>
+   <p>Tasks keep their saved work and unsent messages. Running responses in moved tasks will stop.</p>
+   <div className="row"><Button disabled={busy||stale} onClick={()=>{if(busy||stale)return;void change({type:'projects.assign.bulk',projectId:project.id,tasks:move.tasks.map(({taskId,expectedProjectId})=>({taskId,expectedProjectId}))}).then(saved=>{if(saved&&alive.current)clear();});}}>Move {move.tasks.length} {move.tasks.length===1?'task':'tasks'}</Button><Button disabled={busy} onClick={clear}>Cancel move</Button></div>
+  </div>}
+  </>}
+ </div>;
 }
