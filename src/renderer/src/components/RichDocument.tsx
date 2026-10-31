@@ -21,7 +21,7 @@ function RichDocumentEditor({value,title,onChange,disabled=false}:Props){
   extensions:[StarterKit.configure({link:false,underline:false,codeBlock:false}),SafeCodeBlock,Markdown,TaskList,TaskItem.configure({nested:true})],
   content:editableDocumentBody(value,title).body,contentType:'markdown',immediatelyRender:false,shouldRerenderOnTransaction:false,
   editorProps:{attributes:{role:'textbox','aria-label':'Draft content','aria-multiline':'true',spellcheck:'false',class:'rich-document-body'},
-   handlePaste(view,event){event.preventDefault();const text=event.clipboardData?.getData('text/plain')??'';view.dispatch(view.state.tr.insertText(text));return true;},
+   handlePaste(view,event){event.preventDefault();const text=event.clipboardData?.getData('text/plain')??'';if(text.length===0)return true;view.dispatch(view.state.tr.insertText(text));return true;},
    handleDrop(_view,event){event.preventDefault();return true;},
   },
   onUpdate({editor}){const body=editor.getMarkdown(),next=(prefix.current?'# '+currentTitle.current+'\n\n':'')+body;lastEmitted.current=next;change.current(next);},
