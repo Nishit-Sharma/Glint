@@ -1,0 +1,48 @@
+import {Schema} from 'effect';
+
+export const MEMORY_FACT_LIMIT=800;
+export const MEMORY_FACT_COUNT=40;
+export const MEMORY_REQUEST_FACTS=8;
+export const MEMORY_REQUEST_CHARACTERS=4_000;
+export const MEMORY_CHANGED='Memory changed. Send a new question using the current memory. An earlier request may already have reached the service.';
+const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_INTEGER));
+const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));
+const text=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(MEMORY_FACT_LIMIT),Schema.filter(value=>!!value.trim()&&!value.includes('\0')));
+const topic=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(60),Schema.filter(value=>!!value.trim()&&!value.includes('\0')));
+const topics=Schema.mutable(Schema.Array(topic).pipe(Schema.maxItems(8)));
+export const MemoryFactSchema=Schema.Struct({id,revision,text,topics});
+export const UserMemorySchema=Schema.Struct({revision,enabled:Schema.Boolean,facts:Schema.mutable(Schema.Array(MemoryFactSchema).pipe(Schema.maxItems(MEMORY_FACT_COUNT)))}).pipe(Schema.filter(value=>new Set(value.facts.map(fact=>fact.id)).size===value.facts.length&&value.facts.every(fact=>fact.revision<=value.revision)));
+const ref=Schema.Struct({id,revision});
+export const MemoryUseSchema=Schema.Struct({revision,status:Schema.Literal('off','included','no-match'),facts:Schema.mutable(Schema.Array(ref).pipe(Schema.maxItems(MEMORY_REQUEST_FACTS))),omitted:Schema.Number.pipe(Schema.int(),Schema.between(0,MEMORY_FACT_COUNT))}).pipe(Schema.filter(value=>value.status==='included'?value.facts.length>0:value.facts.length===0));
+export const MemoryChangeSchema=Schema.Struct({expectedRevision:revision,change:Schema.Union(
+ Schema.Struct({kind:Schema.Literal('enabled'),enabled:Schema.Boolean}),
+ Schema.Struct({kind:Schema.Literal('save'),id:Schema.optional(id),text,topics}),
+ Schema.Struct({kind:Schema.Literal('forget'),id}),
+)});
+export type UserMemory=typeof UserMemorySchema.Type;
+export type MemoryFact=typeof MemoryFactSchema.Type;
+export type MemoryUse=typeof MemoryUseSchema.Type;
+export type MemoryChange=typeof MemoryChangeSchema.Type;
+export type MemoryCommit={kind:'saved'|'conflict';current:UserMemory};
+export const readUserMemory=Schema.decodeUnknownSync(UserMemorySchema,{onExcessProperty:'error'});
+export const readMemoryUse=Schema.decodeUnknownSync(MemoryUseSchema,{onExcessProperty:'error'});
+export const readMemoryChange=Schema.decodeUnknownSync(MemoryChangeSchema,{onExcessProperty:'error'});
+export const readMemoryCommit=Schema.decodeUnknownSync(Schema.Struct({kind:Schema.Literal('saved','conflict'),current:UserMemorySchema}),{onExcessProperty:'error'});
+export const emptyUserMemory=():UserMemory=>({revision:0,enabled:false,facts:[]});
+const words=(value:string)=>value.normalize('NFKC').toLocaleLowerCase('en-US').replace(/[\s\p{Cc}\p{Cf}()\[\]{},;:!?“”"'`<>\/\\]+/gu,' ').split(' ').map(token=>token.replace(/\.+$/u,'')).filter(Boolean).join(' ');
+
+export function selectUserMemory(memory:UserMemory,question:{title:string;goal:string;prompt:string}):{facts:MemoryFact[];receipt:MemoryUse}{
+ if(!memory.enabled)return {facts:[],receipt:{revision:memory.revision,status:'off',facts:[],omitted:0}};
+ const context=' '+words([question.title,question.goal,question.prompt].join(' '))+' ';
+ const matches=memory.facts.filter(fact=>!fact.topics.length||fact.topics.some(topic=>{const term=words(topic);return !!term&&context.includes(' '+term+' ');}));
+ const ordered=[...matches.filter(fact=>fact.topics.length),...matches.filter(fact=>!fact.topics.length)];
+ const facts:MemoryFact[]=[];let length=0;
+ for(const fact of ordered){if(facts.length<MEMORY_REQUEST_FACTS&&length+fact.text.length<=MEMORY_REQUEST_CHARACTERS){facts.push(fact);length+=fact.text.length;}}
+ return {facts,receipt:{revision:memory.revision,status:facts.length?'included':'no-match',facts:facts.map(({id,revision})=>({id,revision})),omitted:matches.length-facts.length}};
+}
+export function memoryConsent(selection:ReturnType<typeof selectUserMemory>):string{
+ const {facts,receipt}=selection;
+ if(receipt.status==='off')return 'Memory is off. No saved memory facts are included.';
+ if(!facts.length)return 'Memory is on. No saved facts match this question.';
+ return `Memory is on. These ${facts.length} user-authored facts will be sent as guidance for this response:\n${facts.map((fact,index)=>`${index+1}. ${fact.text}`).join('\n')}\nEnd of memory facts.${receipt.omitted?` ${receipt.omitted} other matching facts are omitted by the memory limit.`:''}`;
+}

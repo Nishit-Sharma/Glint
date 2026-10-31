@@ -1,3 +1,4 @@
+import type {MemoryChange} from './user-memory';
 import type {DocumentImportOwner,DocumentImportAdd} from './document-import';
 import type {BrowserContinuationInput} from './browser-continuation';
 import type {TargetPracticeInput,TargetPracticeSubmission} from '../learning/experiment-target-practice';
@@ -23,6 +24,7 @@ import type {TaskArchiveChange} from './task-archive';
 import type {SavedDocumentSourceInput} from './saved-document-source';
 
 export type Command =
+  | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
   | {type:'experiment.source.inspect';input:SourceFormulaInput}
   | {type:'capture.settings.get'} | {type:'capture.settings.revoke';expectedRevision:number}
@@ -134,7 +136,7 @@ export interface HostStatus {
   shortcutStatus?:'registered'|'unavailable';
   modifierShortcutStatus?:'stopped'|'starting'|'ready'|'permission-required'|'unsupported'|'unavailable';
   fallbackShortcut?:string;fallbackShortcutStatus?:'registered'|'unavailable';
-  captureMode:'explicit-frozen';memoryEnabled:false;dataDir:string;
+  captureMode:'explicit-frozen';memoryEnabled:boolean;dataDir:string;
 }
 export interface AttachedWindow {id:string;title:string;ownerName:string}
 export interface CompactFit {id:string;maxHeight:number}

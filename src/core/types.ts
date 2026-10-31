@@ -1,3 +1,4 @@
+import type {MemoryUse} from '../shared/user-memory';
 import type {BrowserContinuationReceipt} from '../shared/browser-continuation';
 import type {DocumentStamp,DocumentChange} from '../shared/document-source';
 import type { TaskSession,ComposerDraft,BrowserStartReceipt } from './task-session';
@@ -40,6 +41,7 @@ export interface RequestRecord {
   sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
   answer?: { artifactId: string; revision: number; digest: string };
   artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
+  memory?:MemoryUse;
   browserStart?:BrowserStartReceipt;
   browserContinuation?:BrowserContinuationReceipt;
 }
@@ -98,6 +100,8 @@ export interface ProcedureInput {
 export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; signal: AbortSignal }
 export interface RequestInput {
   browserContinuation?:BrowserContinuationReceipt;
+  /** Host-selected user-authored memory, validated against the current ledger. */
+  memory?:MemoryUse;
   taskId: string; requestId: string; kind: string; prompt: string;
   submittedDraft?:ComposerDraft;
   /** Host-owned endpoint/tool-scope binding, included in durable request identity. */

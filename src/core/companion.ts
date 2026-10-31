@@ -1,3 +1,4 @@
+import {emptyUserMemory,readMemoryChange,readMemoryUse,selectUserMemory,memoryConsent,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
 import {encodeHelperSourceReportReceipt,findHelperSourceReportReceipt} from './helper-source-report-receipt';
@@ -72,6 +73,7 @@ export class Companion {
   private state: State;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly controllers = new Map<string, AbortController>();
+  private memoryChanges = new AbortController();
   private closed = false;
   private persistenceFailed = false;
   private constructor(private readonly options: CompanionOptions, state: State, private readonly releaseLock: () => Promise<void>) { this.state = state; }
@@ -161,6 +163,43 @@ export class Companion {
     this.state = draft;
     return clone(result);
   }
+  getUserMemory():Promise<UserMemory>{return this.exclusive(()=>clone(this.state.userMemory??emptyUserMemory()));}
+
+  changeUserMemory(input:unknown,assertCurrent:()=>void=()=>{}):Promise<MemoryCommit>{
+    const value=clone(readMemoryChange(input));
+    return this.exclusive(async()=>{
+      const current=this.state.userMemory??emptyUserMemory();
+      if(value.expectedRevision!==current.revision)return {kind:'conflict',current:clone(current)};
+      if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Memory revision limit reached. Saved memory is preserved.');
+      const result=await this.commit(state=>{
+        assertCurrent();const next={...clone(current),revision:current.revision+1},change=value.change;
+        if(change.kind==='enabled')next.enabled=change.enabled;
+        else if(change.kind==='forget'){
+          if(!next.facts.some(fact=>fact.id===change.id))reject('not-found','This memory fact was already forgotten.');
+          next.facts=next.facts.filter(fact=>fact.id!==change.id);
+        }else{
+          const previous=change.id?next.facts.find(fact=>fact.id===change.id):undefined;
+          if(change.id&&!previous)reject('not-found','This memory fact was already forgotten.');
+          if(!previous&&next.facts.length>=MEMORY_FACT_COUNT)reject('invalid',`Keep at most ${MEMORY_FACT_COUNT} memory facts. Forget a fact before adding another.`);
+          const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:[...new Set(change.topics.map(topic=>topic.trim()).filter(Boolean))]};
+          if(previous)next.facts[next.facts.indexOf(previous)]=fact;else next.facts.push(fact);
+        }
+        state.userMemory=next;return {kind:'saved' as const,current:next};
+      });
+      this.memoryChanges.abort(Error(MEMORY_CHANGED));this.memoryChanges=new AbortController();
+      return result;
+    });
+  }
+
+  leaseUserMemory(taskId:string,prompt:string){
+    return this.exclusive(()=>{
+      const task=this.task(this.state,taskId),memory=this.state.userMemory??emptyUserMemory();
+      const selected=clone(selectUserMemory(memory,{title:task.title,goal:task.goal,prompt})),signal=this.memoryChanges.signal;
+      const assertCurrent=()=>{if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision)throw Error(MEMORY_CHANGED);};
+      return {...selected,signal,assertCurrent,consent:memoryConsent(selected),check:async()=>{assertCurrent();}};
+    });
+  }
+
   private task(state: State, id: string): Task {
     const task = state.tasks.find(item => item.id === id);
     if (!task) return reject('not-found', 'Task was not found.');
@@ -709,11 +748,17 @@ export class Companion {
     input = clone(input);
     if(input.submittedDraft!==undefined){try{input.submittedDraft=Schema.decodeUnknownSync(SubmittedComposerDraftSchema,{onExcessProperty:'error'})(input.submittedDraft);if(!Number.isSafeInteger(input.submittedDraft.revision))throw Error('Invalid revision.');}catch{return reject('invalid','Submitted composer draft is invalid.');}}
     if(input.browserContinuation!==undefined){try{input.browserContinuation=readBrowserContinuationReceipt(input.browserContinuation);if(input.kind!=='browser'||input.submittedDraft||input.artifactId)throw Error();}catch{return reject('invalid','The browser continuation receipt is invalid. Existing work is kept.');}}
+    if(input.memory!==undefined){try{input.memory=readMemoryUse(input.memory);}catch{return reject('invalid','Invalid memory receipt.');}}
     let boundSubmittedDraft:ComposerDraft|undefined;
     const controller = new AbortController();
     const begun = await this.exclusive(async () => {
       const task = this.task(this.state, input.taskId), sourceRefs = this.requestRefs(task, input.sourceIds);
       if(input.expectedSourceRefs!==undefined){const refs=input.expectedSourceRefs;if(!Array.isArray(refs)||refs.length!==sourceRefs.length||new Set(refs.map(ref=>ref?.sourceId)).size!==refs.length||refs.some(ref=>!ref||Object.keys(ref).sort().join(',')!=='digest,sourceId,version'||!sourceRefs.some(actual=>actual.sourceId===ref.sourceId&&actual.version===ref.version&&actual.digest===ref.digest)))reject('conflict','Selected source versions changed. Review the current snapshot.');input.expectedSourceRefs=clone(sourceRefs);}
+      if(input.memory){
+        if(!['explain','create'].includes(input.kind)||input.artifactId)reject('invalid','Memory applies only to ordinary questions and drafts.');
+        const expected=selectUserMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt:input.prompt}).receipt;
+        if(JSON.stringify(expected)!==JSON.stringify(input.memory))reject('conflict',MEMORY_CHANGED);
+      }
       const digest = hash(JSON.stringify({ ...input, sourceIds: input.sourceIds === undefined ? undefined : sourceRefs.map(ref => ref.sourceId), sourceRefs }));
       const existing = task.requests.find(request => request.id === input.requestId);
       if (existing) {
@@ -742,7 +787,7 @@ export class Companion {
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
-        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
         return { ...(['explain','create','revise'].includes(input.kind)?{taskHistory:projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
