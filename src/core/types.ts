@@ -127,7 +127,7 @@ export interface ResumeResult {
   interruptedRequestIds: string[];
   sourceContext: ReturnType<typeof import('./source-resume').sourceResumeContext>;
 }
-export interface CompanionOptions { dataDir: string; now?: () => Date }
+export interface CompanionOptions { dataDir: string; now?: () => Date; beforeReadState?:()=>Promise<void> }
 export type Expression =
   | { op: 'constant'; value: number; unit?: string }
   | { op: 'variable'; name: string }

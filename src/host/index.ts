@@ -1,3 +1,5 @@
+import {ContentBackups,ContentBackupGate,recoverContentRestore} from './content-backup';
+import {isContentBackupCommand,readContentBackupCommand} from '../shared/content-backup';
 import {DocumentSpeech} from './document-speech';
 import {isSpeechCommand,readSpeechCommand} from '../shared/document-speech';
 import {CodeWorkspaces} from './code-workspace';
@@ -106,7 +108,8 @@ const responsePreferences=new ResponsePreferences(dataDir)
 const native=new NativeSourceAdapter()
 // Disposable integration instances must not compete with the user's running app for input.
 const testNoGlobalInput=process.env.WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT==='1'
-let core:Companion,panel:BrowserWindow,credentialWindow:BrowserWindow|undefined
+const contentBackupGate=new ContentBackupGate()
+let core:Companion,panel:BrowserWindow,credentialWindow:BrowserWindow|undefined,contentBackups:ContentBackups
 let shortcut='Control+Shift+Space',panelBounds:Electron.Rectangle|undefined,attachedWindowId:string|undefined,monitor:ReturnType<typeof setInterval>|undefined
 let placementMode:'attached'|'edge'|'detached'='detached'
 let viewMode:'companion'|'workspace'='workspace'
@@ -187,6 +190,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('content-backup.'))return readContentBackupCommand(c);
   if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
@@ -313,7 +317,7 @@ function validate(value:unknown):Command{
   }
   return c as unknown as Command
 }
-async function hostStatus():Promise<HostStatus>{const p=await native.permissionStatus();return {platform:process.platform,screenPermission:p.screen,accessibilityPermission:p.accessibility,shortcut:modifierKeymap(process.platform)?.label??shortcut,shortcutStatus:modifierKeymap(process.platform)?(modifierShortcut.status().state==='ready'?'registered':'unavailable'):(shortcutRegistered?'registered':'unavailable'),modifierShortcutStatus:modifierShortcut.status().state,fallbackShortcut:shortcut,fallbackShortcutStatus:shortcutRegistered?'registered':'unavailable',captureMode:'explicit-frozen',memoryEnabled:core?(await core.getUserMemory()).enabled:false,dataDir}}
+async function hostStatus():Promise<HostStatus>{const p=await native.permissionStatus();return {profileDir:app.getPath('userData'),sessionDir:app.getPath('sessionData'),platform:process.platform,screenPermission:p.screen,accessibilityPermission:p.accessibility,shortcut:modifierKeymap(process.platform)?.label??shortcut,shortcutStatus:modifierKeymap(process.platform)?(modifierShortcut.status().state==='ready'?'registered':'unavailable'):(shortcutRegistered?'registered':'unavailable'),modifierShortcutStatus:modifierShortcut.status().state,fallbackShortcut:shortcut,fallbackShortcutStatus:shortcutRegistered?'registered':'unavailable',captureMode:'explicit-frozen',memoryEnabled:core?(await core.getUserMemory()).enabled:false,dataDir}}
 const surfaceSize=(mode:typeof viewMode)=>mode==='companion'?{width:360,height:compactHeight}:{width:430,height:760}
 function surfacePlacement(mode:typeof viewMode,source:Electron.Rectangle,work:Electron.Rectangle,height=surfaceSize(mode).height){
   const width=surfaceSize(mode).width
@@ -829,7 +833,7 @@ const recurringWorkRunner=createRecurringWorkRunner({
  },
  changed:ids=>{emit({type:'schedules.changed'});if(ids.length)changed();},
 });
-function assertCurrentWork(lifecycle:number){if(quitting||lifecycle!==quitEpoch)throw Error('The app started closing. Start this action again.');}
+function assertCurrentWork(lifecycle:number){if(quitting||contentBackupGate.busy||lifecycle!==quitEpoch)throw Error('The app started closing. Start this action again.');}
 let queueDrain:Promise<void>|undefined;
 async function queuedScope(taskId:string,prompt:string,basis:string){
  const epoch=keyEpoch,route=selectedProvider,provider=activeProvider(),account=await provider.accountScope(),preferences=await responsePreferences.lease(),memory=await core.leaseUserMemory(taskId,prompt);
@@ -858,8 +862,8 @@ async function saveQueuedCommand(c:Extract<QueueCommand,{type:'queue.submit'|'qu
  const result=await core.saveQueuedFollowup(c.taskId,item,existing?.revision??0,c.type==='queue.submit'?c.submittedDraft:undefined);changed(c.taskId);return result;
 }
 function drainQueuedFollowups(){
- if(queueDrain||quitting)return;
- queueDrain=(async()=>{while(!quitting){
+ if(queueDrain||quitting||contentBackupGate.busy)return;
+ queueDrain=(async()=>{while(!quitting&&!contentBackupGate.busy){
   const tasks=await core.listTasks();
   if(tasks.some(task=>task.requests.some(request=>request.status==='running'))||[...pendingEffects].some(key=>key.startsWith('model:')))return;
   const task=tasks.find(task=>pendingFollowups(task.session?.queuedFollowups)[0]?.status==='queued'),item=pendingFollowups(task?.session?.queuedFollowups)[0];if(!task||!item)return;const taskId=task.id;
@@ -874,6 +878,7 @@ function drainQueuedFollowups(){
  }})().catch(()=>{}).finally(()=>{queueDrain=undefined;});
 }
 async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFollowup):Promise<unknown>{
+  if(contentBackupGate.busy&&!['draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('Content backup: Content is frozen. Finish the backup or restart Glint after restore.')
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
   if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
@@ -983,7 +988,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     case 'queue.cancel':{const result=await core.cancelQueuedFollowup(c.taskId,c.id,c.expectedRevision);changed(c.taskId);return result;}
     case 'queue.hold':{const result=await core.holdQueuedFollowups(c.taskId,'Source selection changed. Review the exact queued follow-up before queueing it again.');changed(c.taskId);return result;}
     case 'draft.save':return core.saveComposerDraft(c.taskId,c.expectedRevision,c.draft)
-    case 'draft.flushed':quitDrafts.acknowledge(c.quitId,c.error);return null
+    case 'draft.flushed':if(!contentBackupDrafts.acknowledge(c.quitId,c.error))quitDrafts.acknowledge(c.quitId,c.error);return null
     case 'browser.review.notes':{const {type,...input}=c;const saved=await core.saveBrowserReviewNotes(input,()=>assertCurrentWork(lifecycle));changed(c.taskId);return saved;}
     case 'browser.continue.prepare':{const {type,...input}=c;const task=await core.prepareBrowserContinuationAttempt(input);changed(c.taskId);return task;}
     case 'browser.continue.release':{const {type,...input}=c;const result=await core.releaseBrowserContinuationAttempt(input);changed(c.taskId);return result;}
@@ -1272,10 +1277,10 @@ function configureConnection(){
 async function dispatchCompanionCommand(event:Pick<Electron.IpcMainInvokeEvent,'sender'|'senderFrame'>,value:unknown){
     try{
       if(event.sender!==panel.webContents||event.senderFrame!==panel.webContents.mainFrame)throw Error('Untrusted companion caller.')
-      const c=validate(value);const key=c.type==='schedules.change'?`schedule:${c.change.id}`:c.type==='windows.capture'?'capture:window':c.type==='export.approve'?`export:${c.actionId}`:c.type==='model.run'||c.type==='browser.run'||c.type==='browser.workflow.run'||c.type==='browser.continue'?`model:${c.taskId}`:c.type==='browser.inspect'?`inspect:${c.taskId}:${c.operationId}`:undefined
+      const c=validate(value);if(isContentBackupCommand(c)){if(!['content-backup.status','content-backup.restart'].includes(c.type)&&(pendingEffects.size||credentialWindow&&!credentialWindow.isDestroyed()))throw Error('Content backup: Finish active requests, actions and connection dialogs before backing up or restoring.');return await contentBackups.command(c);}const key=c.type==='schedules.change'?`schedule:${c.change.id}`:c.type==='windows.capture'?'capture:window':c.type==='export.approve'?`export:${c.actionId}`:c.type==='model.run'||c.type==='browser.run'||c.type==='browser.workflow.run'||c.type==='browser.continue'?`model:${c.taskId}`:c.type==='browser.inspect'?`inspect:${c.taskId}:${c.operationId}`:undefined
       if(key&&pendingEffects.has(key))throw Error('This effect is already awaiting a result.')
       if(key)pendingEffects.add(key)
-      try{return await command(c)}finally{if(key)pendingEffects.delete(key);if(key?.startsWith('model:')||c.type==='queue.submit'||c.type==='queue.edit'||c.type==='queue.cancel')drainQueuedFollowups();}
+      try{return await contentBackupGate.run(c.type,()=>command(c))}finally{if(key)pendingEffects.delete(key);if(key?.startsWith('model:')||c.type==='queue.submit'||c.type==='queue.edit'||c.type==='queue.cancel')drainQueuedFollowups();}
     }catch(error){throw Error(publicErrorMessage(error))}
   }
 app.whenReady().then(async()=>{
@@ -1286,7 +1291,7 @@ app.whenReady().then(async()=>{
     {label:'View',submenu:[{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'}]},
     {label:'Window',submenu:[{label:'Minimize',accelerator:'CommandOrControl+M',click:()=>void requestCollapse()},{role:'front'}]},
   ]))
-  await mkdir(dataDir,{recursive:true,mode:0o700});core=await createCompanion({dataDir});captureSettings=await CaptureSettings.open(dataDir);botPreferences=await BotPreferences.open(dataDir,core);await botPreferences.finishExample(core);const restoredView=await taskViewPreferences.read();currentViewTaskId=restoredView.kind==='available'?restoredView.taskId??undefined:undefined;requestedViewTaskId=currentViewTaskId;if(quitting){await core.close();return}
+  await mkdir(dataDir,{recursive:true,mode:0o700});core=await createCompanion({dataDir,beforeReadState:()=>recoverContentRestore(dataDir)});contentBackups=createContentBackups();captureSettings=await CaptureSettings.open(dataDir);botPreferences=await BotPreferences.open(dataDir,core);await botPreferences.finishExample(core);const restoredView=await taskViewPreferences.read();currentViewTaskId=restoredView.kind==='available'?restoredView.taskId??undefined:undefined;requestedViewTaskId=currentViewTaskId;if(quitting){await core.close();return}
   try{await readFile(join(dataDir,'connection-disabled'));connectionDisabled=true}catch{}
   try{const saved=JSON.parse(await readFile(join(dataDir,'provider.json'),'utf8'));if(saved.provider==='meta'||saved.provider==='codex')selectedProvider=saved.provider}catch{}
   try{const saved=JSON.parse(await readFile(join(dataDir,'shortcut.json'),'utf8'));if(typeof saved.shortcut==='string')shortcut=saved.shortcut}catch{}
@@ -1300,6 +1305,7 @@ app.whenReady().then(async()=>{
   ipcMain.handle('companion:command',dispatchCompanionCommand)
   ipcMain.handle('credential:save',async(event,value)=>{
     try{
+      if(contentBackupGate.busy)throw Error('Content backup: Finish the content operation before changing connections.');
       if(!credentialWindow||event.sender!==credentialWindow.webContents||event.senderFrame!==credentialWindow.webContents.mainFrame)throw Error('Untrusted credential entry.')
       const v=object(value);if(v.acknowledged!==true)throw Error('Authorize this destination before connecting.');const key=str(v.key,'API key',512);if(!safeStorage.isEncryptionAvailable())throw Error('OS secure storage unavailable; connection was not saved.')
       await writeFile(credentialPath,safeStorage.encryptString(key),{mode:0o600});selectedProvider='meta';await writeFile(join(dataDir,'provider.json'),JSON.stringify({provider:selectedProvider}),{mode:0o600});connectionDisabled=false;await rm(join(dataDir,'connection-disabled'),{force:true});keyEpoch++;await retireRecurringGrants();metaProvider.reset();codexProvider.reset();browserCodexProvider.reset();credentialWindow.close();credentialWindow=undefined;changed();return true
@@ -1357,8 +1363,30 @@ async function beginQuit(){
  }
  drawQuit();
 }
+
+const contentBackupDrafts=createQuitDraftBarrier({send:quitId=>emit({type:'draft.flush',quitId}),confirmDiscard:async()=>false})
+function createContentBackups(){return new ContentBackups({
+ directory:dataDir,appVersion:app.getVersion(),snapshot:()=>core.contentSnapshot(),
+ chooseSave:async()=>{const selected=await dialog.showSaveDialog(panel,{title:'Save Glint content backup',defaultPath:`glint-content-${new Date().toISOString().slice(0,10)}.glint-backup.json`,filters:[{name:'Glint content backup',extensions:['json']}],properties:['createDirectory','dontAddToRecent']});return selected.canceled?undefined:selected.filePath;},
+ chooseOpen:async()=>{const selected=await dialog.showOpenDialog(panel,{title:'Choose Glint content backup to restore',properties:['openFile','dontAddToRecent'],filters:[{name:'Glint content backup',extensions:['json']}]});return selected.canceled?undefined:selected.filePaths[0];},
+ maintain:operation=>contentBackupGate.maintain(operation,{
+  before:async()=>{
+   if((await core.listTasks()).some(task=>task.requests.some(request=>request.status==='running')))throw Error('Content backup: Stop active responses before backing up or restoring.');
+   await recurringWorkRunner.stop();
+   // The integrated condition-watch owner adds its awaited suspend() here before capture.
+   sourceDrag?.cancel();sourceDragPreview?.clear();sourceContextEpoch++;contextIntake=undefined;captures.clear();retireDocumentFollow('Content backup retired document following. Choose a window again explicitly.');
+   if(monitor){clearInterval(monitor);monitor=undefined;}
+  },
+  freeze:async()=>{const decision=await contentBackupDrafts.request();if(!decision.saved){emit({type:'draft.resume',quitId:decision.id});throw Error('Content backup: Unfinished input could not be confirmed. Nothing was exported or restored. Keep Glint open and retry saving drafts.');}return decision.id;},
+  resume:quitId=>{if(quitId)emit({type:'draft.resume',quitId});if(!quitting){if(!monitor)monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000);recurringWorkRunner.start();}},
+ }),
+ restoreUnderOwnership:async transaction=>{contentBackupGate.seal();await documentSpeech.close();ordinaryTransmissionConsent=undefined;keyEpoch++;quitEpoch++;capturePrivacyAbort.abort();modifierShortcut.stop();globalShortcut.unregisterAll();shortcutRegistered=false;metaProvider.reset();codexProvider.close();browserCodexProvider.close();browserInspectionAttempts.close();browserService?.close();browserService=undefined;return core.closeForContentRestore(transaction);},
+ restart:()=>{setTimeout(()=>{quitApproved=true;app.relaunch();app.exit(0);},200);},
+})}
+
 app.on('before-quit',event=>{
  if(quitApproved)return;
+ if(contentBackupGate.busy){event.preventDefault();return;}
  event.preventDefault();if(quitInProgress)return;quitInProgress=true;quitting=true;
  void beginQuit().catch(()=>{quitInProgress=false;quitting=false;recurringWorkRunner.start();dialog.showErrorBox('Messages could not be saved','The app stayed open. Keep a copy of your message before trying again.');});
 })

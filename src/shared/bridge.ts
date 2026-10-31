@@ -1,3 +1,4 @@
+import type {ContentBackupCommand} from './content-backup';
 import type {SpeechCommand} from './document-speech';
 import type {CodeCommand} from './code-workspace';
 import type {ConversationAttemptReceipt} from './conversation-attempt';
@@ -34,6 +35,7 @@ import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
 import type {TaskAttentionCommand} from './task-attention';
 
 export type Command =
+  | ContentBackupCommand
   | SpeechCommand
   | CodeCommand
   | {type:'canvas.create';taskId:string;requestId:string}
@@ -156,6 +158,7 @@ export interface ConnectionStatus {
   detail:string; specialized:{sam:string;computer:string};
 }
 export interface HostStatus {
+  profileDir?:string;sessionDir?:string;
   platform:string;screenPermission:string;accessibilityPermission:string;shortcut:string;
   shortcutStatus?:'registered'|'unavailable';
   modifierShortcutStatus?:'stopped'|'starting'|'ready'|'permission-required'|'unsupported'|'unavailable';

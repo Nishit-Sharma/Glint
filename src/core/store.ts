@@ -37,6 +37,7 @@ const LegacyStateSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), task
 const TaskSchema = Schema.Struct({ ...taskFields, projectId:optionalText, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema),archive:Schema.optional(TaskArchiveSchema) }).pipe(Schema.filter(task=>!task.archive||task.status==='paused'));
 const StateSchema = Schema.Struct({ recurringWork:Schema.optional(RecurringWorkListSchema),userMemory:Schema.optional(UserMemorySchema),schemaVersion: Schema.Literal(2), tasks: list(TaskSchema), usedRequestIds: list(Schema.String),projects:Schema.optional(list(ProjectSchema)) }).pipe(Schema.filter(state=>new Set(state.projects?.map(project=>project.id)).size===(state.projects?.length??0)&&state.tasks.every(task=>!task.projectId||state.projects?.some(project=>project.id===task.projectId))));
 export interface State { recurringWork?:RecurringWork[];userMemory?:UserMemory;schemaVersion: 2; tasks: Task[]; usedRequestIds: string[]; projects?:Project[] }
+export const parseCurrentState=(value:unknown):State=>Schema.decodeUnknownSync(StateSchema,{onExcessProperty:'error'})(value);
 export class StateValidationError extends Error {
   constructor(cause: unknown) { super('Task-store draft failed validation; existing data was preserved.', { cause }); this.name = 'StateValidationError'; }
 }

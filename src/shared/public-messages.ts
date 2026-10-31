@@ -49,6 +49,7 @@ const glintCopy = new Map([
 /** Presentation only. Raw failures stay in the local task record for recovery. */
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
+ if(text.startsWith('Content backup: '))return text;
  if(text===SPEECH_ERROR)return text;
  if(text===CODE_WORKSPACE_ERROR)return text;
  const attemptMessage=conversationAttemptPublicMessage(text);if(attemptMessage)return attemptMessage;

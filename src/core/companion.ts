@@ -123,6 +123,7 @@ export class Companion {
       if (owner && typeof owner === 'object' && 'token' in owner && owner.token === token) await rm(lockPath);
     };
     try {
+      await options.beforeReadState?.();
       const state = await Effect.runPromise(readState(options.dataDir));
       const time = nowIso(options.now ?? (() => new Date()));
       for(const schedule of state.recurringWork??[]){
@@ -176,6 +177,7 @@ export class Companion {
     return clone(result);
   }
   getRecurringWork():Promise<RecurringWork[]>{return this.exclusive(()=>clone(this.state.recurringWork??[]));}
+  contentSnapshot():Promise<State>{return this.exclusive(()=>clone(this.state));}
   changeRecurringWork(input:unknown,assertCurrent:()=>void=()=>{}):Promise<RecurringWork[]>{
     const change=clone(readRecurringWorkChange(input));
     return this.exclusive(()=>this.commit(state=>{
@@ -1169,6 +1171,15 @@ export class Companion {
         return current;
       });
     });
+  }
+  /** Restoration closes the live store but retains its existing ownership through replacement and rollback. */
+  closeForContentRestore<T>(transaction:()=>Promise<T>):Promise<T>{
+    const result=this.queue.then(async()=>{
+      if(this.closed)return reject('closed','Companion is closed.');
+      this.closed=true;for(const controller of this.controllers.values())controller.abort();this.controllers.clear();
+      try{return await transaction();}finally{await this.releaseLock();}
+    });
+    this.queue=result.then(()=>undefined,()=>undefined);return result;
   }
   /** Close leaves running records for explicit interrupted-request reconciliation on next open. */
   close(): Promise<void> {
