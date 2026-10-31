@@ -1,3 +1,4 @@
+import type {CodeCommand} from './code-workspace';
 import type {ConversationAttemptReceipt} from './conversation-attempt';
 import type {QueueCommand} from './queued-followup';
 import type {RecurringWorkChange} from './recurring-work';
@@ -32,6 +33,7 @@ import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
 import type {TaskAttentionCommand} from './task-attention';
 
 export type Command =
+  | CodeCommand
   | {type:'canvas.create';taskId:string;requestId:string}
   | ({type:'canvas.save'} & CanvasSave)
   | ({type:'canvas.svg'} & CanvasSvg)
