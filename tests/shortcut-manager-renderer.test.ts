@@ -1,0 +1,27 @@
+import {afterEach,expect,test,vi} from 'vitest';
+vi.mock('react',async original=>{const fixture=await import('./controlled-renderer.fixture');return {...await original<typeof import('react')>(),...fixture.hooks};});
+import {createElement} from 'react';
+import type {HostStatus} from '../src/shared/bridge';
+import {ShortcutManager} from '../src/renderer/src/components/ShortcutManager';
+import {createControlledRenderer} from './controlled-renderer.fixture';
+const host:HostStatus={platform:'darwin',screenPermission:'denied',accessibilityPermission:'not-determined',shortcut:'Both Option keys',shortcutStatus:'unavailable',modifierShortcutStatus:'permission-required',fallbackShortcut:'Control+Alt+F8',fallbackShortcutStatus:'registered',captureMode:'explicit-frozen',memoryEnabled:false,dataDir:'/private/unused'};
+afterEach(()=>vi.unstubAllGlobals());
+test('read-only shortcut manager searches action, key aliases and current fallback, recovers no-match and keeps keyboard focus',()=>{
+ const invoke=vi.fn(()=>{throw Error('Shortcut browsing must not invoke host actions');});vi.stubGlobal('window',{companion:{invoke}});
+ let status:HostStatus|undefined=host;
+ const r=createControlledRenderer(()=>createElement(ShortcutManager,{host:status}));r.render();
+ const text=(node:ReturnType<typeof r.find>):string=>node.type==='#text'?node.props.text:node.children.map(text).join('');
+ const input=()=>r.find(node=>node.type==='input'),search=(query:string)=>{input().props.onChange({target:{value:query}});r.render();},items=()=>r.nodes().filter(node=>node.type==='li'),clear=()=>r.find(node=>node.type==='button'&&text(node)==='Clear');
+ expect(items()).toHaveLength(16);expect(text(r.find(node=>node.props.role==='status'))).toBe('16 of 16 shortcuts');
+ const label=r.find(node=>node.type==='label');expect(label.props.htmlFor).toBe(input().props.id);expect(input().props.type).toBe('search');
+ search('copy');expect(items()).toHaveLength(1);expect(text(items()[0])).toContain('Copy');
+ search('cmd+c');expect(items()).toHaveLength(1);expect(text(items()[0])).toContain('Command+C');
+ search('control option f8');expect(items()).toHaveLength(1);expect(text(items()[0])).toContain('Control+Alt+F8');expect(text(items()[0])).toContain('Registered');
+ search('physical');expect(text(items()[0])).toContain('Accessibility access required');
+ search('unmatched shortcut');expect(items()).toHaveLength(0);expect(text(r.find(node=>node.props.role==='status'))).toContain('No keyboard shortcuts match');
+ const focus=vi.fn();input().props.ref.current={focus};clear().props.onClick();r.render();expect(input().props.value).toBe('');expect(items()).toHaveLength(16);expect(focus).toHaveBeenCalledOnce();expect(clear().props.disabled).toBe(true);expect(r.find(node=>node.type==='ul').props.tabIndex).toBe(0);
+ status={...host,fallbackShortcut:'Control+Shift+F9',fallbackShortcutStatus:'unavailable'};search('f9');expect(text(items()[0])).toContain('Unavailable');expect(text(items()[0])).toContain('Control+Shift+F9');
+ expect(invoke).not.toHaveBeenCalled();expect(r.nodes().some(node=>node.type==='form')).toBe(false);expect(r.nodes().filter(node=>node.type==='button')).toHaveLength(1);
+ const reopened=createControlledRenderer(()=>createElement(ShortcutManager,{host:status}));reopened.render();expect(reopened.find(node=>node.type==='input').props.value).toBe('');
+ status=undefined;r.render();expect(items()).toHaveLength(0);expect(text(r.find(node=>node.props.role==='status'))).toBe('Checking shortcuts…');
+});
