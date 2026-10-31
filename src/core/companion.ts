@@ -20,7 +20,7 @@ import { projectTaskDialogue, projectConversationAttemptDialogue } from './task-
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
-import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectInstructions} from '../shared/projects';
+import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectPins,type ProjectInstructions} from '../shared/projects';
 import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
@@ -384,11 +384,21 @@ export class Companion {
     this.cancelRunning(task,'Project context changed during this request.');
   }
   projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
-  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|Task>{
+  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|Task>{
     const command=readProjectCommand(input);
     return this.exclusive(async()=>{
       assertCurrent();
       if(command.type==='projects.list')return clone(this.state.projects??[]);
+      if(command.type==='projects.pins.get')return clone(this.state.projectPins??{revision:0,projectIds:[]});
+      if(command.type==='projects.pins.set')return this.commit(state=>{
+        assertCurrent();this.project(state,command.projectId);
+        const pins=state.projectPins??{revision:0,projectIds:[]};
+        if(pins.projectIds.includes(command.projectId)===command.pinned)return pins;
+        if(pins.revision!==command.expectedRevision)reject('conflict','Project stars changed. Reload projects before trying again.');
+        if(pins.revision===Number.MAX_SAFE_INTEGER)reject('invalid','Project star revision limit reached. Your saved stars are kept.');
+        const saved={revision:pins.revision+1,projectIds:command.pinned?[...pins.projectIds,command.projectId]:pins.projectIds.filter(id=>id!==command.projectId)};
+        state.projectPins=saved;return saved;
+      });
       const result=await this.commit(state=>{
         assertCurrent();
         if(command.type==='projects.create'){

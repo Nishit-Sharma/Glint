@@ -6,6 +6,7 @@ import {createCompanion,type RequestContext,type RequestOutput} from '../src/cor
 import {buildMetaMessages} from '../src/host/provider';
 import {buildCodexInput} from '../src/host/codex-provider';
 import {readProjectCommand,projectInstructionsText} from '../src/shared/projects';
+import {parseCurrentState} from '../src/core/store';
 
 const cleanup:Array<()=>Promise<void>>=[];
 afterEach(async()=>{for(const close of cleanup.splice(0))await close();});
@@ -26,6 +27,49 @@ it('creates and renames a project, moves a task and reopens its original sources
  await f.reopen();expect(await f.core.projectCommand({type:'projects.list'})).toEqual([saved]);
  const reopened=await f.core.getTask(task.id);expect(reopened).toEqual({...before,projectId:project.id,updatedAt:reopened.updatedAt,session:{...before.session!,revision:reopened.session!.revision}});
  const ungrouped=await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:null,expectedProjectId:project.id});expect(ungrouped.projectId).toBeUndefined();expect(ungrouped.sources).toEqual(before.sources);
+});
+it('stars and unstars a project across reopen without changing its saved content or task',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Visit checklist'}),project=await f.core.projectCommand({type:'projects.create',name:'Observatory'});
+ await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+ await f.core.putSource(task.id,{kind:'text',label:'Visit guide',role:'fact',content:'Doors open at 18:00.'});
+ await f.core.saveArtifact(task.id,{title:'Plan',content:'Arrive at 17:50.'});
+ await f.core.saveComposerDraft(task.id,0,{text:'  Keep this unsent message.\n',kind:'create'});
+ const before=await f.core.getTask(task.id);
+ expect(await f.core.projectCommand({type:'projects.pins.get'})).toEqual({revision:0,projectIds:[]});
+ const pinned=await f.core.projectCommand({type:'projects.pins.set',projectId:project.id,pinned:true,expectedRevision:0});
+ expect(pinned).toEqual({revision:1,projectIds:[project.id]});
+ expect(await f.core.getTask(task.id)).toEqual(before);
+ await f.reopen();expect(await f.core.projectCommand({type:'projects.pins.get'})).toEqual(pinned);
+ const reopened={...before,session:{...before.session!,revision:before.session!.revision+1}};
+ expect(await f.core.projectCommand({type:'projects.list'})).toEqual([project]);expect(await f.core.getTask(task.id)).toEqual(reopened);
+ expect(await f.core.projectCommand({type:'projects.pins.set',projectId:project.id,pinned:false,expectedRevision:1})).toEqual({revision:2,projectIds:[]});
+ expect(await f.core.getTask(task.id)).toEqual(reopened);
+ await f.reopen();expect(await f.core.projectCommand({type:'projects.pins.get'})).toEqual({revision:2,projectIds:[]});
+ expect(await f.core.projectCommand({type:'projects.list'})).toEqual([project]);expect(await f.core.getTask(task.id)).toEqual({...before,session:{...before.session!,revision:before.session!.revision+2}});
+});
+it('keeps project stars idempotent and refuses stale choices, missing projects and invalid metadata',async()=>{
+ const f=await fixture(),a=await f.core.projectCommand({type:'projects.create',name:'One'}),b=await f.core.projectCommand({type:'projects.create',name:'Two'});
+ const command={type:'projects.pins.set' as const,projectId:a.id,pinned:true,expectedRevision:0},pinned=await f.core.projectCommand(command);
+ expect(await f.core.projectCommand(command)).toEqual(pinned);
+ await expect(f.core.projectCommand({...command,projectId:b.id})).rejects.toThrow('Project stars changed');
+ await expect(f.core.projectCommand({...command,pinned:false})).rejects.toThrow('Project stars changed');
+ await expect(f.core.projectCommand({...command,projectId:'missing',pinned:false,expectedRevision:1})).rejects.toMatchObject({code:'not-found'});
+ expect(await f.core.projectCommand({type:'projects.pins.get'})).toEqual(pinned);
+ for(const value of [{...command,expectedRevision:-1},{...command,pinned:'yes'},{...command,accessFiles:true},{type:'projects.pins.get',extra:true}])expect(()=>readProjectCommand(value)).toThrow();
+ const state={schemaVersion:2,tasks:[],usedRequestIds:[],projects:[a,b],projectPins:pinned};expect(parseCurrentState(state).projectPins).toEqual(pinned);
+ for(const projectPins of [{revision:1,projectIds:[a.id,a.id]},{revision:1,projectIds:['missing']},{revision:Number.MAX_SAFE_INTEGER+1,projectIds:[]},{revision:1,projectIds:[a.id],extra:true}])expect(()=>parseCurrentState({...state,projectPins})).toThrow();
+});
+it('keeps a pending response current through project star and unstar changes',async()=>{
+ const f=await fixture(),task=await f.core.createTask({title:'Owned task'}),project=await f.core.projectCommand({type:'projects.create',name:'Project'});
+ await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+ let context!:RequestContext,entered!:()=>void,finish!:(output:RequestOutput)=>void;const ready=new Promise<void>(done=>entered=done),pending=f.core.runRequest({taskId:task.id,requestId:'star-pending',kind:'create',prompt:'Keep the original response.'},async ctx=>{context=ctx;entered();return new Promise(done=>finish=done);});await ready;
+ const before=await f.core.getTask(task.id);
+ await f.core.projectCommand({type:'projects.pins.set',projectId:project.id,pinned:true,expectedRevision:0});
+ expect(context.signal.aborted).toBe(false);expect(await f.core.getTask(task.id)).toEqual(before);
+ await f.core.projectCommand({type:'projects.pins.set',projectId:project.id,pinned:false,expectedRevision:1});
+ expect(context.signal.aborted).toBe(false);expect(await f.core.getTask(task.id)).toEqual(before);
+ finish({title:'Original answer',content:'Still current.'});expect((await pending).status).toBe('completed');
+ expect((await f.core.getTask(task.id)).artifacts[0].revisions[0].content).toBe('Still current.');expect(await f.core.projectCommand({type:'projects.list'})).toEqual([project]);
 });
 it('shares exact saved versions into independent task copies once and keeps copies after removal or owner deletion',async()=>{
  const f=await fixture(),a=await f.core.createTask({title:'Trip research'}),b=await f.core.createTask({title:'Visit checklist'}),project=await f.core.projectCommand({type:'projects.create',name:'Observatory'});

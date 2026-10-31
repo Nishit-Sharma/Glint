@@ -1,41 +1,39 @@
 import {useEffect,useRef,useState} from 'react';
+import {Star} from 'lucide-react';
 import type {Task} from '../../../core/types';
-import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,projectSourceInTask,type Project,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
-import {publicErrorMessage} from '../../../shared/public-messages';
+import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,projectSourceInTask,type Project,type ProjectPins,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field,type Run} from '../ui';
 import './projects.css';
 
 type Change=<C extends ProjectCommand>(command:C)=>Promise<ProjectReply<C>|undefined>;
-export function Projects({tasks,currentTaskId,busy,run,onOpenTask}:{tasks:Task[];currentTaskId?:string;busy:boolean;run:Run;onOpenTask:(task:Task)=>void}){
- const [projects,setProjects]=useState<Project[]>(),[selected,setSelected]=useState(''),[name,setName]=useState(''),[error,setError]=useState(''),[working,setWorking]=useState(false);
- const alive=useRef(true),generation=useRef(0),locked=useRef(false);
- useEffect(()=>{alive.current=true;return()=>{alive.current=false;generation.current++;};},[]);
- async function load(){const token=++generation.current;try{const saved=await window.companion.invoke<Project[]>({type:'projects.list'});if(alive.current&&token===generation.current){setProjects(saved);setError('');}}catch(error){if(alive.current&&token===generation.current)setError(publicErrorMessage(error));}}
- useEffect(()=>{void load();},[tasks]);
+export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTogglePin,onReload,tasks,currentTaskId,busy,run,onOpenTask}:{projects?:Project[];pins?:ProjectPins;selected:string;onSelect:(id:string)=>void;loadError:string;pinning:boolean;onTogglePin:(project:Project)=>void;onReload:()=>Promise<void>;tasks:Task[];currentTaskId?:string;busy:boolean;run:Run;onOpenTask:(task:Task)=>void}){
+ const [name,setName]=useState(''),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const alive=useRef(true),locked=useRef(false);
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  const clearCreate=useNavigationDraft(name.length>0,()=>setName(''));
  const guardNavigation=useGuardedAction();
  async function change<C extends ProjectCommand>(command:C):Promise<ProjectReply<C>|undefined>{
   if(locked.current||busy)return;locked.current=true;setWorking(true);setError('');
-  try{const saved=await run<ProjectReply<C>>(command);if(alive.current){await load();if(!saved)setError('The change was not confirmed. Reload saved projects before trying again.');}return saved;}
+  try{const saved=await run<ProjectReply<C>>(command);if(alive.current){await onReload();if(!saved)setError('The change was not confirmed. Reload saved projects before trying again.');}return saved;}
   finally{locked.current=false;if(alive.current)setWorking(false);}
  }
  const project=projects?.find(project=>project.id===selected),held=busy||working;
  return <section className="projects" aria-label="Projects">
   <p>Keep related tasks, instructions and saved sources together.</p>
-  {error&&<p role="alert">{error} <Button disabled={held} onClick={()=>void load()}>Reload projects</Button></p>}
-  {!projects&&!error&&<p role="status">Loading projects…</p>}
+  {(error||loadError)&&<p role="alert">{error||loadError} <Button disabled={held||pinning} onClick={()=>{setError('');void onReload();}}>Reload projects</Button></p>}
+  {!projects&&!error&&!loadError&&<p role="status">Loading projects…</p>}
   {projects&&<>
-   <form className="project-create" onSubmit={event=>{event.preventDefault();if(!name.trim()||held)return;const submitted=name;void change({type:'projects.create',name:name.trim()}).then(saved=>{if(saved&&alive.current){setName(current=>current===submitted?'':current);clearCreate();guardNavigation(()=>setSelected(saved.id));}});}}><Field label="New project name"><input value={name} maxLength={200} disabled={held} onChange={event=>setName(event.currentTarget.value)}/></Field><Button type="submit" disabled={held||!name.trim()}>Create project</Button></form>
+   <form className="project-create" onSubmit={event=>{event.preventDefault();if(!name.trim()||held)return;const submitted=name;void change({type:'projects.create',name:name.trim()}).then(saved=>{if(saved&&alive.current){setName(current=>current===submitted?'':current);clearCreate();guardNavigation(()=>onSelect(saved.id));}});}}><Field label="New project name"><input value={name} maxLength={200} disabled={held} onChange={event=>setName(event.currentTarget.value)}/></Field><Button type="submit" disabled={held||!name.trim()}>Create project</Button></form>
    {!projects.length?<p>No projects yet. Create one, then add your tasks.</p>:<>
-    <Field label="Project"><select value={selected} disabled={held} onChange={event=>{const id=event.currentTarget.value;guardNavigation(()=>setSelected(id));}}><option value="">Choose a project</option>{projects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>
-    {project&&<ProjectDetails key={project.id} project={project} projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onOpenTask={onOpenTask}/>}
+    <Field label="Project"><select value={selected} disabled={held} onChange={event=>{const id=event.currentTarget.value;guardNavigation(()=>onSelect(id));}}><option value="">Choose a project</option>{projects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>
+    {project&&<ProjectDetails key={project.id} project={project} projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onOpenTask={onOpenTask} pinned={!!pins?.projectIds.includes(project.id)} pinDisabled={held||pinning||!pins||!!loadError} onTogglePin={onTogglePin}/>}
    </>}
   </>}
  </section>;
 }
 
-function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpenTask}:{project:Project;projects:Project[];tasks:Task[];currentTaskId?:string;busy:boolean;change:Change;onOpenTask:(task:Task)=>void}){
+function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpenTask,pinned,pinDisabled,onTogglePin}:{project:Project;projects:Project[];tasks:Task[];currentTaskId?:string;busy:boolean;change:Change;onOpenTask:(task:Task)=>void;pinned:boolean;pinDisabled:boolean;onTogglePin:(project:Project)=>void}){
  const [base,setBase]=useState(project),[name,setName]=useState(project.name),[instructions,setInstructions]=useState(project.instructions),[taskChoice,setTaskChoice]=useState(''),[sourceChoice,setSourceChoice]=useState(''),[target,setTarget]=useState(currentTaskId??'');
  const dirty=name!==base.name||instructions!==base.instructions,changed=base.revision!==project.revision;
  const reset=()=>{setBase(project);setName(project.name);setInstructions(project.instructions);};
@@ -45,6 +43,7 @@ function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpen
  const candidates=members.flatMap(task=>task.sources.filter(source=>source.freshness==='fresh'&&source.versions.at(-1)?.kind!=='window').map(source=>{const version=source.versions.at(-1)!,reference={sourceId:source.id,version:source.currentVersion,digest:version.digest};return {key:task.id+':'+source.id,task,version,reference};})).filter(candidate=>!project.sources.some(source=>projectSourceMatches(source,candidate.task.id,candidate.reference)));
  const candidate=candidates.find(candidate=>candidate.key===sourceChoice);
  return <div className="project-details">
+  <div className="project-heading"><strong>{project.name}</strong><button type="button" className="project-star" aria-pressed={pinned} disabled={pinDisabled} onClick={()=>onTogglePin(project)}><Star size={15} fill={pinned?'currentColor':'none'} aria-hidden="true"/>{pinned?'Unstar project':'Star project'}</button></div>
   <form onSubmit={event=>{event.preventDefault();if(busy||!dirty||changed||!name.trim())return;const submitted={name,instructions};void change({type:'projects.update',projectId:project.id,expectedRevision:base.revision,name:name.trim(),instructions}).then(saved=>{if(saved){setBase(saved);if(latest.current.name===submitted.name&&latest.current.instructions===submitted.instructions){setName(saved.name);setInstructions(saved.instructions);navigation();}}});}}>
    <Field label="Project name"><input value={name} maxLength={200} disabled={busy} onChange={event=>setName(event.currentTarget.value)}/></Field>
    <Field label="Project instructions"><textarea value={instructions} rows={5} maxLength={PROJECT_INSTRUCTIONS_LIMIT} disabled={busy} onChange={event=>setInstructions(event.currentTarget.value)}/></Field>
