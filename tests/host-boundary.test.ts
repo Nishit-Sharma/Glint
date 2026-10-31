@@ -1826,3 +1826,21 @@ describe('Queued ordinary text through production IPC',()=>{
   await expect(f.untrustedCommand(base)).rejects.toThrow();await expect(f.ipcCommand(base)).rejects.toThrow('Ask directly');expect((await f.core.getTask(task.id)).requests).toEqual([]);expect(f.calls.provider).toEqual([]);expect(f.calls.confirmations).toEqual([]);
  });
 });
+
+describe('Successful conversation attempts through production IPC',()=>{
+ it('uses ordinary session consent once, excludes the chosen answer/later turns and persists an exact separate relation',async()=>{
+  const {prepareConversationAttempt}=await import('../src/shared/conversation-attempt'),f=await fixture(),task=await f.core.createTask({title:'Attempt IPC'});
+  await f.ipcCommand({type:'model.run',taskId:task.id,requestId:'preceding-attempt-question',kind:'explain',prompt:'PRECEDING_QUESTION',sourceIds:[]});
+  await f.core.runRequest({taskId:task.id,requestId:'selected-attempt-question',kind:'explain',prompt:'ORIGINAL_ATTEMPT_QUESTION',sourceIds:[]},async()=>({title:'Original',content:'ORIGINAL_ATTEMPT_ANSWER'}));
+  await f.core.runRequest({taskId:task.id,requestId:'later-attempt-question',kind:'explain',prompt:'LATER_ATTEMPT_QUESTION',sourceIds:[]},async()=>({title:'Later',content:'LATER_ATTEMPT_ANSWER'}));
+  const owner=await f.core.getTask(task.id),original=owner.requests[1],selection={taskId:task.id,requestId:original.id,digest:original.digest,answer:original.answer!},command=prepareConversationAttempt(owner,selection,{prompt:'EDITED_ATTEMPT_QUESTION',sourceRefs:[],mode:'edit'},'attempt-ipc-one');
+  await f.core.saveComposerDraft(task.id,0,{text:'NEWER_COMPOSER_DRAFT',kind:'create'});await f.ipcCommand(command);await f.ipcCommand(command);
+  expect(f.calls.provider).toHaveLength(2);expect(f.calls.confirmations).toHaveLength(1);const input=f.calls.provider[1];expect(input.prompt).toBe('EDITED_ATTEMPT_QUESTION');expect(input.taskContext).toContain('PRECEDING_QUESTION');for(const excluded of ['ORIGINAL_ATTEMPT_QUESTION','ORIGINAL_ATTEMPT_ANSWER','LATER_ATTEMPT_QUESTION','LATER_ATTEMPT_ANSWER','NEWER_COMPOSER_DRAFT'])expect(input.taskContext).not.toContain(excluded);
+  const saved=await f.core.getTask(task.id);expect(saved.requests.slice(0,3)).toEqual(owner.requests);expect(saved.requests.at(-1)?.conversationAttempt).toEqual(command.conversationAttempt);expect(saved.session?.draft).toBe('NEWER_COMPOSER_DRAFT');expect(f.calls.captures).toBe(0);
+ });
+ it('first-session review understands the attempt projection and current source changes block before provider transmission',async()=>{
+  const {prepareConversationAttempt}=await import('../src/shared/conversation-attempt'),f=await fixture(),created=await f.core.createTask({title:'First attempt session'}),task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Current source',content:'One'});await f.core.runRequest({taskId:task.id,requestId:'successful-question',kind:'create',prompt:'Original question',sourceIds:[]},async()=>({title:'Original',content:'Original answer'}));
+  const owner=await f.core.getTask(task.id),original=owner.requests[0],selection={taskId:task.id,requestId:original.id,digest:original.digest,answer:original.answer!},source=owner.sources[0],ref={sourceId:source.id,version:1,digest:source.versions[0].digest},command=prepareConversationAttempt(owner,selection,{prompt:original.prompt,sourceRefs:[ref],mode:'again'},'attempt-first-session');await f.ipcCommand(command);expect(f.calls.confirmations).toHaveLength(1);expect(f.calls.details[0].detail).toContain('original answer and later turns are excluded');expect(f.calls.provider).toHaveLength(1);
+  await f.core.putSource(task.id,{id:source.id,kind:'text',role:'fact',label:'Current source',content:'Two'});await expect(f.ipcCommand({...command,requestId:'attempt-stale-source'})).rejects.toThrow('Selected context changed');expect(f.calls.provider).toHaveLength(1);
+ });
+});

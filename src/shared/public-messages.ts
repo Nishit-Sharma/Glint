@@ -1,3 +1,4 @@
+import {conversationAttemptPublicMessage} from './conversation-attempt';
 import {recurringWorkPublicMessage} from './recurring-work';
 import {documentImportMessages} from './document-import';
 import {conceptMapPublicMessage} from './concept-map';
@@ -46,6 +47,7 @@ const glintCopy = new Map([
 /** Presentation only. Raw failures stay in the local task record for recovery. */
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
+ const attemptMessage=conversationAttemptPublicMessage(text);if(attemptMessage)return attemptMessage;
  const queueMessages=new Set(['Follow-up was not authorized. Its saved text is kept.','Check the provider connection before reviewing this follow-up.','Ask directly when no response is running.','Only ordinary text follow-ups can be queued. Browser and external actions need their own review.','Source versions changed. Review the queued context.','This queued follow-up changed. Reload before editing.','This queued follow-up identity already has different text.','The connection changed before the follow-up was queued.','The queued context or provider session changed before transmission.','The queued context changed before saving. Your text is kept.','This follow-up changed. Reload before cancelling.','The exact first queued follow-up is no longer ready. Review it again.']);if(queueMessages.has(text))return text;
  if(['Review this conversation export again before saving.','This conversation is too large to export in one file. No partial transcript was created.','Finish another export before preparing a new snapshot.','Export destination changed. Choose it again.'].includes(text))return text;
  const recurring=recurringWorkPublicMessage(text);if(recurring)return recurring;

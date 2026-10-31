@@ -1,3 +1,4 @@
+import type {ConversationAttemptReceipt} from '../shared/conversation-attempt';
 import type {MemoryUse} from '../shared/user-memory';
 import type {BrowserContinuationReceipt} from '../shared/browser-continuation';
 import type {DocumentStamp,DocumentChange} from '../shared/document-source';
@@ -43,6 +44,7 @@ export interface RequestRecord {
   answer?: { artifactId: string; revision: number; digest: string };
   artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
   memory?:MemoryUse;
+  conversationAttempt?:ConversationAttemptReceipt;
   browserStart?:BrowserStartReceipt;
   browserContinuation?:BrowserContinuationReceipt;
 }
@@ -101,6 +103,7 @@ export interface ProcedureInput {
 /** The detached task's sources contain only the request's selected current versions. */
 export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; signal: AbortSignal }
 export interface RequestInput {
+  conversationAttempt?:ConversationAttemptReceipt;
   queuedFollowup?:{id:string;revision:number;basis:string;scope:string};
   browserContinuation?:BrowserContinuationReceipt;
   /** Host-selected user-authored memory, validated against the current ledger. */

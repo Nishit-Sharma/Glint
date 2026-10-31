@@ -1,3 +1,4 @@
+import type {ConversationAttemptReceipt} from './conversation-attempt';
 import type {QueueCommand} from './queued-followup';
 import type {RecurringWorkChange} from './recurring-work';
 import type {MemoryChange} from './user-memory';
@@ -125,7 +126,7 @@ export type Command =
   | {type:'export.propose';taskId:string;artifactId:string;revision:number}
   | {type:'export.approve';taskId:string;actionId:string;digest:string;requestId:string}
   | {type:'export.inspect';taskId:string;actionId:string}
-  | {type:'model.run';taskId:string;requestId:string;prompt:string;kind:'explain'|'create'|'revise'|'experiment'|'procedure'|'brief'|'concept-map';artifactId?:string;sourceIds?:string[];expectedSourceRefs?:SourceRef[];revisionBasis?:string;submittedDraft?:ComposerDraft;briefAction?:{artifact:ArtifactRef;actionIndex:number}|{kind:'review-state-transitions';artifact:ArtifactRef}}
+  | {type:'model.run';taskId:string;requestId:string;prompt:string;kind:'explain'|'create'|'revise'|'experiment'|'procedure'|'brief'|'concept-map';artifactId?:string;sourceIds?:string[];expectedSourceRefs?:SourceRef[];revisionBasis?:string;conversationAttempt?:ConversationAttemptReceipt;submittedDraft?:ComposerDraft;briefAction?:{artifact:ArtifactRef;actionIndex:number}|{kind:'review-state-transitions';artifact:ArtifactRef}}
   | {type:'model.cancel';taskId:string;requestId:string}
   | {type:'connection.status'} | {type:'connection.configure'} | {type:'connection.disconnect'}
   | {type:'connection.select';provider:'meta'|'codex'}

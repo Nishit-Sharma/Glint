@@ -1,8 +1,9 @@
+import {ConversationAttemptReceiptSchema} from '../shared/conversation-attempt';
 import {Schema} from 'effect';
 import {LOCAL_HELPER_CONTEXT_NOTICE} from '../core/interactive-modules';
 
 const HistoryReview=Schema.Struct({
- title:Schema.String,goal:Schema.String,
+ title:Schema.String,goal:Schema.String,conversationAttempt:Schema.optional(ConversationAttemptReceiptSchema),
  previousTurns:Schema.Array(Schema.Struct({userRequest:Schema.Struct({text:Schema.String})})),
  checkpoints:Schema.Array(Schema.Struct({note:Schema.String})),
  sourceResume:Schema.optional(Schema.Struct({sources:Schema.Array(Schema.Struct({status:Schema.String})),relatedCheckpoints:Schema.Array(Schema.Struct({note:Schema.String})),omittedRelatedCheckpoints:Schema.Number,affectedProcedures:Schema.optional(Schema.Array(Schema.Struct({currentRevision:Schema.Number,revisions:Schema.Array(Schema.Struct({revision:Schema.Number,omittedSourceRefs:Schema.optional(Schema.Number)})),omittedRevisions:Schema.optional(Schema.Number)}))),omissions:Schema.optional(Schema.Struct({affectedProcedures:Schema.optional(Schema.Number),procedureRevisions:Schema.optional(Schema.Number),procedureSourceRefs:Schema.optional(Schema.Number)}))})),
@@ -20,6 +21,7 @@ export function taskHistoryReview(context:string):string{
  const relatedNotes=history.sourceResume?.relatedCheckpoints??[];
  const details=[`Task: “${line(history.title,160)}”.`,...(history.goal?[`Task goal: ${line(history.goal,240)}`]:[])];
  if(history.sourceResume&&(relatedNotes.length||history.sourceResume.sources.some(source=>source.status==='refresh-required'))){details.push(`Source continuity includes ${history.sourceResume.sources.filter(source=>source.status==='refresh-required').length} changed or unverified references and ${relatedNotes.length} related saved notes. Earlier decisions in those notes may be shared.`);if(relatedNotes[0])details.push(`Related saved note: ${line(relatedNotes[0].note,240)}`);}
+ if(history.conversationAttempt)details.push('Another answer to a saved question. Only saved ordinary text turns before that question are included; its original answer and later turns are excluded. Current guidance and optional memory apply. The original provider context is not recreated.');
  const procedures=history.sourceResume?.affectedProcedures??[];
  if(procedures.length){
   const current=procedures.filter(procedure=>procedure.revisions.some(revision=>revision.revision===procedure.currentRevision)).length;

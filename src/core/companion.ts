@@ -1,3 +1,4 @@
+import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
 import {emptyUserMemory,readMemoryChange,readMemoryUse,selectUserMemory,memoryConsent,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
@@ -12,7 +13,7 @@ import { isCode, readState, StateValidationError, writeState, type State } from 
 import { parseModelDraft } from './model-drafts';
 import {sourceResumeContext} from './source-resume';
 import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
-import { projectTaskDialogue } from './task-dialogue';
+import { projectTaskDialogue, projectConversationAttemptDialogue } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
@@ -918,6 +919,7 @@ export class Companion {
     input = clone(input);
     if(input.submittedDraft!==undefined){try{input.submittedDraft=Schema.decodeUnknownSync(SubmittedComposerDraftSchema,{onExcessProperty:'error'})(input.submittedDraft);if(!Number.isSafeInteger(input.submittedDraft.revision))throw Error('Invalid revision.');}catch{return reject('invalid','Submitted composer draft is invalid.');}}
     if(input.browserContinuation!==undefined){try{input.browserContinuation=readBrowserContinuationReceipt(input.browserContinuation);if(input.kind!=='browser'||input.submittedDraft||input.artifactId)throw Error();}catch{return reject('invalid','The browser continuation receipt is invalid. Existing work is kept.');}}
+    if(input.conversationAttempt!==undefined)input.conversationAttempt=readConversationAttemptReceipt(input.conversationAttempt);
     if(input.memory!==undefined){try{input.memory=readMemoryUse(input.memory);}catch{return reject('invalid','Invalid memory receipt.');}}
     let boundSubmittedDraft:ComposerDraft|undefined;
     const controller = new AbortController();
@@ -947,6 +949,7 @@ export class Companion {
           if (!artifact || latest(artifact.revisions).revision !== input.expectedRevision) reject('conflict', 'Artifact changed. Reload before revising.');
         }
         this.validRefs(task, sourceRefs);
+        if(input.conversationAttempt){assertConversationAttempt(task,input);if(task.requests.some(request=>request.status==='running'))reject('conflict','Wait for the current response before asking again.');}
         if(input.browserContinuation){
           const receipt=input.browserContinuation,review=reviewBrowserContinuation(task,{taskId:task.id,requestId:receipt.previousRequestId,digest:receipt.previousDigest});
           const pending=pendingBrowserContinuation(task);if(!pending||pending.phase!=='prepared'||pending.input.requestId!==input.requestId||pending.input.prompt!==input.prompt||hash(pending.input.previous.binding)!==receipt.bindingDigest||hash(pending.input.url)!==receipt.startPageDigest||pending.input.previous.requestId!==receipt.previousRequestId||pending.input.previous.digest!==receipt.previousDigest)reject('conflict','The exact pending browser intent is unavailable. No browser was started.');
@@ -959,10 +962,10 @@ export class Companion {
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
         if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
-        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
-        return { ...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        return { ...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
       return { context };
