@@ -24,3 +24,11 @@ test('topic scopes keep C++, C#, C and dotted names distinct',()=>{
  const selected=(prompt:string)=>selectUserMemory(memory,{title:'Programming',goal:'',prompt}).facts.map(fact=>fact.id);
  expect(selected('Explain C++ ownership.')).toEqual(['cpp']);expect(selected('Explain C# types.')).toEqual(['cs']);expect(selected('Explain C pointers.')).toEqual(['c']);expect(selected('Explain Node.js modules.')).toEqual(['node']);expect(selected('Explain node modules.')).toEqual([]);
 });
+
+test('project account-memory exclusion shares no facts in consent or either provider serializer while inherited and global-off choices stay distinct',()=>{
+ const memory:UserMemory={revision:1,enabled:true,facts:[{id:'synthetic-fact',revision:1,text:'SYNTHETIC_ACCOUNT_FACT',topics:[]}]},question={title:'Synthetic project',goal:'',prompt:'Explain the plan'},project={useAccountMemory:false};
+ const excluded=selectUserMemory(memory,question,project),context=userMemoryContext('{"title":"Synthetic project"}',excluded);
+ expect(excluded.receipt).toEqual({revision:1,status:'off',facts:[],omitted:0});expect(memoryConsent(excluded,project)).toContain('off for this project');expect(context).toBe('{"title":"Synthetic project"}');
+ for(const value of [memoryConsent(excluded,project),JSON.stringify(buildMetaMessages(question.prompt,[],context)),JSON.stringify(buildCodexInput({prompt:question.prompt,sources:[],taskContext:context}))])expect(value).not.toContain('SYNTHETIC_ACCOUNT_FACT');
+ expect(selectUserMemory(memory,question,{}).facts).toHaveLength(1);expect(selectUserMemory({...memory,enabled:false},question,{useAccountMemory:true}).facts).toEqual([]);
+});

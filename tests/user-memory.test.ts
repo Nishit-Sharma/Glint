@@ -46,3 +46,38 @@ test('edits and forgets use one revision-checked ledger, retire stale memory, an
   expect((await core.getUserMemory()).revision).toBe(3);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });
+
+test('a saved project account-memory opt-out is authoritative, survives older edits and restart, and never enables global memory',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-project-memory-'));let core=await createCompanion({dataDir:directory});
+ try{
+  const task=await core.createTask({title:'Synthetic design project'}),other=await core.createTask({title:'Synthetic design elsewhere'}),project=await core.projectCommand({type:'projects.create',name:'Design research'});
+  await core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+  await core.changeUserMemory({expectedRevision:0,change:{kind:'save',text:'SYNTHETIC_ACCOUNT_FACT',topics:[]}});await core.changeUserMemory({expectedRevision:1,change:{kind:'enabled',enabled:true}});
+  const inherited=await core.leaseUserMemory(task.id,'Review the layout');expect(inherited.facts.map(fact=>fact.text)).toEqual(['SYNTHETIC_ACCOUNT_FACT']);
+  await core.putSource(task.id,{kind:'text',label:'Saved design notes',role:'fact',content:'Keep this project source.'});await core.saveComposerDraft(task.id,0,{text:'PRIVATE_UNSENT_PROJECT_DRAFT',kind:'explain'});
+  const original=await core.getTask(task.id),browserContext={origin:'https://owned.invalid',url:'https://owned.invalid/current',requestId:'earlier-browser'};await core.replaceSession(task.id,original.session!.revision,{...original.session!,browserContext});const before=await core.getTask(task.id),memory=await core.getUserMemory();
+  const offCommand={type:'projects.update' as const,projectId:project.id,expectedRevision:1,name:project.name,instructions:project.instructions,useAccountMemory:false},off=await core.projectCommand(offCommand);
+  expect(off.useAccountMemory).toBe(false);expect(off.revision).toBe(2);expect(await core.projectCommand(offCommand)).toEqual(off);expect(()=>inherited.assertCurrent()).toThrow('Memory changed');
+  const excluded=await core.leaseUserMemory(task.id,'Review the layout');expect(excluded.facts).toEqual([]);expect(excluded.receipt).toMatchObject({status:'off',facts:[]});expect(excluded.consent).toContain('off for this project');expect(excluded.consent).not.toContain('SYNTHETIC_ACCOUNT_FACT');
+  expect((await core.leaseUserMemory(other.id,'Review the layout')).facts.map(fact=>fact.text)).toEqual(['SYNTHETIC_ACCOUNT_FACT']);expect(await core.getUserMemory()).toEqual(memory);expect(await core.getTask(task.id)).toEqual(before);
+  await expect(core.runRequest({taskId:task.id,requestId:'forged-memory',kind:'explain',prompt:'Review the layout',memory:inherited.receipt},async()=>{throw Error('Must never reach a runner');})).rejects.toThrow('Memory changed');
+  const renamed=await core.projectCommand({type:'projects.update',projectId:project.id,expectedRevision:off.revision,name:'Renamed project',instructions:'Keep this saved guidance.'});expect(renamed.useAccountMemory).toBe(false);
+  await expect(core.projectCommand({...offCommand,expectedRevision:1,useAccountMemory:true})).rejects.toThrow('changed');expect(()=>excluded.assertCurrent()).toThrow('Memory changed');
+  await core.close();core=await createCompanion({dataDir:directory});expect((await core.projectCommand({type:'projects.list'}))[0]).toEqual(renamed);expect((await core.leaseUserMemory(task.id,'Review the layout')).facts).toEqual([]);expect((await core.getTask(task.id)).sources).toEqual(before.sources);expect((await core.getTask(task.id)).session?.draft).toBe('PRIVATE_UNSENT_PROJECT_DRAFT');expect((await core.getTask(task.id)).session?.browserContext).toEqual(browserContext);
+  await core.changeUserMemory({expectedRevision:2,change:{kind:'enabled',enabled:false}});await core.projectCommand({type:'projects.update',projectId:project.id,expectedRevision:renamed.revision,name:renamed.name,instructions:renamed.instructions,useAccountMemory:true});expect((await core.leaseUserMemory(task.id,'Review the layout')).receipt.status).toBe('off');expect((await core.leaseUserMemory(other.id,'Review the layout')).receipt.status).toBe('off');
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('project account-memory changes cancel late results and invalidate moved-task leases while other projects stay current',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-project-memory-late-')),core=await createCompanion({dataDir:directory});
+ try{
+  const task=await core.createTask({title:'Synthetic project question'}),other=await core.createTask({title:'Other project question'}),project=await core.projectCommand({type:'projects.create',name:'One'}),second=await core.projectCommand({type:'projects.create',name:'Two'});
+  await core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});await core.projectCommand({type:'projects.assign',taskId:other.id,projectId:second.id,expectedProjectId:null});
+  await core.changeUserMemory({expectedRevision:0,change:{kind:'save',text:'SYNTHETIC_ACCOUNT_FACT',topics:[]}});await core.changeUserMemory({expectedRevision:1,change:{kind:'enabled',enabled:true}});
+  const lease=await core.leaseUserMemory(task.id,'Explain the plan'),unrelated=await core.leaseUserMemory(other.id,'Explain the plan');let entered!:()=>void,finish!:(value:{title:string;content:string})=>void,signal!:AbortSignal;const ready=new Promise<void>(done=>entered=done);
+  const pending=core.runRequest({taskId:task.id,requestId:'pending-policy',kind:'explain',prompt:'Explain the plan',memory:lease.receipt},async ctx=>{signal=ctx.signal;entered();return new Promise(done=>finish=done);},lease.assertCurrent);await ready;
+  await core.projectCommand({type:'projects.update',projectId:project.id,expectedRevision:1,name:project.name,instructions:'',useAccountMemory:false});expect(signal.aborted).toBe(true);expect(()=>lease.assertCurrent()).toThrow('Memory changed');expect(()=>unrelated.assertCurrent()).not.toThrow();
+  finish({title:'Late output',content:'Must not be saved.'});expect((await pending).status).toBe('cancelled');expect((await core.getTask(task.id)).artifacts).toEqual([]);
+  const excluded=await core.leaseUserMemory(task.id,'Explain the plan');await core.projectCommand({type:'projects.assign',taskId:task.id,projectId:second.id,expectedProjectId:project.id});expect(()=>excluded.assertCurrent()).toThrow('Memory changed');expect((await core.leaseUserMemory(task.id,'Explain the plan')).facts.map(fact=>fact.text)).toEqual(['SYNTHETIC_ACCOUNT_FACT']);
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});

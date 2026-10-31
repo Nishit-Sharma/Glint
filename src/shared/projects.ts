@@ -9,7 +9,7 @@ const PinsRevision=Schema.Int.pipe(Schema.nonNegative(),Schema.filter(Number.isS
 const Reference=Schema.Struct({sourceId:Id,version:Revision,digest:bounded(128).pipe(Schema.minLength(1))});
 const Name=bounded(200).pipe(Schema.filter(value=>value.trim().length>0));
 export const ProjectSourceSchema=Schema.Struct({id:Id,taskId:Id,reference:Reference});
-export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64))}));
+export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64))}));
 export type Project=typeof ProjectSchema.Type;
 export type ProjectSource=typeof ProjectSourceSchema.Type;
 export const ProjectPinsSchema=Schema.mutable(Schema.Struct({revision:PinsRevision,projectIds:Schema.mutable(Schema.Array(Id))})).pipe(Schema.filter(pins=>new Set(pins.projectIds).size===pins.projectIds.length));
@@ -27,7 +27,7 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.sidebar.get')}),
  Schema.Struct({type:Schema.Literal('projects.sidebar.set'),collapsed:Schema.Boolean,expectedRevision:PinsRevision}),
  Schema.Struct({type:Schema.Literal('projects.create'),name:Name}),
- Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT)}),
+ Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean)}),
  Schema.Struct({type:Schema.Literal('projects.assign'),taskId:Id,projectId:Schema.NullOr(Id),expectedProjectId:Schema.NullOr(Id)}),
  Schema.Struct({type:Schema.Literal('projects.assign.bulk'),projectId:Schema.NullOr(Id),tasks:Assignments}),
  Schema.Struct({type:Schema.Literal('projects.sources.add'),projectId:Id,expectedRevision:Revision,taskId:Id,reference:Reference}),

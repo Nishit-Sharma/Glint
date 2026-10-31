@@ -36,22 +36,25 @@ export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTo
 
 function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpenTask,pinned,pinDisabled,onTogglePin}:{project:Project;projects:Project[];tasks:Task[];currentTaskId?:string;busy:boolean;change:Change;onOpenTask:(task:Task)=>void;pinned:boolean;pinDisabled:boolean;onTogglePin:(project:Project)=>void}){
  const [base,setBase]=useState(project),[name,setName]=useState(project.name),[instructions,setInstructions]=useState(project.instructions),[taskChoice,setTaskChoice]=useState(''),[sourceChoice,setSourceChoice]=useState(''),[target,setTarget]=useState(currentTaskId??'');
+ const [useAccountMemory,setUseAccountMemory]=useState(project.useAccountMemory??true);
  const [review,setReview]=useState<SourceUpdateReview>();
  const reviewTrigger=useRef<HTMLButtonElement|null>(null);
  const closeReview=()=>{setReview(undefined);requestAnimationFrame(()=>reviewTrigger.current?.focus());};
- const dirty=name!==base.name||instructions!==base.instructions,changed=base.revision!==project.revision;
- const reset=()=>{setBase(project);setName(project.name);setInstructions(project.instructions);};
- const navigation=useNavigationDraft(dirty,reset),latest=useRef({name,instructions});latest.current={name,instructions};
+ const dirty=name!==base.name||instructions!==base.instructions||useAccountMemory!==(base.useAccountMemory??true),changed=base.revision!==project.revision;
+ const reset=()=>{setBase(project);setName(project.name);setInstructions(project.instructions);setUseAccountMemory(project.useAccountMemory??true);};
+ const navigation=useNavigationDraft(dirty,reset),latest=useRef({name,instructions,useAccountMemory});latest.current={name,instructions,useAccountMemory};
  useEffect(()=>{if(!dirty&&changed)reset();},[project.revision,dirty]);
  const members=tasks.filter(task=>task.projectId===project.id),others=tasks.filter(task=>task.projectId!==project.id),destination=members.find(task=>task.id===target),held=busy||dirty;
  const candidates=members.flatMap(task=>task.sources.filter(source=>source.freshness==='fresh'&&source.versions.at(-1)?.kind!=='window').map(source=>{const version=source.versions.at(-1)!,reference={sourceId:source.id,version:source.currentVersion,digest:version.digest};return {key:task.id+':'+source.id,task,version,reference};})).filter(candidate=>!project.sources.some(source=>projectSourceMatches(source,candidate.task.id,candidate.reference)));
  const candidate=candidates.find(candidate=>candidate.key===sourceChoice);
  return <div className="project-details">
   <div className="project-heading"><strong>{project.name}</strong><button type="button" className="project-star" aria-pressed={pinned} disabled={pinDisabled} onClick={()=>onTogglePin(project)}><Star size={15} fill={pinned?'currentColor':'none'} aria-hidden="true"/>{pinned?'Unstar project':'Star project'}</button></div>
-  <form onSubmit={event=>{event.preventDefault();if(busy||!dirty||changed||!name.trim())return;const submitted={name,instructions};void change({type:'projects.update',projectId:project.id,expectedRevision:base.revision,name:name.trim(),instructions}).then(saved=>{if(saved){setBase(saved);if(latest.current.name===submitted.name&&latest.current.instructions===submitted.instructions){setName(saved.name);setInstructions(saved.instructions);navigation();}}});}}>
+  <form onSubmit={event=>{event.preventDefault();if(busy||!dirty||changed||!name.trim())return;const submitted={name,instructions,useAccountMemory};void change({type:'projects.update',projectId:project.id,expectedRevision:base.revision,name:name.trim(),instructions,useAccountMemory}).then(saved=>{if(saved){setBase(saved);if(latest.current.name===submitted.name&&latest.current.instructions===submitted.instructions&&latest.current.useAccountMemory===submitted.useAccountMemory){setName(saved.name);setInstructions(saved.instructions);setUseAccountMemory(saved.useAccountMemory??true);navigation();}}});}}>
    <Field label="Project name"><input value={name} maxLength={200} disabled={busy} onChange={event=>setName(event.currentTarget.value)}/></Field>
    <Field label="Project instructions"><textarea value={instructions} rows={5} maxLength={PROJECT_INSTRUCTIONS_LIMIT} disabled={busy} onChange={event=>setInstructions(event.currentTarget.value)}/></Field>
    <p className="tiny">Used with AI response requests in this project and shown before sending. Instructions do not authorize actions. Browser tasks keep their own approved scope.</p>
+   <Field label="Account memory"><select value={useAccountMemory?'account':'off'} disabled={busy} onChange={event=>setUseAccountMemory(event.currentTarget.value==='account')}><option value="account">Use account memory when enabled</option><option value="off">Do not use account memory</option></select></Field>
+   <p className="tiny">Controls whether saved account facts can accompany new text questions and drafts in this project. Memory in Settings must also be on. Saved facts and other projects stay unchanged.</p>
    {changed&&dirty&&<p role="status">The saved project changed. Your edits are kept here. Reload saved details before editing again.</p>}
    <div className="row"><Button type="submit" disabled={busy||!dirty||changed||!name.trim()}>Save project</Button>{(dirty||changed)&&<Button disabled={busy} onClick={()=>navigation.guard(reset)}>Reload saved details</Button>}</div>
   </form>

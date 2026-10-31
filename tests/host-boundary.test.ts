@@ -52,6 +52,21 @@ describe('Conversation transcript production host path',()=>{
  });
 });
 describe('Projects production path',()=>{
+ it('uses saved project account-memory policy in native consent and actual provider context while keeping other tasks unchanged',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Synthetic project question'}),other=await f.core.createTask({title:'Synthetic unrelated question'}),project=await f.command({type:'projects.create',name:'Memory policy project'});
+  await f.core.changeUserMemory({expectedRevision:0,change:{kind:'save',text:'SYNTHETIC_ACCOUNT_FACT',topics:[]}});await f.core.changeUserMemory({expectedRevision:1,change:{kind:'enabled',enabled:true}});const memory=await f.core.getUserMemory();
+  await f.command({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});await f.command({type:'projects.update',projectId:project.id,expectedRevision:1,name:project.name,instructions:'',useAccountMemory:false});
+  await f.command({type:'model.run',taskId:task.id,requestId:'project-memory-off',kind:'explain',prompt:'Explain the plan',sourceIds:[]});expect(f.calls.details[0].detail).toContain('Account memory is off for this project.');expect(f.calls.details[0].detail).not.toContain('SYNTHETIC_ACCOUNT_FACT');expect(JSON.stringify(f.calls.provider[0])).not.toContain('SYNTHETIC_ACCOUNT_FACT');expect((await f.core.getTask(task.id)).requests[0].memory?.status).toBe('off');
+  await f.command({type:'model.run',taskId:other.id,requestId:'outside-memory-included',kind:'explain',prompt:'Explain the plan',sourceIds:[]});expect(f.calls.provider[1].taskContext).toContain('SYNTHETIC_ACCOUNT_FACT');expect((await f.core.getTask(other.id)).requests[0].memory?.status).toBe('included');expect(await f.core.getUserMemory()).toEqual(memory);expect(f.calls.captures).toBe(0);
+  for(const value of [{useAccountMemory:'yes'},{useAccountMemory:true,approved:true}])await expect(f.command({type:'projects.update',projectId:project.id,expectedRevision:2,name:project.name,instructions:'',...value})).rejects.toThrow();
+ });
+ it('rechecks project account-memory policy after native review and refuses a late approval before any provider transmission',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Synthetic policy race'}),project=await f.command({type:'projects.create',name:'Review policy project'});
+  await f.core.changeUserMemory({expectedRevision:0,change:{kind:'save',text:'SYNTHETIC_ACCOUNT_FACT',topics:[]}});await f.core.changeUserMemory({expectedRevision:1,change:{kind:'enabled',enabled:true}});await f.command({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+  let entered!:()=>void,approve!:(decision:{response:number})=>void;const waiting=new Promise<void>(done=>entered=done);f.seams.confirm=async()=>{entered();return new Promise(done=>approve=done);};
+  const pending=f.command({type:'model.run',taskId:task.id,requestId:'pending-project-memory',kind:'explain',prompt:'Explain the plan',sourceIds:[]});await waiting;await f.command({type:'projects.update',projectId:project.id,expectedRevision:1,name:project.name,instructions:'',useAccountMemory:false});approve({response:1});
+  await expect(pending).rejects.toThrow(/Project context changed|Memory changed/);expect(f.calls.provider).toEqual([]);expect((await f.core.getTask(task.id)).requests[0].status).toBe('cancelled');expect((await f.core.getTask(task.id)).artifacts).toEqual([]);
+ });
  it('reuses saved project instructions across member tasks and excludes them from unrelated requests',async()=>{
   const f=await fixture(),owner:Task=await f.command({type:'tasks.create',title:'Project research'}),sibling:Task=await f.command({type:'tasks.create',title:'Project checklist'}),outside:Task=await f.command({type:'tasks.create',title:'Unrelated work'}),project=await f.command({type:'projects.create',name:'Night visits'}),instructions='PROJECT_GUIDANCE: Use metric units. Mark missing evidence.';
   await f.command({type:'projects.update',projectId:project.id,expectedRevision:1,name:project.name,instructions});

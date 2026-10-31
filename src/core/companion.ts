@@ -289,12 +289,15 @@ export class Companion {
     });
   }
 
+  private selectTaskMemory(task:Task,prompt:string){
+    return selectUserMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined);
+  }
   leaseUserMemory(taskId:string,prompt:string){
     return this.exclusive(()=>{
-      const task=this.task(this.state,taskId),memory=this.state.userMemory??emptyUserMemory();
-      const selected=clone(selectUserMemory(memory,{title:task.title,goal:task.goal,prompt})),signal=this.memoryChanges.signal;
-      const assertCurrent=()=>{if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision)throw Error(MEMORY_CHANGED);};
-      return {...selected,signal,assertCurrent,consent:memoryConsent(selected),check:async()=>{assertCurrent();}};
+      const task=this.task(this.state,taskId),memory=this.state.userMemory??emptyUserMemory(),project=task.projectId?this.project(this.state,task.projectId):undefined,projectId=task.projectId,projectRevision=project?.revision;
+      const selected=clone(this.selectTaskMemory(task,prompt)),signal=this.memoryChanges.signal;
+      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||current.projectId!==projectId||currentProject?.revision!==projectRevision)throw Error(MEMORY_CHANGED);};
+      return {...selected,signal,assertCurrent,consent:memoryConsent(selected,project),check:async()=>{assertCurrent();}};
     });
   }
 
@@ -440,12 +443,13 @@ export class Companion {
           this.cancelProjectRequests(task);task.updatedAt=this.time();return task;
         }
         const project=this.project(state,command.projectId);
-        if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions)return project;
+        if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions&&(project.useAccountMemory??true)===(command.useAccountMemory??project.useAccountMemory??true))return project;
         if(command.type!=='projects.sources.update'&&project.revision!==command.expectedRevision)reject('conflict','This project changed. Reload its saved details before trying again.');
         if(command.type==='projects.update'){
           const name=command.name.trim();
           if(state.projects?.some(other=>other.id!==project.id&&other.name.toLocaleLowerCase()===name.toLocaleLowerCase()))reject('conflict','Another project already uses this name.');
           project.name=name;project.instructions=command.instructions;
+          if(command.useAccountMemory!==undefined)project.useAccountMemory=command.useAccountMemory;
           for(const task of state.tasks)if(task.projectId===project.id)this.cancelProjectRequests(task);
         }else if(command.type==='projects.sources.add'){
           const task=this.task(state,command.taskId);
@@ -1033,7 +1037,7 @@ export class Companion {
       if(input.expectedSourceRefs!==undefined){const refs=input.expectedSourceRefs;if(!Array.isArray(refs)||refs.length!==sourceRefs.length||new Set(refs.map(ref=>ref?.sourceId)).size!==refs.length||refs.some(ref=>!ref||Object.keys(ref).sort().join(',')!=='digest,sourceId,version'||!sourceRefs.some(actual=>actual.sourceId===ref.sourceId&&actual.version===ref.version&&actual.digest===ref.digest)))reject('conflict','Selected source versions changed. Review the current snapshot.');input.expectedSourceRefs=clone(sourceRefs);}
       if(input.memory){
         if(!['explain','create'].includes(input.kind)||input.artifactId)reject('invalid','Memory applies only to ordinary questions and drafts.');
-        const expected=selectUserMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt:input.prompt}).receipt;
+        const expected=this.selectTaskMemory(task,input.prompt).receipt;
         if(JSON.stringify(expected)!==JSON.stringify(input.memory))reject('conflict',MEMORY_CHANGED);
       }
       const projectInstructions=input.kind==='browser'||input.executionScope?.startsWith('recurring-response:v1:')?undefined:this.projectGuidance(this.state,task);

@@ -3,6 +3,7 @@ import {emptyUserMemory,readUserMemory,readMemoryCommit,selectUserMemory,MEMORY_
 import {Button,Field,type RequestKind} from './ui';
 import {useNavigationDraft} from './draft-navigation';
 import {publicErrorMessage} from '../../shared/public-messages';
+import type {Project} from '../../shared/projects';
 
 export function useUserMemory(enabled=true){
  const [memory,setMemory]=useState<UserMemory>(),[error,setError]=useState('');
@@ -68,11 +69,12 @@ function MemoryForm({initial}:{initial:UserMemory}){
  </section>;
 }
 
-export function MemoryStatus({task,prompt,kind,browser=false,onManage}:{task?:{title:string;goal:string};prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
+export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{task?:{title:string;goal:string;projectId?:string};project?:Pick<Project,'id'|'useAccountMemory'>;prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
  const {memory,error}=useUserMemory();
  if(browser||!['explain','create'].includes(kind))return null;
- const selected=selectUserMemory(memory??emptyUserMemory(),{title:task?.title??'',goal:task?.goal??'',prompt});
- return <div className="memory-question-context" aria-label="Memory for this question">{error?<span role="status">Memory preview unavailable</span>:!memory?<span>Checking memory…</span>:selected.facts.length?<details><summary>Memory · {selected.facts.length} {selected.facts.length===1?'fact':'facts'} for this question</summary><ul>{selected.facts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul>{selected.receipt.omitted>0&&<p>{selected.receipt.omitted} matching facts omitted by the memory limit.</p>}<p>Shared as guidance if you send this question.</p></details>:<span>{memory.enabled?'Memory on · no matching facts':'Memory off'}</span>}<button type="button" className="text" onClick={onManage}>Manage memory</button></div>;
+ const projectUnavailable=!!task?.projectId&&project?.id!==task.projectId;
+ const selected=selectUserMemory(memory??emptyUserMemory(),{title:task?.title??'',goal:task?.goal??'',prompt},projectUnavailable?{useAccountMemory:false}:project);
+ return <div className="memory-question-context" aria-label="Memory for this question">{projectUnavailable?<span role="status">Project memory preview unavailable</span>:project?.useAccountMemory===false?<span>Account memory off for this project</span>:error?<span role="status">Memory preview unavailable</span>:!memory?<span>Checking memory…</span>:selected.facts.length?<details><summary>Memory · {selected.facts.length} {selected.facts.length===1?'fact':'facts'} for this question</summary><ul>{selected.facts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul>{selected.receipt.omitted>0&&<p>{selected.receipt.omitted} matching facts omitted by the memory limit.</p>}<p>Shared as guidance if you send this question.</p></details>:<span>{memory.enabled?'Memory on · no matching facts':'Memory off'}</span>}<button type="button" className="text" onClick={onManage}>Manage memory</button></div>;
 }
 
 export function MemoryReceipt({receipt,status,memory}:{receipt?:MemoryUse;status:string;memory?:UserMemory}){

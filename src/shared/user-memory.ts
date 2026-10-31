@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import type {Project} from './projects';
 
 export const MEMORY_FACT_LIMIT=800;
 export const MEMORY_FACT_COUNT=40;
@@ -31,8 +32,8 @@ export const readMemoryCommit=Schema.decodeUnknownSync(Schema.Struct({kind:Schem
 export const emptyUserMemory=():UserMemory=>({revision:0,enabled:false,facts:[]});
 const words=(value:string)=>value.normalize('NFKC').toLocaleLowerCase('en-US').replace(/[\s\p{Cc}\p{Cf}()\[\]{},;:!?“”"'`<>\/\\]+/gu,' ').split(' ').map(token=>token.replace(/\.+$/u,'')).filter(Boolean).join(' ');
 
-export function selectUserMemory(memory:UserMemory,question:{title:string;goal:string;prompt:string}):{facts:MemoryFact[];receipt:MemoryUse}{
- if(!memory.enabled)return {facts:[],receipt:{revision:memory.revision,status:'off',facts:[],omitted:0}};
+export function selectUserMemory(memory:UserMemory,question:{title:string;goal:string;prompt:string},project?:Pick<Project,'useAccountMemory'>):{facts:MemoryFact[];receipt:MemoryUse}{
+ if(!memory.enabled||project?.useAccountMemory===false)return {facts:[],receipt:{revision:memory.revision,status:'off',facts:[],omitted:0}};
  const context=' '+words([question.title,question.goal,question.prompt].join(' '))+' ';
  const matches=memory.facts.filter(fact=>!fact.topics.length||fact.topics.some(topic=>{const term=words(topic);return !!term&&context.includes(' '+term+' ');}));
  const ordered=[...matches.filter(fact=>fact.topics.length),...matches.filter(fact=>!fact.topics.length)];
@@ -40,8 +41,9 @@ export function selectUserMemory(memory:UserMemory,question:{title:string;goal:s
  for(const fact of ordered){if(facts.length<MEMORY_REQUEST_FACTS&&length+fact.text.length<=MEMORY_REQUEST_CHARACTERS){facts.push(fact);length+=fact.text.length;}}
  return {facts,receipt:{revision:memory.revision,status:facts.length?'included':'no-match',facts:facts.map(({id,revision})=>({id,revision})),omitted:matches.length-facts.length}};
 }
-export function memoryConsent(selection:ReturnType<typeof selectUserMemory>):string{
+export function memoryConsent(selection:ReturnType<typeof selectUserMemory>,project?:Pick<Project,'useAccountMemory'>):string{
  const {facts,receipt}=selection;
+ if(project?.useAccountMemory===false)return 'Account memory is off for this project. No saved account memory facts are included.';
  if(receipt.status==='off')return 'Memory is off. No saved memory facts are included.';
  if(!facts.length)return 'Memory is on. No saved facts match this question.';
  return `Memory is on. These ${facts.length} user-authored facts will be sent as guidance for this response:\n${facts.map((fact,index)=>`${index+1}. ${fact.text}`).join('\n')}\nEnd of memory facts.${receipt.omitted?` ${receipt.omitted} other matching facts are omitted by the memory limit.`:''}`;

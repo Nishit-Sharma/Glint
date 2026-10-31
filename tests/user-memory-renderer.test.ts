@@ -29,3 +29,13 @@ test('Memory settings explicitly enable saved facts, edit and forget through the
   button('Forget').props.onClick();await settle();expect((await core.getUserMemory()).facts).toEqual([]);expect(commands.every(type=>type==='memory.get'||type==='memory.change')).toBe(true);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });
+
+test('the composer hides account facts while project policy is unavailable or off and shows them only for the current allowed project',async()=>{
+ const memory={revision:1,enabled:true,facts:[{id:'synthetic-fact',revision:1,text:'SYNTHETIC_ACCOUNT_FACT',topics:[]}]};let project:{id:string;useAccountMemory?:boolean}|undefined;
+ vi.stubGlobal('window',{companion:{invoke:async()=>memory,subscribe:()=>()=>{}}});
+ const preview=createControlledRenderer(()=>createElement(MemoryStatus,{task:{title:'Synthetic task',goal:'',projectId:'owned-project'},project,prompt:'Explain the plan',kind:'explain',onManage:()=>{}}));
+ const text=()=>preview.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join('');preview.render();for(let index=0;index<8;index++)await Promise.resolve();preview.render();expect(text()).toContain('Project memory preview unavailable');expect(text()).not.toContain('SYNTHETIC_ACCOUNT_FACT');
+ project={id:'owned-project',useAccountMemory:false};preview.render();expect(text()).toContain('Account memory off for this project');expect(text()).not.toContain('SYNTHETIC_ACCOUNT_FACT');
+ project={id:'another-project',useAccountMemory:true};preview.render();expect(text()).toContain('Project memory preview unavailable');expect(text()).not.toContain('SYNTHETIC_ACCOUNT_FACT');
+ project={id:'owned-project'};preview.render();expect(text()).toContain('Memory · 1 fact for this question');expect(text()).toContain('SYNTHETIC_ACCOUNT_FACT');
+});
