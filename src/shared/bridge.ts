@@ -26,8 +26,10 @@ import type {TaskHandoffSave} from './task-handoff';
 import type {TaskArchiveChange} from './task-archive';
 import type {SavedDocumentSourceInput} from './saved-document-source';
 import type {ProjectCommand} from './projects';
+import type {ConversationExportCommand} from './conversation-export';
 
 export type Command =
+  | ConversationExportCommand
   | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
   | ProjectCommand

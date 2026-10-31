@@ -36,6 +36,8 @@ import {parseSourceTextExpected} from '../shared/source-text-draft'
 import {readTaskHandoffSave} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
 import {readSavedDocumentSourceInput} from '../shared/saved-document-source';
+import {readConversationExportCommand} from '../shared/conversation-export';
+import {ConversationExports} from './conversation-export';
 import {prepareWorkflowReview,createReviewedWorkflow,createContextualReviewedWorkflow} from '../core/workflow-review-host'
 import {createWorkflowExample} from '../core/workflow-lab-host'
 import {DocumentSourceAdapter,readMacFocusedDocument} from './document-source-native'
@@ -145,6 +147,7 @@ const captures=new Map<string,BoundCapture>()
 const captureRetentionMs=300000
 function purgeExpiredCaptures(){const now=Date.now();for(const [key,{capture}] of captures){const capturedAt=Date.parse(capture.capturedAt);if(!Number.isFinite(capturedAt)||now-capturedAt>=captureRetentionMs)captures.delete(key)}}
 const destinations=new Map<string,string>()
+const conversationExports=new ConversationExports(taskId=>core.getTask(taskId))
 const emit=(event:CompanionEvent)=>{if(panel&&!panel.isDestroyed())panel.webContents.send('companion:event',event)}
 const changed=(taskId?:string)=>emit({type:'changed',taskId})
 const credentialPath=join(dataDir,'connection.bin')
@@ -173,6 +176,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
   const allowed=['queue.submit','queue.edit','queue.cancel','queue.hold','schedules.get','schedules.change','memory.get','memory.change','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='browser.workflow.save'){const {type,...input}=c;return {type,...readBrowserWorkflowSave(input)};}
@@ -858,6 +862,11 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   const lifecycle=quitEpoch
   if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
   switch(c.type){
+    case 'conversation.export.preview':return conversationExports.preview(c)
+    case 'conversation.export.save':return conversationExports.save(c,async snapshot=>{
+      const choice=await dialog.showSaveDialog(panel,{title:'Save conversation transcript',defaultPath:`${snapshot.title.replace(/[^\w -]/g,'').slice(0,70)||'conversation'}-conversation.${snapshot.format==='markdown'?'md':'json'}`,filters:[{name:snapshot.format==='markdown'?'Markdown':'JSON',extensions:[snapshot.format==='markdown'?'md':'json']}],properties:['createDirectory','dontAddToRecent']})
+      return choice.canceled?null:choice.filePath??null
+    },()=>assertCurrentWork(lifecycle))
     case 'projects.list':return core.projectCommand(c)
     case 'projects.create':case 'projects.update':case 'projects.assign':case 'projects.sources.add':case 'projects.sources.remove':case 'projects.sources.use':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));changed();return saved;}
     case 'source.follow.get':return documentFollow.read()

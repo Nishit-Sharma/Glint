@@ -35,6 +35,22 @@ import {conceptProposal,conceptSource} from './concept-map.fixture';
 // Bundle the production host handler. Only OS/network boundaries are substituted;
 // source versions, request authority and all durable writes use the actual core.
 const cleanups:Array<()=>Promise<void>>=[]
+describe('Conversation transcript production host path',()=>{
+ it('opens the native save chooser for exact frozen bytes, preserves cancel, and rejects renderer destinations',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Native chooser café'});await f.core.runRequest({taskId:task.id,requestId:'original-export-question',kind:'explain',prompt:'Full original question Ω',sourceIds:[]},async()=>({title:'Original answer',content:'Full original answer 你好'}));
+  const preview=await f.command({type:'conversation.export.preview',taskId:task.id,format:'markdown',includeSourceText:false}),command={type:'conversation.export.save',taskId:task.id,snapshotId:preview.snapshotId,confirmed:'reviewed-conversation-export'};
+  await expect(f.command({...command,path:join(f.directory,'injected.md')})).rejects.toThrow();expect(f.calls.saveDialogs).toEqual([]);
+  expect(await f.command(command)).toMatchObject({kind:'cancelled',taskId:task.id,snapshotId:preview.snapshotId});expect(f.calls.saveDialogs[0]).toMatchObject({title:'Save conversation transcript',defaultPath:'Native chooser caf-conversation.md',filters:[{name:'Markdown',extensions:['md']}]});
+  const path=join(f.directory,'real-host-conversation.md');f.seams.saveDialog=async()=>({canceled:false,filePath:path});
+  await f.core.runRequest({taskId:task.id,requestId:'later-export-question',kind:'explain',prompt:'LATER QUESTION OUTSIDE SNAPSHOT',sourceIds:[]},async()=>({title:'Later',content:'LATER ANSWER'}));
+  expect(await f.command(command)).toMatchObject({kind:'saved',path});expect(await readFile(path,'utf8')).toBe(preview.body);expect(await readFile(path,'utf8')).not.toContain('LATER QUESTION OUTSIDE SNAPSHOT');expect(f.calls.provider).toEqual([]);expect(f.calls.captures).toBe(0);expect(f.calls.confirmations).toEqual([]);
+  await expect(f.command(command)).rejects.toThrow('Destination already exists');expect(await readFile(path,'utf8')).toBe(preview.body);
+ });
+ it('refuses a late native chooser after shutdown without publishing a file',async()=>{
+  const f=await fixture(),task=await f.core.createTask({title:'Late transcript chooser'}),preview=await f.command({type:'conversation.export.preview',taskId:task.id,format:'json',includeSourceText:false}),path=join(f.directory,'late-transcript.json');let release!:(value:{canceled:boolean;filePath:string})=>void,entered!:()=>void;const waiting=new Promise<void>(resolve=>entered=resolve);
+  f.seams.saveDialog=async()=>{entered();return new Promise(resolve=>release=resolve);};const pending=f.command({type:'conversation.export.save',taskId:task.id,snapshotId:preview.snapshotId,confirmed:'reviewed-conversation-export'});await waiting;await f.stop();f.resume();release({canceled:false,filePath:path});await expect(pending).rejects.toThrow();await expect(readFile(path)).rejects.toMatchObject({code:'ENOENT'});
+ });
+});
 describe('Projects production path',()=>{
  it('reuses saved project instructions across member tasks and excludes them from unrelated requests',async()=>{
   const f=await fixture(),owner:Task=await f.command({type:'tasks.create',title:'Project research'}),sibling:Task=await f.command({type:'tasks.create',title:'Project checklist'}),outside:Task=await f.command({type:'tasks.create',title:'Unrelated work'}),project=await f.command({type:'projects.create',name:'Night visits'}),instructions='PROJECT_GUIDANCE: Use metric units. Mark missing evidence.';
@@ -245,11 +261,12 @@ async function fixture(settingsBytes?:string){
   if(settingsBytes!==undefined)await writeFile(join(dir,'capture-settings.json'),settingsBytes);
   // These command tests start with a chosen legacy appearance; first-run setup has its own journey.
   await writeFile(join(dir,'character-preferences.json'),JSON.stringify({schemaVersion:1,revision:0,profile:DEFAULT_CHARACTER}));
-  const calls={confirmations:[] as string[],details:[] as any[],provider:[] as any[],captures:0,presentationCaptures:0,shows:0,quitCalls:0,events:[] as any[]}
+  const calls={saveDialogs:[] as any[],confirmations:[] as string[],details:[] as any[],provider:[] as any[],captures:0,presentationCaptures:0,shows:0,quitCalls:0,events:[] as any[]}
   let configured=true,response=1,bytes=1024*1024,label='capture-A',output='Synthetic completed output'
   const window=(id:string)=>({id,title:'Unchanged synthetic title',owner:{name:'Owned synthetic source',processId:1},documentToken:'constant-metadata',bounds:{x:0,y:0,width:100,height:100}})
   const seams={
     registeredShortcuts:new Map<string,()=>void>(),settingsSyncFail:false,settingsRenameFail:false,settingsDirectory:dir,settingsRead:undefined as undefined|(()=>Promise<void>),storeBeforeRename:undefined as undefined|(()=>Promise<void>),applicationPath:undefined as undefined|((path:string)=>Promise<void>),
+    saveDialog:async(_panel:unknown,detail:any)=>{calls.saveDialogs.push(detail);return {canceled:true,filePath:undefined as string|undefined}},
     confirm:async(_panel:unknown,detail:any)=>{calls.confirmations.push(detail.message);calls.details.push(detail);return {response}},
     recurringAccount:'opaque-fixture-account',accountScope:async()=>seams.recurringAccount,
     status:async()=>({configured,provider:'Codex (temporary)',endpoint:'fixture://no-network',model:'fixture',state:'ready'}),
@@ -258,7 +275,7 @@ async function fixture(settingsBytes?:string){
   }
   Reflect.set(globalThis,key,seams)
   const seam=`globalThis[${JSON.stringify(key)}]`
-  const electron=`const noop=()=>{};export const app={getPath:()=>process.env.WINDOW_COMPANION_DATA_DIR,setPath:noop,whenReady:()=>new Promise(()=>{}),on:noop,quit:()=>{${seam}.quitCalls++}};export const BrowserWindow=class {};export const Menu=undefined;export const dialog={showMessageBox:(...a)=>${seam}.confirm(...a)};export const Tray=class{};export const systemPreferences={isTrustedAccessibilityClient:()=>false};export const globalShortcut={unregisterAll:()=>${seam}.registeredShortcuts.clear(),unregister:key=>${seam}.registeredShortcuts.delete(key),register:(key,callback)=>{${seam}.registeredShortcuts.set(key,callback);return true}};export const ipcMain={};export const nativeImage={};export const safeStorage={};export const screen={getDisplayMatching:()=>({workArea:{x:0,y:0,width:1800,height:1100}})};export const session={};`
+  const electron=`const noop=()=>{};export const app={getPath:()=>process.env.WINDOW_COMPANION_DATA_DIR,setPath:noop,whenReady:()=>new Promise(()=>{}),on:noop,quit:()=>{${seam}.quitCalls++}};export const BrowserWindow=class {};export const Menu=undefined;export const dialog={showSaveDialog:(...a)=>${seam}.saveDialog(...a),showMessageBox:(...a)=>${seam}.confirm(...a)};export const Tray=class{};export const systemPreferences={isTrustedAccessibilityClient:()=>false};export const globalShortcut={unregisterAll:()=>${seam}.registeredShortcuts.clear(),unregister:key=>${seam}.registeredShortcuts.delete(key),register:(key,callback)=>{${seam}.registeredShortcuts.set(key,callback);return true}};export const ipcMain={};export const nativeImage={};export const safeStorage={};export const screen={getDisplayMatching:()=>({workArea:{x:0,y:0,width:1800,height:1100}})};export const session={};`
   const provider=`export class MetaProvider{accountScope(){return ${seam}.accountScope()};status(){return ${seam}.status()};run(input){return ${seam}.run(input)};reset(){};close(){}};export class CodexProvider extends MetaProvider{}`
   const native=`export class NativeSourceAdapter{foregroundWindow(){return ${seam}.native.foregroundWindow()};listWindows(){return ${seam}.native.listWindows()};inspect(id){return ${seam}.native.inspect(id)};capture(id,o){return ${seam}.native.capture(id,o)};permissionStatus(){return ${seam}.native.permissionStatus()}};export const placeCompanion=(...a)=>${seam}.placeCompanion(...a);`
   const captureFs=`import * as fs from 'node:fs/promises';export const mkdir=fs.mkdir,rm=fs.rm;export const readFile=async(...args)=>{await ${seam}.settingsRead?.();return fs.readFile(...args);};export const rename=async(...args)=>{if(${seam}.settingsRenameFail){${seam}.settingsRenameFail=false;throw Error('Synthetic settings replacement failed');}return fs.rename(...args);};export const open=async(...args)=>{const handle=await fs.open(...args);if(args[1]==='r'&&${seam}.settingsSyncFail){${seam}.settingsSyncFail=false;handle.sync=async()=>{throw Error('Synthetic settings directory sync failed');};}return handle;};`

@@ -1,5 +1,7 @@
 import {pendingFollowups} from '../src/shared/queued-followup';
 import {createRecurringWorkRunner} from '../src/host/recurring-work-runner';
+import {ConversationExports} from '../src/host/conversation-export';
+import {readConversationExportCommand} from '../src/shared/conversation-export';
 import {prepareConceptMapGeneration} from '../src/host/concept-map-generation';
 import {ResponsePreferences} from '../src/host/response-preferences';
 import {LearningDraftStore} from '../src/host/learning-drafts';
@@ -27,6 +29,7 @@ type ModelControl = { command: ModelCommand; resolve: (value: { title: string; c
 /** Browser-only host fixture. Durable task behavior uses the real core and a disposable directory.
  * Native capabilities and provider transport are explicit substitutes; this proves neither route. */
 export class BrowserFixture {
+  conversationExports!:ConversationExports;
   recurringWorkRunner?:ReturnType<typeof createRecurringWorkRunner>;
   readonly recurringAuthorizations=new Set<string>();
   startRecurringWork(){this.recurringWorkRunner=createRecurringWorkRunner({prepare:async guard=>{
@@ -85,6 +88,7 @@ export class BrowserFixture {
     taskB = await core.putSource(taskB.id, { kind: 'text', label: 'Beta brief', role: 'fact', content: 'Beta event is on November 5.' });
     await core.saveArtifact(taskB.id, { title: 'Beta draft', content: 'Beta revision one.' });
     const fixture = new BrowserFixture(page, directory, core, await core.getTask(taskA.id), await core.getTask(taskB.id));
+    fixture.conversationExports=new ConversationExports(id=>fixture.core.getTask(id));
     fixture.learningDrafts=new LearningDraftStore({directory:join(directory,'store'),lookupTask:async id=>(await fixture.core.listTasks()).find(task=>task.id===id)});
     fixture.preferences=await CharacterPreferences.open(join(directory,'store'));
     fixture.responsePreferences=new ResponsePreferences(join(directory,'store'));
@@ -159,6 +163,8 @@ export class BrowserFixture {
   private async invoke(command: Command): Promise<unknown> {
     this.commands.push(structuredClone(command));
     switch (command.type) {
+      case 'conversation.export.preview':{const parsed=readConversationExportCommand(command);if(parsed.type!=='conversation.export.preview')throw Error('Invalid conversation preview.');return this.conversationExports.preview(parsed);}
+      case 'conversation.export.save':{const parsed=readConversationExportCommand(command);if(parsed.type!=='conversation.export.save')throw Error('Invalid conversation save.');return this.conversationExports.save(parsed,async preview=>this.cancelExport?null:this.exportPath??join(this.directory,'conversation.'+(preview.format==='markdown'?'md':'json')),()=>{});}
       case 'schedules.get':return {items:await this.core.getRecurringWork(),runtime:this.recurringWorkRunner?.read()??{state:'stopped',message:'Automatic draft preparation is stopped.'}};
       case 'schedules.change':{this.recurringAuthorizations.delete(command.change.id);const items=await this.core.changeRecurringWork(command.change);if(command.change.kind==='resume')this.recurringAuthorizations.add(command.change.id);await this.emit({type:'schedules.changed'});return {items,runtime:this.recurringWorkRunner?.read()??{state:'stopped',message:'Automatic draft preparation is stopped.'}};}
       case 'bots.get':return undefined;
