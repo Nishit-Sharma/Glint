@@ -8,18 +8,18 @@ import {Button,Field,type Run} from '../ui';
 import './projects.css';
 import {ProjectMemory} from './ProjectMemory';
 import {ProjectDirectory} from './ProjectDirectory';
+import {ProjectCreate} from './ProjectCreate';
 import type {ProjectDeleteCommand,ProjectDeletePreview} from '../../../shared/project-deletion';
 
 type Change=<C extends ProjectCommand>(command:C)=>Promise<ProjectReply<C>|undefined>;
 type SourceUpdateReview={command:Extract<ProjectCommand,{type:'projects.sources.update'}>;previous:SourceVersion;next:SourceVersion};
 export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTogglePin,onReload,tasks,currentTaskId,busy,run,onOpenTask}:{projects?:Project[];pins?:ProjectPins;selected:string;onSelect:(id:string)=>void;loadError:string;pinning:boolean;onTogglePin:(project:Project)=>void;onReload:()=>Promise<void>;tasks:Task[];currentTaskId?:string;busy:boolean;run:Run;onOpenTask:(task:Task)=>void}){
- const [name,setName]=useState(''),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const [error,setError]=useState(''),[working,setWorking]=useState(false);
  const [deletion,setDeletion]=useState<{review:ProjectDeletePreview;mode:ProjectDeleteCommand['mode'];command?:ProjectDeleteCommand}>();
  const deletionHeading=useRef<HTMLHeadingElement>(null);
  useEffect(()=>{if(deletion)deletionHeading.current?.focus();},[deletion?.review]);
  const alive=useRef(true),locked=useRef(false);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
- const clearCreate=useNavigationDraft(name.length>0,()=>setName(''));
  const guardNavigation=useGuardedAction();
  async function change<C extends ProjectCommand>(command:C):Promise<ProjectReply<C>|undefined>{
   if(locked.current||busy)return;locked.current=true;setWorking(true);setError('');
@@ -33,7 +33,7 @@ export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTo
   {(error||loadError)&&<p role="alert">{error||loadError} <Button disabled={held||pinning} onClick={()=>{setError('');void onReload();}}>Reload projects</Button></p>}
   {!projects&&!error&&!loadError&&<p role="status">Loading projects…</p>}
   {projects&&<>
-   <form className="project-create" onSubmit={event=>{event.preventDefault();if(!name.trim()||held)return;const submitted=name;void change({type:'projects.create',name:name.trim()}).then(saved=>{if(saved&&alive.current){setName(current=>current===submitted?'':current);clearCreate();guardNavigation(()=>onSelect(saved.id));}});}}><Field label="New project name"><input value={name} maxLength={200} disabled={held} onChange={event=>setName(event.currentTarget.value)}/></Field><Button type="submit" disabled={held||!name.trim()}>Create project</Button></form>
+   <ProjectCreate projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onSelect={onSelect}/>
    {!projects.length?<p>No projects yet. Create one, then add your tasks.</p>:<>
     <ProjectDirectory projects={projects} tasks={tasks} selected={selected} onSelect={id=>guardNavigation(()=>onSelect(id))} busy={held} loadError={loadError}/>
     {project&&<ProjectDetails key={project.id} project={project} projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onOpenTask={onOpenTask} pinned={!!pins?.projectIds.includes(project.id)} pinDisabled={held||pinning||!pins||!!loadError} onTogglePin={onTogglePin} onReviewDelete={()=>reviewDeletion(project.id)}/>}

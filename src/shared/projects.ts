@@ -32,7 +32,7 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.pins.set'),projectId:Id,pinned:Schema.Boolean,expectedRevision:PinsRevision}),
  Schema.Struct({type:Schema.Literal('projects.sidebar.get')}),
  Schema.Struct({type:Schema.Literal('projects.sidebar.set'),collapsed:Schema.Boolean,expectedRevision:PinsRevision}),
- Schema.Struct({type:Schema.Literal('projects.create'),name:Name}),
+ Schema.Struct({type:Schema.Literal('projects.create'),name:Name,intentId:Schema.optional(Id),includeTask:Schema.optional(Assignment)}).pipe(Schema.filter(command=>!command.includeTask||!!command.intentId)),
  Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),expectedAddSharedSourcesOnJoin:Schema.optional(Schema.Boolean)}),
  Schema.Struct({type:Schema.Literal('projects.assign'),taskId:Id,projectId:Schema.NullOr(Id),expectedProjectId:Schema.NullOr(Id),expectedProjectRevision:Schema.optional(Revision),expectedAddSharedSourcesOnJoin:Schema.optional(Schema.Boolean)}),
  Schema.Struct({type:Schema.Literal('projects.assign.bulk'),projectId:Schema.NullOr(Id),tasks:Assignments,expectedProjectRevision:Schema.optional(Revision),expectedAddSharedSourcesOnJoin:Schema.optional(Schema.Boolean)}),

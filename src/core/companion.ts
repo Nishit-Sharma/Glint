@@ -24,6 +24,7 @@ import {readTaskArchiveChange} from '../shared/task-archive';
 import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,projectSourceCopyExists,type ProjectCommand,type ProjectReply,type Project,type ProjectSource,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
 import {taskDeletionBlocker,type ProjectDeletePreview,type ProjectDeleteResult} from '../shared/project-deletion';
 import {encodeProjectDeletion,findProjectDeletion} from './project-deletion-receipt';
+import {encodeProjectCreation,findProjectCreation} from './project-creation-receipt';
 import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
@@ -495,6 +496,27 @@ export class Companion {
         });
         const moved=new Set(result.movedTaskIds);for(const task of result.tasks)if(moved.has(task.id))this.abortCancelled(task);
         return result.tasks;
+      }
+      if(command.type==='projects.create'&&command.intentId){
+        const intent='project-create:v1:'+hash(command.intentId),intentHash=hash(intent),name=command.name.trim(),payloadDigest=hash(JSON.stringify({name,includeTask:command.includeTask??null})),previous=findProjectCreation(this.state.usedRequestIds,intentHash);
+        if(previous){
+          if(previous.payloadDigest!==payloadDigest)reject('conflict','This creation was already submitted with a different name or task. Check the original creation or start a new one.');
+          const project=this.state.projects?.find(item=>item.id===previous.projectId);
+          if(!project||command.includeTask&&!this.state.tasks.some(task=>task.id===command.includeTask!.taskId&&task.projectId===project.id))return reject('conflict','This project was created, but the project or its task membership is no longer available. No replacement was created.');
+          return clone(project);
+        }
+        const result=await this.commit(state=>{
+          assertCurrent();const task=command.includeTask?this.task(state,command.includeTask.taskId):undefined;
+          if(task&&(task.projectId??null)!==command.includeTask!.expectedProjectId)reject('conflict','The included task moved to another project. Clear task inclusion and choose it again.');
+          if(state.projects?.some(project=>project.name.toLocaleLowerCase()===name.toLocaleLowerCase()))reject('conflict','Another project already uses this name. Choose a different name for the new project.');
+          this.claimRequest(state,intent);
+          const time=this.time(),project:Project={id:randomUUID(),name,instructions:'',revision:1,createdAt:time,updatedAt:time,sources:[]};
+          (state.projects??=[]).push(project);
+          if(task){task.projectId=project.id;this.cancelProjectRequests(task);task.updatedAt=time;}
+          state.usedRequestIds.push(encodeProjectCreation({intentHash,payloadDigest,projectId:project.id}));return {project,task};
+        });
+        if(result.task)this.abortCancelled(result.task);
+        return result.project;
       }
       const result=await this.commit(state=>{
         assertCurrent();
