@@ -9,7 +9,7 @@ export const SpeechTargetSchema=Schema.Union(Schema.Struct({kind:Schema.Literal(
 export type SpeechTarget=typeof SpeechTargetSchema.Type;
 export const SpeechSpeedSchema=Schema.Literal(.75,1,1.25,1.5);
 export const SpeechAudioSchema=Schema.Struct({key:hash,digest:hash,byteLength:positive,seconds:Schema.Number.pipe(Schema.between(.001,SPEECH_SECONDS_LIMIT)),createdAt:id});
-export const SpeechSelectionSchema=Schema.Struct({revision:positive,target:SpeechTargetSchema,voice:id,speed:SpeechSpeedSchema,audio:Schema.optional(SpeechAudioSchema)});
+export const SpeechSelectionSchema=Schema.Struct({revision:positive,target:SpeechTargetSchema,voice:id,voiceLanguage:Schema.optional(id),speed:SpeechSpeedSchema,audio:Schema.optional(SpeechAudioSchema)});
 export type SpeechSelection=typeof SpeechSelectionSchema.Type;
 const commandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('speech.get'),taskId:id}),
@@ -34,5 +34,18 @@ export function speechText(task:Task,target:SpeechTarget):SpeechText{
 export function speechChoices(task:Task):SpeechText[]{return [...task.artifacts.flatMap(artifact=>{const revision=artifact.revisions.at(-1);if(!revision||!revision.mimeType.startsWith('text/')||revision.encoding==='base64')return [];return [speechText(task,{kind:'document',artifactId:artifact.id,revision:revision.revision,digest:revision.digest})];}),...task.sources.flatMap(source=>{const version=source.versions.at(-1);return version?.kind==='text'?[speechText(task,{kind:'source',sourceId:source.id,version:version.version,digest:version.digest})]:[];})];}
 export function validSpeechText(text:string):boolean{return text.trim().length>0&&text.length<=SPEECH_TEXT_LIMIT&&new TextEncoder().encode(text).length<=24000&&!/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)&&!text.includes('[[')&&text.split(/\s+/u).length<=1000;}
 export type SpeechVoice={name:string;language:string};
+const speechVoiceBase=(name:string)=>/^([^()]+) \([^]*\)$/.exec(name)?.[1]??name;
+/** Older native selections stored display text only. These two legacy locales
+ * are qualified by the captured installed-native selections, never guessed. */
+const capturedLegacyVoiceLanguages:Readonly<Record<string,string>>={Daniel:'en_GB',Samantha:'en_US'};
+export function resolveSpeechVoice(voices:readonly SpeechVoice[],selected:{voice:string;voiceLanguage?:string}):SpeechVoice|undefined{
+ const base=speechVoiceBase(selected.voice),language=selected.voiceLanguage??capturedLegacyVoiceLanguages[base];
+ const exact=voices.filter(item=>item.name===selected.voice&&(!language||item.language===language));
+ if(exact.length)return exact.length===1?exact[0]:undefined;
+ if(!language)return;
+ const aliases=voices.filter(item=>speechVoiceBase(item.name)===base&&item.language===language);
+ return aliases.length===1?aliases[0]:undefined;
+}
+
 export type SpeechView={kind:'speech';generation:'idle'|'generating';voices:SpeechVoice[];selection?:SpeechSelection;selected?:SpeechText;choices:SpeechText[];audioReady:boolean;available:boolean};
 export type SpeechAudio={kind:'audio';selection:SpeechSelection;dataUrl:string};
