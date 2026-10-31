@@ -1,0 +1,3 @@
+import {defineConfig} from '@playwright/test';
+process.env.WINDOW_COMPANION_TEST_PORT='4197';
+export default defineConfig({testDir:'tests',testMatch:'browser-takeover-public.e2e.ts',outputDir:'evidence/browser-takeover/public-results',workers:1,retries:0,maxFailures:1,timeout:60000,expect:{timeout:10000},use:{viewport:{width:1080,height:800},reducedMotion:'reduce',trace:'retain-on-failure'},reporter:[['list'],['json',{outputFile:'evidence/browser-takeover/public-results.json'}]],webServer:{command:'./node_modules/.bin/vite src/renderer --host 127.0.0.1 --port 4197 --strictPort',url:'http://127.0.0.1:4197',reuseExistingServer:false,timeout:30000}});

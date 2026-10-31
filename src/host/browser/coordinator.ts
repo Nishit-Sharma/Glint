@@ -1,3 +1,4 @@
+import {BrowserControl,BrowserControlPaused} from './control';
 import type {BrowserContinuationReceipt} from '../../shared/browser-continuation';
 import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
@@ -80,11 +81,12 @@ export class BrowserCoordinator {
     }
     throw Error('Task session could not be saved.');
   }
-  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
+  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; control?:BrowserControl; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
     if (input.transmissionApproved !== true) throw Error('Approve transmission of this task history and the selected browser origin before planning.');
     const endpointKey = this.planner.endpointKey;
     return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [],...(input.continuation?{browserContinuation:input.continuation}:{}), ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url,...(input.continuation?{continuation:input.continuation}:{}) }) }, async ctx => {
       let browser: LocalBrowser | undefined;
+      const control=input.control??new BrowserControl();
       const stop = () => { void browser?.close().catch(()=>{}); };
       ctx.signal.addEventListener('abort', stop, { once: true });
       try {
@@ -99,6 +101,7 @@ export class BrowserCoordinator {
         try { observation = await browser.observe(); } catch(error) { throw Error(browserObservationErrorMessage(error)); }
         input.onProgress?.(`Reading ${observation.title || 'the selected page'}…`);
         await this.core.beginBrowserRun(input.taskId,{id:input.requestId,endpointKey,origin:input.origin,browserId:browser.id,initialObservation:observation},ctx.task.session?.contextRevision??0);
+        control.attach(ctx.signal,async()=>{browser!.yieldToUser();await browser!.bringToFront();});
         const boundBrowser=browser;
         const assertRecoveryOwner=(current:Task)=>{
           if(ctx.signal.aborted)throw Error('Stopped before reading the changed page.');
@@ -108,12 +111,21 @@ export class BrowserCoordinator {
         };
         let admissionFailure:FormValuesMismatch|undefined,refreshedBeforeProposal=false;
         for (let step = 0; step < 8; step++) {
+          if(await control.waitForAgent()){browser.resumeAgent();admissionFailure=undefined;refreshedBeforeProposal=false;}
+          let turnSignal=ctx.signal;
+          const currentTurn=()=>{if(ctx.signal.aborted)throw Error('Stopped by user.');control.assertAgent();};
+          const turnWait=async<T>(pending:Promise<T>)=>{try{return await untilStopped(pending,turnSignal);}catch(error){currentTurn();throw error;}};
+          try {
+          turnSignal=control.beginTurn(ctx.signal);
           if (ctx.signal.aborted) throw Error('Stopped by user.');
           if (endpointKey !== this.planner.endpointKey) throw Error('Planner configuration changed. Start a newly authorized request.');
-          try { observation=await browser.observe(); } catch(error) { throw Error(browserObservationErrorMessage(error)); }
+          try { observation=await browser.observe(); } catch(error) { currentTurn();throw Error(browserObservationErrorMessage(error)); }
+          currentTurn();
           const task = await this.core.getTask(input.taskId);
+          currentTurn();
           if(refreshedBeforeProposal)assertRecoveryOwner(task);
-          const plan = await this.planner.plan({ goal: input.goal, context: taskContext(task, input.requestId,{observation,admissionFailure}), observation, signal: ctx.signal });
+          const plan = await turnWait(this.planner.plan({ goal: input.goal, context: taskContext(task, input.requestId,{observation,admissionFailure}), observation, signal: turnSignal }));
+          currentTurn();
           if (ctx.signal.aborted) throw Error('Stopped before accepting the plan.');
           if (endpointKey !== this.planner.endpointKey) throw Error('Planner configuration changed during generation. This result cannot authorize an action.');
           if (plan.kind === 'answer') {
@@ -127,6 +139,7 @@ export class BrowserCoordinator {
           let proposal:BrowserProposal;
           try { proposal = await browser.propose({ ...action, snapshotId: observation.id }); }
           catch(error){
+            currentTurn();
             // This exact boundary precedes durable proposal, review, approval and execution.
             // A class name/message from untrusted content cannot request recovery.
             if(!(error instanceof BrowserObservationChangedError))throw Error(browserActionFailure(error));
@@ -137,9 +150,12 @@ export class BrowserCoordinator {
             input.onProgress?.('The page changed before an action was prepared. Reading its current controls again…');
             continue; // Uses the same eight-step budget; no previous action is replayed.
           }
+          currentTurn();
           await this.patch(input.taskId, session => ({ ...session, runs: session.runs.map(run => run.id !== input.requestId ? run : { ...run, operations: [...run.operations, { id: proposal.id, intent: proposal.intent, reason: plan.reason, status: 'proposed' }] }) }));
+          currentTurn();
           let review:Awaited<ReturnType<LocalBrowser['review']>>;
-          try { review=await browser.review(proposal.id); } catch(error) { throw Error(browserActionFailure(error)); }
+          try { review=await browser.review(proposal.id); } catch(error) { currentTurn();throw Error(browserActionFailure(error)); }
+          currentTurn();
           if(review.write){
             const expectedFields=plan.action.kind==='click'?plan.action.expectedFields:undefined,actualFields=review.formFields;
             if(!expectedFields||expectedFields.length!==actualFields.length||new Set(expectedFields.map(field=>field.targetId)).size!==expectedFields.length||actualFields.some(actual=>!expectedFields.some(expected=>expected.targetId===actual.targetId&&expected.value===actual.value))){
@@ -151,12 +167,15 @@ export class BrowserCoordinator {
           admissionFailure=undefined;
           const current=await this.core.getTask(input.taskId);
           if(current.session?.runs.some(run=>run.origin===input.origin&&run.operations.some(operation=>operation.status==='uncertain')))throw Error('An earlier action on this site has an uncertain outcome. Inspect and reconcile it before another interaction.');
-          const decision = await untilStopped(input.approveAction({ proposal, observation, reason: plan.reason, signal: ctx.signal, review }), ctx.signal);
+          currentTurn();
+          const decision = await turnWait(input.approveAction({ proposal, observation, reason: plan.reason, signal: turnSignal, review }));
+          currentTurn();
           if (endpointKey !== this.planner.endpointKey) throw Error('Planner configuration changed while approval was pending. Approve a fresh request.');
           if (!decision.approved || ctx.signal.aborted) {
             await this.patch(input.taskId, session => ({ ...session, runs: session.runs.map(run => ({ ...run, operations: run.operations.map(operation => operation.id !== proposal.id ? operation : { ...operation, status: 'retired', error: 'The action was not authorized.' }) })) }));
             throw Error('Browser action was not authorized.');
           }
+          currentTurn();
           const token = browser.approve(proposal.id, decision.write);
           await this.patch(input.taskId, session => {
             if (session.runs.some(run => run.origin === input.origin && run.operations.some(operation => operation.status === 'uncertain'))) throw Error('An earlier action on this site has an uncertain outcome. Inspect and reconcile it before another interaction.');
@@ -166,27 +185,35 @@ export class BrowserCoordinator {
             await this.patch(input.taskId,session=>({...session,runs:session.runs.map(run=>run.id!==input.requestId?run:{...run,operations:run.operations.map(operation=>operation.id!==proposal.id?operation:{...operation,status:'retired',error:'This request stopped before the action was run.'})})}));
             throw Error('Stopped before browser execution.');
           }
+          currentTurn();
           try {
-            const result = await browser.execute(proposal.id, token);
+            const result = await browser.execute(proposal.id, token,turnSignal);
             if (!result.proposal.result) throw Error('Browser returned no observation.');
             observation = result.proposal.result;
             input.onProgress?.(`Observed ${observation.title || 'the page result'}. Preparing a response…`);
             await this.patch(input.taskId, session => ({ ...session, ...(session.browserContext?.requestId===input.requestId?{browserContext:{origin:input.origin,url:observation.url,requestId:input.requestId}}:{}), runs: session.runs.map(run => ({ ...run, operations: run.operations.map(operation => operation.id !== proposal.id ? operation : { ...operation, status: 'observed', result: observation, ...(result.receipt ? { receipt: result.receipt } : {}) }) })) }));
           } catch (error) {
+            if(turnSignal.aborted&&browser.proposal(proposal.id)?.status==='proposed')currentTurn();
             const outcome=browser.proposal(proposal.id)?.status;
             const status = outcome === 'uncertain'||outcome === 'completed'||outcome === 'executing' ? 'uncertain' : 'failed';
             await this.patch(input.taskId, session => ({ ...session, runs: session.runs.map(run => ({ ...run, operations: run.operations.map(operation => operation.id !== proposal.id ? operation : { ...operation, status, error: status==='uncertain'?'The website action may have completed. Inspect its outcome before another attempt.':browserActionFailure(error) }) })) }));
             if(status==='uncertain')throw Error('This website action has an uncertain outcome. Inspect it before any new attempt.',{cause:error});
             throw Error(browserActionFailure(error));
           }
+          } catch(error) {
+            if(!(error instanceof BrowserControlPaused)||ctx.signal.aborted)throw error;
+            await this.patch(input.taskId,session=>({...session,runs:session.runs.map(run=>run.id!==input.requestId?run:{...run,operations:run.operations.map(operation=>operation.status==='proposed'||operation.status==='executing'?{...operation,status:'retired',error:'Browser control changed before this action ran. A fresh plan and approval are required.'}:operation)})}));
+            admissionFailure=undefined;refreshedBeforeProposal=false;
+          } finally {control.endTurn();}
         }
+        await control.waitForAgent();
         throw Error('The browser reached its eight-step limit. Review progress before continuing.');
       } catch (error) {
         await this.patch(input.taskId, session => {
           return {...session,runs:session.runs.map(run=>run.id!==input.requestId?run:{...run,operations:run.operations.map(operation=>operation.status==='proposed'?{...operation,status:'retired',error:'This request stopped before the action was authorized.'}:operation.status==='executing'?{...operation,status:'uncertain',error:'This request stopped during execution. Inspect the website before retrying.'}:operation)})};
         }).catch(()=>{});
         throw error;
-      } finally { ctx.signal.removeEventListener('abort', stop); try { await browser?.close(); } catch { throw Error(BROWSER_CLEANUP_UNCONFIRMED); } }
+      } finally { control.close();ctx.signal.removeEventListener('abort', stop); try { await browser?.close(); } catch { throw Error(BROWSER_CLEANUP_UNCONFIRMED); } }
     });
   }
 }

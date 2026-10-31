@@ -102,6 +102,8 @@ export type Command =
   | ({type:'browser.continue.prepare'|'browser.continue.release'} & BrowserContinuationInput)
   | ({type:'browser.continue'} & BrowserContinuationInput)
   | {type:'browser.run';taskId:string;requestId:string;prompt:string;url:string;submittedDraft?:ComposerDraft}
+  | {type:'browser.control.status';taskId:string;requestId:string}
+  | {type:'browser.control';taskId:string;requestId:string;id:string;action:'take'|'return'}
   | {type:'browser.inspect';taskId:string;runId:string;operationId:string;url:string;attemptId?:string}
   | {type:'browser.inspect.cancel';taskId:string;runId:string;operationId:string;attemptId:string}
   | {type:'browser.review.notes';taskId:string;runId:string;operationId:string;binding:string;confirmed:'shown-review-notes'}

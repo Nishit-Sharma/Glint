@@ -106,6 +106,7 @@ export class LocalBrowser {
   private grants = new Map<string, Grant>();
   private active?: Grant;
   private busy = false;
+  private userControl = false;
   private closed = false;
   private blocked = 0;
   private blockedRedirects = 0;
@@ -242,6 +243,7 @@ export class LocalBrowser {
       });
       return { method, url: element.hasAttribute('formaction') ? element.formAction : owner.action, body: new URLSearchParams(fields).toString(), formFields };
     }, [...this.targets].map(([id, target]) => ({id, element:target.handle})));
+    this.assertAgentControl();
     if (!form) return { target: structuredClone(descriptor) };
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(form.method)) throw Error('This form method is not supported.');
     const method = Schema.decodeUnknownSync(Schema.Literal('POST', 'PUT', 'PATCH', 'DELETE'))(form.method);
@@ -250,10 +252,12 @@ export class LocalBrowser {
     return { target: structuredClone(descriptor), write: { ...write, method }, formFields };
   }
   private assertOpen() { if (this.closed || this.page.isClosed()) throw Error('This browser binding is closed. Open and approve a fresh binding.'); }
+  private assertAgentControl(){if(this.userControl)throw Error('Browser agent work is paused. Return control before another agent operation.');}
   private async read() {
-    this.assertOpen();
+    this.assertOpen();this.assertAgentControl();
     const documentId = this.documentId;
     const {label:_label,blockedEditor:_blockedEditor,...state} = await this.page.evaluate(browserPageState);
+    this.assertAgentControl();
     if (documentId !== this.documentId) throw Error('The document changed during observation. Observe it again.');
     if (new URL(state.url).origin !== this.origin) throw Error('Browser left its authorized origin.');
     if (state.text.length > 100_000) throw Error('This page exceeds the observation limit; choose a narrower page.');
@@ -317,7 +321,7 @@ export class LocalBrowser {
     this.proposals.set(proposal.id, proposal); return structuredClone(proposal);
   }
   private async validateTarget(intent: BrowserIntent) {
-    this.assertOpen();
+    this.assertOpen();this.assertAgentControl();
     if (this.busy || !this.snapshot || this.snapshot.id !== intent.snapshotId || this.snapshot.browserId !== this.id) throw Error('The page changed. Observe it again before proposing an action.');
     // read() rejects a closed or cross-origin page before granting stale recovery.
     if ((await this.read()).digest !== this.snapshot.digest || this.snapshot.documentId !== this.documentId) throw new BrowserObservationChangedError('page');
@@ -335,22 +339,27 @@ export class LocalBrowser {
         if(options.length!==1||[options[0],...(options[0].parentElement instanceof HTMLOptGroupElement?[options[0].parentElement]:[])].some(item=>{const style=getComputedStyle(item);return item.hidden||style.display==='none'||['hidden','collapse'].includes(style.visibility);}))throw Error('Choose one visible, unambiguous option from the current list.');
       },intent.value);
     }
+    this.assertAgentControl();
     return target;
   }
   /** Trusted host only: never wire this method to a model-generated approval. */
   approve(proposalId: string, write?: WriteScope): string {
+    this.assertAgentControl();
     const proposal = this.proposals.get(proposalId);
     if (!proposal || proposal.status !== 'proposed') throw Error('Proposal is missing or already executed.');
     if(proposal.intent.kind==='select'&&write)throw Error('Selecting a choice cannot authorize a POST, PUT, PATCH or DELETE request. Review a form submission separately.');
     if (write && (new URL(write.url).origin !== this.origin || new URL(write.url).username || new URL(write.url).password || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(write.method) || write.body.length > 100_000)) throw Error('Write scope is outside this browser authority.');
     const token = randomUUID(); this.grants.set(proposalId, { token, used: false, ...(write ? { write: { method: write.method, url: write.url, digest: digest(write.body) } } : {}) }); return token;
   }
-  async execute(proposalId: string, token: string): Promise<{ proposal: BrowserProposal; receipt?: Grant['receipt'] }> {
+  async execute(proposalId: string, token: string,signal?:AbortSignal): Promise<{ proposal: BrowserProposal; receipt?: Grant['receipt'] }> {
+    this.assertAgentControl();
     const proposal = this.proposals.get(proposalId), grant = this.grants.get(proposalId);
     if (!proposal || proposal.status !== 'proposed') throw Error('Proposal is missing or already executed.');
     if (!grant || grant.token !== token) throw Error('Approval is required for this exact proposal.');
     this.grants.delete(proposalId);
     const target = await this.validateTarget(proposal.intent);
+    this.assertAgentControl();
+    if(signal?.aborted)throw Error('Stopped before browser execution.');
     proposal.status = 'executing'; this.busy = true; this.active = grant;
     const redirectsBefore=this.blockedRedirects;let attempted=false;
     try {
@@ -376,6 +385,9 @@ export class LocalBrowser {
     } finally { this.busy = false; this.active = undefined; }
     return { proposal: structuredClone(proposal), ...(grant.receipt ? { receipt: structuredClone(grant.receipt) } : {}) };
   }
+  yieldToUser(){this.assertOpen();if(this.busy)throw Error('Wait for the current browser operation.');this.userControl=true;this.snapshot=undefined;this.grants.clear();}
+  resumeAgent(){this.assertOpen();this.userControl=false;}
+  async bringToFront(){this.assertOpen();await this.page.bringToFront();}
   close() {
     if(this.closing)return this.closing;
     this.closed=true;this.releaseStop();this.grants.clear();
