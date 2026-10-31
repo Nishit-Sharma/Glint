@@ -1,3 +1,4 @@
+import {CanvasDraftOwnerSchema,DESIGN_CANVAS_SLOT,CANVAS_PROMPT_SLOT,canvasDraftBasis,readCanvasRaw,readCanvasPrompt,emptyCanvasPrompt} from './design-canvas';
 import {tableWorkflowForm,validateTableWorkflowRaw,TABLE_WORKFLOW_RAW_BYTES} from './table-workflow-draft';
 import {TargetDraftOwnerSchema,TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT,emptyTargetReview,emptyTargetIntent,readTargetDraft,targetDraftBasis} from './experiment-target-draft';
 import {SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT,sourceFormulaDraftBasis,emptySourceFormulaDraft,emptySourceFormulaIntent,readSourceFormulaDraft} from './source-formula-draft';
@@ -20,7 +21,7 @@ export const WORKFLOW_SOURCE_DRAFT_JSON_BYTES=544*1024;
  * The host separately verifies historical candidate/module and exact row identity. */
 export const WINDOW_REVIEW_DRAFT_JSON_BYTES=640*1024;
 export const JOIN_ROW_DRAFT_JSON_BYTES=800*1024;
-export type LearningDraftJsonPolicy='table-workflow-form'|'document-recipe-form'|'workflow-source-review'|'window-workflow-review'|'join-row'|'local-task-form'|'source-text-edit'|'saved-document-edit'|PickingRawPolicy;
+export type LearningDraftJsonPolicy='design-canvas-edit'|'design-canvas-prompt'|'table-workflow-form'|'document-recipe-form'|'workflow-source-review'|'window-workflow-review'|'join-row'|'local-task-form'|'source-text-edit'|'saved-document-edit'|PickingRawPolicy;
 export {LearningDraftValidationError,type LearningDraftValidationReason} from './learning-draft-validation';
 import {invalidLearningDraft as invalid} from './learning-draft-validation';
 const safeText=(maximum:number)=>Schema.String.pipe(Schema.minLength(1),Schema.maxLength(maximum),Schema.filter(value=>!value.includes('\0')));
@@ -30,7 +31,7 @@ const ReviewOwner=Schema.Struct({kind:Schema.Literal('window-workflow-review'),t
 const SourceReviewOwner=Schema.Struct({kind:Schema.Literal('workflow-source-review'),taskId:safeText(200),artifactId:safeText(200),artifactRevision:positive,artifactDigest:safeText(200)});
 const LocalTaskOwner=Schema.Struct({kind:Schema.Literal('local-task-form'),form:Schema.Literal('text','draft')});
 const FormulaOwner=Schema.Struct({kind:Schema.Literal('source-formula-review'),taskId:safeText(200)});
-const Owner=Schema.Union(TargetDraftOwnerSchema,FormulaOwner,ModuleOwner,ReviewOwner,SourceReviewOwner,LocalTaskOwner,SourceTextDraftOwnerSchema,SavedDocumentDraftOwnerSchema);
+const Owner=Schema.Union(CanvasDraftOwnerSchema,TargetDraftOwnerSchema,FormulaOwner,ModuleOwner,ReviewOwner,SourceReviewOwner,LocalTaskOwner,SourceTextDraftOwnerSchema,SavedDocumentDraftOwnerSchema);
 const Value=Schema.Struct({initial:Schema.String,value:Schema.String,basis:safeText(LEARNING_DRAFT_LIMITS.basisLength)});
 const RecordSchema=Schema.Struct({owner:Owner,slot:safeText(512),revision:positive,value:Schema.NullOr(Value)});
 const Epoch=Schema.String.pipe(Schema.filter(value=>value==='initial'||/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)));
@@ -83,7 +84,7 @@ function canonicalJson(input:unknown,stringLimit:number=LEARNING_DRAFT_LIMITS.st
 }
 const byteLength=(text:string)=>new TextEncoder().encode(text).byteLength;
 function jsonLimit(policy?:LearningDraftJsonPolicy){
- if(policy===undefined)return LEARNING_DRAFT_LIMITS.jsonBytes;
+ if(policy===undefined||policy==='design-canvas-edit'||policy==='design-canvas-prompt')return LEARNING_DRAFT_LIMITS.jsonBytes;
  if(policy==='table-workflow-form')return TABLE_WORKFLOW_RAW_BYTES;
  if(policy==='document-recipe-form')return DOCUMENT_RECIPE_DRAFT_BYTES;
  if(policy==='workflow-source-review')return WORKFLOW_SOURCE_DRAFT_JSON_BYTES;
@@ -97,6 +98,7 @@ function jsonLimit(policy?:LearningDraftJsonPolicy){
 }
 export function learningDraftJsonPolicy(owner:LearningDraftOwner,slot:string):LearningDraftJsonPolicy|undefined{
  if('kind' in owner){
+  if(owner.kind==='design-canvas-edit'){parseLearningDraftOwner(owner);return slot===DESIGN_CANVAS_SLOT?'design-canvas-edit':slot===CANVAS_PROMPT_SLOT?'design-canvas-prompt':undefined;}
   if(owner.kind==='saved-document-edit'){parseLearningDraftOwner(owner);return slot===SAVED_DOCUMENT_DRAFT_SLOT?'saved-document-edit':undefined;}
   if(owner.kind==='source-text-edit'){parseLearningDraftOwner(owner);return slot===SOURCE_TEXT_DRAFT_SLOT?'source-text-edit':undefined;}
   if(owner.kind==='local-task-form'){parseLearningDraftOwner(owner);return slot===LOCAL_TASK_DRAFT_SLOT?'local-task-form':undefined;}
@@ -138,6 +140,9 @@ export function parseLearningDraftValue(value:unknown,owner?:LearningDraftOwner,
  const policy=owner&&slot!==undefined?learningDraftJsonPolicy(parseLearningDraftOwner(owner),parseLearningDraftSlot(slot)):undefined;
  canonicalJson(value,jsonLimit(policy));const parsed=decode(Value,value);
  const initial=parseLearningDraftJson(parsed.initial,policy),current=parseLearningDraftJson(parsed.value,policy);
+ if(owner&&'kind' in owner&&owner.kind==='design-canvas-edit'){
+  try{if(parsed.basis!==canvasDraftBasis(owner))throw Error();if(slot===CANVAS_PROMPT_SLOT){if(parsed.initial!==serializeLearningDraftJson(emptyCanvasPrompt))throw Error();readCanvasPrompt(initial);readCanvasPrompt(current);}else{if(slot!==DESIGN_CANVAS_SLOT)throw Error();readCanvasRaw(initial);readCanvasRaw(current);}}catch{throw invalid('Canvas edits need review.');}
+ }
  if(owner&&'kind' in owner&&owner.kind==='experiment-target-practice'){
   try{if(![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot??'')||parsed.basis!==targetDraftBasis(owner,slot!)||parsed.initial!==serializeLearningDraftJson(slot===TARGET_REVIEW_SLOT?emptyTargetReview:emptyTargetIntent))throw Error();readTargetDraft(slot!,initial);readTargetDraft(slot!,current);}catch{throw invalid('Target-practice raw fields need inspection.');}
  }
@@ -184,6 +189,7 @@ export function parseLearningDraftRecord(value:unknown):LearningDraftRecord{
  const fields=envelopeFields(value,['owner','slot','revision','value']);
  const owner=parseLearningDraftOwner(fields.owner),slot=parseLearningDraftSlot(fields.slot);
  if(!isTaskLearningDraftOwner(owner)&&slot!==LOCAL_TASK_DRAFT_SLOT)throw invalid('Local task draft slot is invalid.');
+ if('kind' in owner&&owner.kind==='design-canvas-edit'&&![DESIGN_CANVAS_SLOT,CANVAS_PROMPT_SLOT].includes(slot))throw invalid('Canvas edit slot is invalid.');
  if('kind' in owner&&owner.kind==='saved-document-edit'&&slot!==SAVED_DOCUMENT_DRAFT_SLOT&&slot!==REVISION_INSTRUCTIONS_SLOT)throw invalid('Document edit slot is invalid.');
  if('kind' in owner&&owner.kind==='experiment-target-practice'&&![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot))throw invalid('Target-practice slot is invalid.');
  if('kind' in owner&&owner.kind==='source-formula-review'&&![SOURCE_FORMULA_DRAFT_SLOT,SOURCE_FORMULA_INTENT_SLOT].includes(slot))throw invalid('Formula review slot is invalid.');

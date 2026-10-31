@@ -1,3 +1,4 @@
+import {readCanvasRaw,readCanvasPrompt} from '../../shared/design-canvas';
 import {emptySavedDocumentDraft,parseSavedDocumentDraft,parseSavedDocumentDraftBasis,SAVED_DOCUMENT_DRAFT_SLOT,type SavedDocumentDraft,type SavedDocumentDraftOwner} from '../../shared/saved-document-draft';
 import {samePickingCaseShape} from '../../shared/picking-draft-form-policy';
 import {
@@ -29,6 +30,8 @@ type Failure={kind:'uncertain'|'stale-epoch';message:string;attempt:Attempt}|{ki
 type Entry={owner:LearningDraftOwner;slot:string;epoch:string;generation:number;savedGeneration:number;local:LearningDraftValue|null;remote:LearningDraftRecord|null;pending?:Promise<void>;failure?:Failure};
 
 function sameShape(left:LearningDraftJson,right:LearningDraftJson,variableArrays:readonly string[]=[],path='',policy?:LearningDraftJsonPolicy):boolean{
+ if(path===''&&policy==='design-canvas-prompt'){readCanvasPrompt(left);readCanvasPrompt(right);return true;}
+ if(path===''&&policy==='design-canvas-edit'){readCanvasRaw(left);readCanvasRaw(right);return true;}
  if(path===''&&policy==='saved-document-edit'){parseSavedDocumentDraft(left);parseSavedDocumentDraft(right);return true;}
  if(path===''&&policy==='picking-helper-cases')return samePickingCaseShape(left,right);
  if(left===null||right===null)return left===right;

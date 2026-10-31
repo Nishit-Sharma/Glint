@@ -1,4 +1,5 @@
 import {canAttemptConversation,type ConversationAttemptSelection} from '../../../shared/conversation-attempt';
+import {DESIGN_CANVAS_MIME,DESIGN_SVG_MIME} from '../../../shared/design-canvas';
 import {CONCEPT_MAP_MIME} from '../../../shared/concept-map';
 import {MemoryReceipt} from '../UserMemory';
 import type {UserMemory} from '../../../shared/user-memory';
@@ -33,7 +34,7 @@ export function Conversation({memory,task,pendingId,pendingKind,pendingPrompt,st
  function result(item:Artifact,revision:ArtifactRevision){
   const exact={...item,revisions:[revision]},identity=[task.id,item.id,revision.revision,revision.digest].join(':');
   if(revision.mimeType!==SOURCE_FORMULA_MIME&&readScreenBrief(revision.content,revision.sourceRefs))return renderBrief(exact);
-  if(revision.mimeType===MODULE_MIME||revision.mimeType===CONCEPT_MAP_MIME)return renderBrief(exact);
+  if(revision.mimeType===DESIGN_CANVAS_MIME||revision.mimeType===DESIGN_SVG_MIME||revision.mimeType===MODULE_MIME||revision.mimeType===CONCEPT_MAP_MIME)return renderBrief(exact);
   if(revision.mimeType===BROWSER_WORKFLOW_MIME)return <ReadyArtifact identity={identity}><button className="conversation-artifact" data-view-focus={'artifact:'+item.id} onClick={()=>onArtifact(item)}><span><strong>{revision.title}</strong><small>Review authored steps and checks</small></span><ArrowUpRight size={16}/></button></ReadyArtifact>;
   const draft=readModelDraft(revision);
   if(draft)return <ReadyArtifact identity={identity}><button className="conversation-artifact" data-view-focus={'artifact:'+item.id} onClick={()=>onArtifact(item)}><span><strong>{revision.title}</strong><small>{draft.kind==='experiment'?'Explore inputs and calculate':'Review the procedure'}</small></span><ArrowUpRight size={16}/></button></ReadyArtifact>;

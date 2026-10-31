@@ -1,3 +1,4 @@
+import {DESIGN_CANVAS_SLOT,CANVAS_PROMPT_SLOT,readCanvasPrompt,emptyCanvasPrompt,canvasDraftBasis,canvasRevision,canvasRaw,readCanvasRaw} from '../shared/design-canvas';
 import {tableWorkflow} from '../learning/table-workflow';
 import {tableWorkflowForm,validateTableWorkflowRaw} from '../shared/table-workflow-draft';
 import {TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT} from '../shared/experiment-target-draft';
@@ -105,6 +106,9 @@ export class LearningDraftStore{
   if(!isTaskLearningDraftOwner(owner))return slot===LOCAL_TASK_DRAFT_SLOT;
   const task=await this.options.lookupTask(owner.taskId);
   if(!task||task.id!==owner.taskId)return false;
+  if('kind' in owner&&owner.kind==='design-canvas-edit'){
+   try{const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision||value.basis!==canvasDraftBasis(owner))return false;canvasRevision(revision);if(slot===CANVAS_PROMPT_SLOT){if(value.initial!==serializeLearningDraftJson(emptyCanvasPrompt))return false;readCanvasPrompt(parseLearningDraftJson(value.value));return true;}if(slot!==DESIGN_CANVAS_SLOT||value.initial!==serializeLearningDraftJson(canvasRaw(canvasRevision(revision))))return false;readCanvasRaw(parseLearningDraftJson(value.value));return true;}catch{return false;}
+  }
   if('kind' in owner&&owner.kind==='experiment-target-practice'){
    try{if(![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot))return false;const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision)return false;reviewedSourceFormula(task,owner.artifactId,revision);return true;}catch{return false;}
   }

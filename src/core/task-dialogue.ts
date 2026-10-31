@@ -3,6 +3,7 @@ import {sourceResumeContext} from './source-resume';
 import type {ArtifactRevision,RequestRecord,SourceRef,Task} from './types';
 import {modelModuleIntro,modelModuleText,parseModuleAnswer} from './interactive-modules';
 import {MODULE_MIME} from '../shared/module-contract';
+import {DESIGN_CANVAS_MIME,DESIGN_SVG_MIME} from '../shared/design-canvas';
 import {BROWSER_WORKFLOW_MIME} from '../shared/browser-workflow';
 import {CONCEPT_MAP_MIME,conceptMapText,readConceptMap} from '../shared/concept-map';
 
@@ -18,6 +19,7 @@ export function readTaskArtifactText(task:Task,artifactId:string,artifactRevisio
  const saved=task.artifacts.find(artifact=>artifact.id===artifactId)?.revisions.find(revision=>revision.revision===artifactRevision);
  if(!saved)return {available:false,reason:'This exact saved artifact revision is unavailable.'};
  if(saved.encoding==='base64'||saved.mimeType.startsWith('image/'))return {available:false,reason:'Image bytes are excluded from task history.'};
+ if(saved.mimeType===DESIGN_CANVAS_MIME||saved.mimeType===DESIGN_SVG_MIME)return {available:true,text:'A local editable canvas or SVG copy is saved. Its shape text, layout and user strokes are excluded from automatic model history. Canvas context is supplied only for an explicit sketch request.',representation:'saved-text',localHelperContentsExcluded:true};
  if(saved.mimeType===BROWSER_WORKFLOW_MIME)return {available:true,text:'A local authored browser workflow is saved. Its website, input slots, steps and checks are excluded from model history. Open the saved file to review it.',representation:'saved-text',localHelperContentsExcluded:true};
  if(saved.mimeType===CONCEPT_MAP_MIME){const map=readConceptMap(saved.content,saved.sourceRefs);return map?{available:true,text:conceptMapText(map),representation:'saved-text'}:{available:false,reason:'This saved concept map needs review.'};}
  if(saved.mimeType!==MODULE_MIME)return {available:true,text:withoutImages(saved.content),representation:'saved-text'};

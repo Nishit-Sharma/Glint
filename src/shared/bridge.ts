@@ -28,9 +28,13 @@ import type {TaskArchiveChange} from './task-archive';
 import type {SavedDocumentSourceInput} from './saved-document-source';
 import type {ProjectCommand} from './projects';
 import type {ConversationExportCommand} from './conversation-export';
+import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
 import type {TaskAttentionCommand} from './task-attention';
 
 export type Command =
+  | {type:'canvas.create';taskId:string;requestId:string}
+  | ({type:'canvas.save'} & CanvasSave)
+  | ({type:'canvas.svg'} & CanvasSvg)
   | TaskAttentionCommand
   | ConversationExportCommand
   | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}
@@ -128,7 +132,7 @@ export type Command =
   | {type:'export.propose';taskId:string;artifactId:string;revision:number}
   | {type:'export.approve';taskId:string;actionId:string;digest:string;requestId:string}
   | {type:'export.inspect';taskId:string;actionId:string}
-  | {type:'model.run';taskId:string;requestId:string;prompt:string;kind:'explain'|'create'|'revise'|'experiment'|'procedure'|'brief'|'concept-map';artifactId?:string;sourceIds?:string[];expectedSourceRefs?:SourceRef[];revisionBasis?:string;conversationAttempt?:ConversationAttemptReceipt;submittedDraft?:ComposerDraft;briefAction?:{artifact:ArtifactRef;actionIndex:number}|{kind:'review-state-transitions';artifact:ArtifactRef}}
+  | {type:'model.run';taskId:string;requestId:string;prompt:string;kind:'explain'|'create'|'revise'|'experiment'|'procedure'|'brief'|'concept-map'|'design-canvas';canvasContext?:CanvasSketchContext;artifactId?:string;sourceIds?:string[];expectedSourceRefs?:SourceRef[];revisionBasis?:string;conversationAttempt?:ConversationAttemptReceipt;submittedDraft?:ComposerDraft;briefAction?:{artifact:ArtifactRef;actionIndex:number}|{kind:'review-state-transitions';artifact:ArtifactRef}}
   | {type:'model.cancel';taskId:string;requestId:string}
   | {type:'connection.status'} | {type:'connection.configure'} | {type:'connection.disconnect'}
   | {type:'connection.select';provider:'meta'|'codex'}
