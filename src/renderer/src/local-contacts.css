@@ -1,0 +1,14 @@
+.local-contacts .row{flex-wrap:wrap;gap:8px}
+.local-contact-list{display:grid;margin:12px 0}
+.local-contact-list .list-row{min-width:0;text-align:left}
+.local-contact-list .list-row span{min-width:0}
+.local-contact-list small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.local-contact-details{display:grid;gap:14px;margin:20px 0}
+.local-contact-details dt{font-size:12px;color:var(--muted)}
+.local-contact-details dd{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.local-contact-form{display:grid;gap:14px;margin-top:16px}
+.local-contact-fields{display:flex;flex-wrap:wrap;gap:12px;border:0;padding:0;margin:16px 0}
+.local-contact-fields legend{margin-bottom:10px;font-size:12px;color:var(--muted)}
+.local-contact-fields label{display:flex;align-items:center;gap:6px}
+.local-contact-fields input{width:auto}
+.local-contact-preview{font:inherit;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:var(--soft);border-radius:8px}

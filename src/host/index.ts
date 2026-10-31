@@ -10,6 +10,7 @@ import {createRecurringWorkRunner} from './recurring-work-runner';
 import {readRecurringWorkChange} from '../shared/recurring-work';
 import {readBrowserWorkflowSave,readBrowserWorkflowRun} from '../shared/browser-workflow';
 import {readMemoryChange} from '../shared/user-memory';
+import {readLocalContactsCommand} from '../shared/local-contacts';
 import {userMemoryContext} from './user-memory-context';
 import {DocumentImports} from './document-import';
 import {readDocumentImportOwner,readDocumentImportAdd,documentImportMessages} from '../shared/document-import';
@@ -190,6 +191,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
   if(String(c.type).startsWith('content-backup.'))return readContentBackupCommand(c);
   if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
@@ -910,6 +912,8 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       if(grant)recurringGrants.set(grant.id,grant);
       emit({type:'schedules.changed'});return {items:result,runtime:recurringWorkRunner.read()};
     }
+    case 'contacts.get':return core.getLocalContacts()
+    case 'contacts.change':{const {type,...input}=c;const result=await core.changeLocalContacts(input,()=>assertCurrentWork(lifecycle));if(result.kind==='saved')changed();return result;}
     case 'memory.get':return core.getUserMemory()
     case 'memory.change':{const {type,...input}=c;const result=await core.changeUserMemory(input,()=>assertCurrentWork(lifecycle));if(result.kind==='saved')changed();return result;}
     case 'response-preferences.get':return responsePreferences.read()

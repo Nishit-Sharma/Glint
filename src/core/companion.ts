@@ -1,3 +1,5 @@
+import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
+import {changeLocalContacts} from './local-contacts';
 import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
@@ -230,6 +232,20 @@ export class Companion {
   haltRecurringWork(id:string,reason:string):Promise<void>{
     text(reason,'Schedule pause reason',500);
     return this.exclusive(()=>this.commit(state=>{const item=state.recurringWork?.find(item=>item.id===id);if(!item||item.mode!=='response')return;item.enabled=false;item.blockedReason=reason;item.revision++;item.updatedAt=this.time();}));
+  }
+
+  getLocalContacts():Promise<LocalContacts>{return this.exclusive(()=>clone(this.state.localContacts??emptyLocalContacts()));}
+
+  changeLocalContacts(input:unknown,assertCurrent:()=>void=()=>{}):Promise<LocalContactsCommit>{
+    const value=clone(readLocalContactsChange(input));
+    return this.exclusive(async()=>{
+      const current=this.state.localContacts??emptyLocalContacts();
+      if(value.expectedRevision!==current.revision)return {kind:'conflict',current:clone(current)};
+      return this.commit(state=>{
+        assertCurrent();const next=changeLocalContacts(current,value.change,{id:randomUUID(),time:this.time()});
+        state.localContacts=next;return {kind:'saved' as const,current:next};
+      });
+    });
   }
 
   getUserMemory():Promise<UserMemory>{return this.exclusive(()=>clone(this.state.userMemory??emptyUserMemory()));}

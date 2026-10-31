@@ -1,3 +1,4 @@
+import type {LocalContactsChange} from './local-contacts';
 import type {ContentBackupCommand} from './content-backup';
 import type {SpeechCommand} from './document-speech';
 import type {CodeCommand} from './code-workspace';
@@ -44,6 +45,8 @@ export type Command =
   | TaskAttentionCommand
   | ConversationExportCommand
   | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}
+  | {type:'contacts.get'}
+  | ({type:'contacts.change'} & LocalContactsChange)
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
   | ProjectCommand
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
