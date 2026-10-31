@@ -1,3 +1,4 @@
+import {CONCEPT_MAP_MIME} from '../../../shared/concept-map';
 import {MemoryReceipt} from '../UserMemory';
 import type {UserMemory} from '../../../shared/user-memory';
 import {canPrepareBrowserContinuation,type BrowserContinuationSelection} from '../../../shared/browser-continuation';
@@ -28,7 +29,7 @@ export function Conversation({memory,task,pendingId,pendingKind,pendingPrompt,st
  function result(item:Artifact,revision:ArtifactRevision){
   const exact={...item,revisions:[revision]},identity=[task.id,item.id,revision.revision,revision.digest].join(':');
   if(revision.mimeType!==SOURCE_FORMULA_MIME&&readScreenBrief(revision.content,revision.sourceRefs))return renderBrief(exact);
-  if(revision.mimeType===MODULE_MIME)return renderBrief(exact);
+  if(revision.mimeType===MODULE_MIME||revision.mimeType===CONCEPT_MAP_MIME)return renderBrief(exact);
   const draft=readModelDraft(revision);
   if(draft)return <ReadyArtifact identity={identity}><button className="conversation-artifact" data-view-focus={'artifact:'+item.id} onClick={()=>onArtifact(item)}><span><strong>{revision.title}</strong><small>{draft.kind==='experiment'?'Explore inputs and calculate':'Review the procedure'}</small></span><ArrowUpRight size={16}/></button></ReadyArtifact>;
   if(revision.mimeType===SOURCE_FORMULA_MIME)return <p role="status">This saved source formula needs inspection. Its original content is kept.</p>;

@@ -1,4 +1,5 @@
 import {documentImportMessages} from './document-import';
+import {conceptMapPublicMessage} from './concept-map';
 import {RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT} from './response-preferences';
 export const RESPONSE_BRANCH_IMAGE_LIMIT = 'This conversation includes embedded image data. Choose an earlier response, or start a new task with selected readable text without image data. Your original task is unchanged.';
 export const BROWSER_LAUNCH_UNAVAILABLE = 'Companion could not open its browser. Your task is kept.';
@@ -45,6 +46,7 @@ const glintCopy = new Map([
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
  const branded=glintCopy.get(text);if(branded)return branded;
+ const mapMessage=conceptMapPublicMessage(text);if(mapMessage)return mapMessage;
  const browserRecovery=browserRecoveryMessage(text)??inspectionRecoveryMessages.get(text);
  if(browserRecovery)return glintCopy.get(browserRecovery)??browserRecovery;
  if([...glintCopy.values()].includes(text)||Object.values(documentImportMessages).some(message=>message===text))return text;

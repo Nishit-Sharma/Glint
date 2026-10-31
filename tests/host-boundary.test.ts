@@ -29,10 +29,30 @@ import {navigationFormBasis} from '../src/renderer/src/learning-draft-basis'
 import {WINDOW_WORKFLOW_MIME} from '../src/shared/window-workflow-artifact'
 import {savedDocumentDraftOwner,savedDocumentDraftBasis} from '../src/shared/saved-document-draft'
 import {REVISION_INSTRUCTIONS_SLOT,emptyRevisionInstructions} from '../src/shared/revision-instructions'
+import {CONCEPT_MAP_MIME,CONCEPT_MAP_PROMPT,CONCEPT_MAP_PROGRESS,readConceptMap} from '../src/shared/concept-map';
+import {conceptProposal,conceptSource} from './concept-map.fixture';
 
 // Bundle the production host handler. Only OS/network boundaries are substituted;
 // source versions, request authority and all durable writes use the actual core.
 const cleanups:Array<()=>Promise<void>>=[]
+describe('Concept map production path',()=>{
+ it('retains the existing send approval, transmits only selected text and hides raw generation before saving exact relationships',async()=>{
+  const f=await fixture(),created=await f.core.createTask({title:'Owned concept map'}),task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Owned evaporation notes',content:conceptSource}),source=task.sources[0],version=source.versions[0],ref={sourceId:source.id,version:version.version,digest:version.digest};
+  await f.core.putSource(task.id,{kind:'text',role:'fact',label:'Unselected source',content:'UNSELECTED_MAP_SECRET'});await f.core.saveComposerDraft(task.id,0,{text:'UNSENT_MAP_SECRET',kind:'explain'});
+  const proposal=JSON.stringify(conceptProposal());f.seams.run=async input=>{f.calls.provider.push(input);input.onChunk(proposal.slice(0,40));input.onChunk(proposal.slice(40));return proposal;};
+  const command={type:'model.run',taskId:task.id,requestId:'owned-map',kind:'concept-map',prompt:CONCEPT_MAP_PROMPT,sourceIds:[source.id],expectedSourceRefs:[ref]},result:Task=await f.command(command),saved=result.artifacts.at(-1)!.revisions[0];
+  expect(saved.mimeType).toBe(CONCEPT_MAP_MIME);expect(readConceptMap(saved.content,saved.sourceRefs)?.relationships[1]).toMatchObject({from:'water',to:'vapor',label:'evaporates into'});expect(result.session?.draft).toBe('UNSENT_MAP_SECRET');
+  expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?']);expect(f.calls.details[0].detail).toContain('Owned evaporation notes');expect(f.calls.details[0].detail).toContain('Relationships are proposed interpretations');expect(f.calls.provider[0].sources).toHaveLength(1);expect(f.calls.provider[0].sources[0].content).toBe(conceptSource);expect(f.calls.provider[0].taskContext).toBeUndefined();expect(JSON.stringify(f.calls.provider[0])).not.toContain('UNSELECTED_MAP_SECRET');expect(JSON.stringify(f.calls.provider[0])).not.toContain('UNSENT_MAP_SECRET');expect(f.calls.events.filter(event=>event.type==='stream').map(event=>event.text)).toEqual([CONCEPT_MAP_PROGRESS]);
+  await f.command(command);expect(f.calls.provider).toHaveLength(1);expect(f.calls.confirmations).toHaveLength(1);expect(f.calls.captures).toBe(0);
+ });
+ it('does not send unsupported source kinds or a denied request, and preserves readable unsupported evidence',async()=>{
+  const f=await fixture(),created=await f.core.createTask({title:'Owned unsupported map'}),task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Selected text',content:conceptSource}),source=task.sources[0],ref={sourceId:source.id,version:1,digest:source.versions[0].digest},command={type:'model.run',taskId:task.id,requestId:'denied-map',kind:'concept-map',prompt:CONCEPT_MAP_PROMPT,sourceIds:[source.id],expectedSourceRefs:[ref]};
+  f.setResponse(0);await expect(f.command(command)).rejects.toThrow('not authorized');expect(f.calls.provider).toHaveLength(0);expect((await f.core.getTask(task.id)).artifacts).toHaveLength(0);
+  const image=await f.core.putSource(task.id,{kind:'image',role:'fact',label:'Unsupported image',content:'data:image/png;base64,aA=='}),imageSource=image.sources.at(-1)!;
+  await expect(f.command({...command,requestId:'image-map',sourceIds:[imageSource.id],expectedSourceRefs:[{sourceId:imageSource.id,version:1,digest:imageSource.versions[0].digest}]})).rejects.toThrow('readable text');expect(f.calls.confirmations).toHaveLength(1);expect(f.calls.provider).toHaveLength(0);
+  f.setResponse(1);f.setOutput('{"schemaVersion":1,"kind":"unsupported-source","reason":"The passage has no useful connected concepts."}');const result:Task=await f.command({...command,requestId:'unsupported-map'});expect(result.artifacts.at(-1)!.revisions[0]).toMatchObject({mimeType:'text/markdown',content:expect.stringContaining('no useful connected concepts')});expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
+ });
+});
 it('shared source formula and target dispatch enforce the bounded derived integer loop domain without external effects',async()=>{
  const f=await fixture(),created=await f.core.createTask({title:'Owned loop domain'}),quote='total = 2\nfor item in range(5):\n    total += item',loop=recognizeRangeSum(quote)!,task=await f.core.putSource(created.id,{kind:'text',role:'fact',label:'Loop source',content:quote}),v=task.sources[0].versions[0],ref={sourceId:v.id,version:1,digest:v.digest},input={taskId:task.id,sourceRef:ref,lineNumber:1,start:0,end:loop.end,title:'Derived integer sum',formula:RANGE_SUM_FORMULA,variables:rangeSumVariables(loop),assumptions:[RANGE_SUM_ASSUMPTION],correctionReason:'Derived bounded arithmetic, not executed Python.',confirmed:'reviewed-source-transcription',derivation:'python-range-sum-v1'};
  const saved=await f.command({type:'experiment.source.save',input}),current=await f.core.getTask(task.id),packet=JSON.parse(current.artifacts.find((a:any)=>a.id===saved.artifactId)!.revisions[0].content);expect(packet.citation.quote).toBe(quote);expect(packet.citation.lineCount).toBe(3);

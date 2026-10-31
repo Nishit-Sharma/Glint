@@ -1,3 +1,4 @@
+import {prepareConceptMapGeneration} from '../src/host/concept-map-generation';
 import {ResponsePreferences} from '../src/host/response-preferences';
 import {LearningDraftStore} from '../src/host/learning-drafts';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -206,10 +207,12 @@ export class BrowserFixture {
       case 'procedure.check': {const result=await this.core.checkProcedure(command.taskId, command.procedureId, { values: command.context });if(this.checkBarrier)await this.checkBarrier;return result;}
       case 'experiment.evaluate': {const result=evaluateExperiment(command.spec, command.inputs);if(this.calculationBarrier)await this.calculationBarrier;return result;}
       case 'model.run': {
+        const concept=prepareConceptMapGeneration(await this.core.getTask(command.taskId),command);
         const target = command.artifactId ? (await this.core.getTask(command.taskId)).artifacts.find(artifact => artifact.id === command.artifactId) : undefined;
-        const result = await this.core.runRequest({ taskId: command.taskId, requestId: command.requestId, kind: command.kind, prompt: command.prompt, ...(command.submittedDraft?{submittedDraft:command.submittedDraft}:{}),...(command.sourceIds!==undefined?{sourceIds:command.sourceIds}:{}),...(command.expectedSourceRefs?{expectedSourceRefs:command.expectedSourceRefs}:{}), ...(target ? { artifactId: target.id, expectedRevision: target.revisions.at(-1)?.revision } : {}) }, ({ signal }) => new Promise((resolve, reject) => {
-          this.pending.set(command.requestId, { command, resolve:value=>{this.pending.delete(command.requestId);resolve(value);}, reject:error=>{this.pending.delete(command.requestId);reject(error);} });
-          signal.addEventListener('abort', () => this.pending.get(command.requestId)?.reject(new Error('Stopped by browser fixture transport')), { once: true });
+        const result = await this.core.runRequest(concept?.request??{ taskId: command.taskId, requestId: command.requestId, kind: command.kind, prompt: command.prompt, ...(command.submittedDraft?{submittedDraft:command.submittedDraft}:{}),...(command.sourceIds!==undefined?{sourceIds:command.sourceIds}:{}),...(command.expectedSourceRefs?{expectedSourceRefs:command.expectedSourceRefs}:{}), ...(target ? { artifactId: target.id, expectedRevision: target.revisions.at(-1)?.revision } : {}) }, context => new Promise((resolve, reject) => {
+          const bound=concept?.bind(context);
+          this.pending.set(command.requestId, { command, resolve:value=>{this.pending.delete(command.requestId);try{resolve(bound?bound.finish(value.content):value);}catch(error){reject(error);}}, reject:error=>{this.pending.delete(command.requestId);reject(error);} });
+          context.signal.addEventListener('abort', () => this.pending.get(command.requestId)?.reject(new Error('Stopped by browser fixture transport')), { once: true });
         }));
         await this.changed(command.taskId);
         if (result.status !== 'completed') throw new Error(result.error || `Request ${result.status}`);

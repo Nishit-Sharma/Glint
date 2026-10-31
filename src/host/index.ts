@@ -73,6 +73,7 @@ import {editModule,saveModuleDocument} from '../core/module-state'
 import {readTaskArtifactText} from '../core/task-dialogue'
 import {assertRawModuleOperationAllowed} from '../shared/module-contract'
 import {prepareBriefActionPlan} from './brief-action-plan'
+import {prepareConceptMapGeneration} from './concept-map-generation';
 import type {BrowserService} from './browser/service'
 import type {Command,CompanionEvent,HostStatus,AttachedWindow,CompactFitBounds,ContextActivation,ContextPending} from '../shared/bridge'
 import {publicErrorMessage} from '../shared/public-messages'
@@ -958,7 +959,7 @@ async function command(c:Command):Promise<unknown>{
     case 'export.inspect':{const result:ExportReply<Extract<Command,{type:'export.inspect'}>>=await core.inspectExport(c.taskId,c.actionId);return result}
     case 'model.cancel':return taskMutation(c.taskId,()=>core.cancelRequest(c.taskId,c.requestId))
     case 'model.run':{
-      if(!['explain','create','revise','experiment','procedure','brief'].includes(c.kind))throw Error('Choose a supported request kind.')
+      if(!['explain','create','revise','experiment','procedure','brief','concept-map'].includes(c.kind))throw Error('Choose a supported request kind.')
       if(c.artifactId&&c.kind!=='revise')throw Error('Only a revision request can replace an artifact.')
       const epoch=keyEpoch,privacy=capturePrivacyEpoch,privacySignal=capturePrivacyAbort.signal,provider=activeProvider()
       const before=await core.getTask(c.taskId),target=c.artifactId?before.artifacts.find(a=>a.id===c.artifactId):undefined,targetRevision=target?.revisions.at(-1)
@@ -966,14 +967,15 @@ async function command(c:Command):Promise<unknown>{
       if(c.kind==='revise'&&targetRevision?.mimeType===SOURCE_FORMULA_MIME)throw Error('Keep the cited formula publication unchanged. Save a separately reviewed transcription from its source.');
       if(c.kind==='revise'&&targetRevision)assertRawModuleOperationAllowed(targetRevision.mimeType,'revise')
       if(c.revisionBasis!==undefined)assertRevisionInstructionRequest(before,c.artifactId!,c.revisionBasis,c.sourceIds,c.expectedSourceRefs)
+      const conceptGeneration=prepareConceptMapGeneration(before,c);
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)
       const ordinary=!plan&&!target&&['explain','create'].includes(kind);
       const preferences=ordinary?await responsePreferences.lease():undefined,memory=ordinary?await core.leaseUserMemory(c.taskId,prompt):undefined;assertCurrentWork(lifecycle);
-      const request=plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(memory?{memory:memory.receipt}:{}),...(preferences?.scope?{executionScope:preferences.scope}:{}),...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
+      const request=conceptGeneration?.request??plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(memory?{memory:memory.receipt}:{}),...(preferences?.scope?{executionScope:preferences.scope}:{}),...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
       let captureRequest=false;let assertWindowPublication=()=>{};
       const assertResultCurrent=()=>{memory?.assertCurrent();preferences?.assertCurrent();assertWindowPublication();assertCurrentWork(lifecycle);if(epoch!==keyEpoch)throw Error('Connection changed during request.');if(captureRequest&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'||privacySignal.aborted))throw Error('Capture privacy changed during the request.');};
       const result=await core.runRequest(request,async ctx=>{
-        const response=plan?.bind(ctx),reviewResponse=response?.kind==='join-extraction'||response?.kind==='window-workflow-proposal'?response:undefined;
+        const response=conceptGeneration?.bind(ctx)??plan?.bind(ctx),reviewResponse=response&&response.kind!=='ordinary'?response:undefined;
         captureRequest=ctx.task.sources.some(source=>source.versions.at(-1)?.kind==='window');
         assertCurrentWork(lifecycle);if(request.expectedSourceRefs!==undefined){const refs=request.expectedSourceRefs;if(!Array.isArray(refs)||refs.length!==ctx.sourceRefs.length||refs.some(ref=>!ref||Object.keys(ref).sort().join(',')!=='digest,sourceId,version'||!ctx.sourceRefs.some(actual=>actual.sourceId===ref.sourceId&&actual.version===ref.version&&actual.digest===ref.digest))||new Set(refs.map(ref=>ref.sourceId)).size!==refs.length)throw Error('Source changed; select and refresh it.')}
         const revisionTarget=targetRevision?readTaskArtifactText(ctx.task,target!.id,targetRevision.revision):undefined
@@ -986,7 +988,7 @@ async function command(c:Command):Promise<unknown>{
         const connection=await provider.status();assertCurrentWork(lifecycle)
         if(!connection.configured)throw Error('Provider availability is unverified. Check the connection before authorizing a new request. Nothing was sent.')
         {
-          const consent=await dialog.showMessageBox(panel,{type:'question',message:`Send this request to ${connection.provider==='Meta'?'Meta':'OpenAI'}?`,detail:`${connection.provider==='Meta'?'Destination: Meta (api.meta.ai)':'Destination: OpenAI through your Codex account'}\n\nSources:\n${ctx.task.sources.map(s=>{const v=s.versions.at(-1)!;return `${v.label} · ${v.kind==='window'?'window snapshot':v.kind} · ${v.role} reference · version ${v.version}`}).join('\n')||'No sources selected'}\n\n${ctx.taskHistory?`${taskHistoryReview(ctx.taskHistory)}\n\n`:''}${targetRevision?`Revising “${targetRevision.title}” (version ${targetRevision.revision}).\n\n`:''}${plan?`Using “${plan.review.basisTitle}” (version ${plan.review.basisRevision}). ${plan.review.purpose}\n\n`:''}Request: ${prompt}\n\n${memory?memory.consent+'\n\n':''}${preferences?preferences.consent+'\n\n':''}${reviewResponse?.kind==='window-workflow-proposal'?'This prepares proposed image transcription and inferred finite state transitions for your review. It does not simulate HDL.\n\n':reviewResponse?'This prepares table transcription for your review. It does not run a database query.\n\n':''}${connection.provider==='Meta'?'Uses your selected Meta account.':'Uses your Codex account and its existing instructions.'} This requests a response; it does not allow changes to your apps or files. Stopping disconnects this app, but the service may already be processing the request.`,buttons:['Cancel',`Send to ${connection.provider==='Meta'?'Meta':'OpenAI'}`],defaultId:0,cancelId:0})
+          const consent=await dialog.showMessageBox(panel,{type:'question',message:`Send this request to ${connection.provider==='Meta'?'Meta':'OpenAI'}?`,detail:`${connection.provider==='Meta'?'Destination: Meta (api.meta.ai)':'Destination: OpenAI through your Codex account'}\n\nSources:\n${ctx.task.sources.map(s=>{const v=s.versions.at(-1)!;return `${v.label} · ${v.kind==='window'?'window snapshot':v.kind} · ${v.role} reference · version ${v.version}`}).join('\n')||'No sources selected'}\n\n${ctx.taskHistory?`${taskHistoryReview(ctx.taskHistory)}\n\n`:''}${targetRevision?`Revising “${targetRevision.title}” (version ${targetRevision.revision}).\n\n`:''}${plan?`Using “${plan.review.basisTitle}” (version ${plan.review.basisRevision}). ${plan.review.purpose}\n\n`:''}Request: ${prompt}\n\n${memory?memory.consent+'\n\n':''}${preferences?preferences.consent+'\n\n':''}${reviewResponse?.kind==='concept-map'?'This prepares an inspectable concept map from the listed text sources. Relationships are proposed interpretations with source excerpts and uncertainty, not verified facts.\n\n':reviewResponse?.kind==='window-workflow-proposal'?'This prepares proposed image transcription and inferred finite state transitions for your review. It does not simulate HDL.\n\n':reviewResponse?'This prepares table transcription for your review. It does not run a database query.\n\n':''}${connection.provider==='Meta'?'Uses your selected Meta account.':'Uses your Codex account and its existing instructions.'} This requests a response; it does not allow changes to your apps or files. Stopping disconnects this app, but the service may already be processing the request.`,buttons:['Cancel',`Send to ${connection.provider==='Meta'?'Meta':'OpenAI'}`],defaultId:0,cancelId:0})
           assertCurrentWork(lifecycle);await memory?.check();await preferences?.check();if(consent.response!==1)throw Error('Model request was not authorized. Nothing was sent.')
         }
         assertCurrentWork(lifecycle);if(ctx.signal.aborted||epoch!==keyEpoch)throw Error('Request stopped or connection changed before transmission.')
@@ -1022,7 +1024,7 @@ async function command(c:Command):Promise<unknown>{
         }}:undefined;
         const captureFence=preferences||memory?{assertCurrent:()=>{memory?.assertCurrent();preferences?.assertCurrent();assertWindowUse();},check:async()=>{await memory?.check();await preferences?.check();await windowFence?.check();memory?.assertCurrent();preferences?.assertCurrent();}}:windowFence;
         await captureFence?.check();assertWindowUse();
-        if(response?.kind==='window-workflow-proposal')assertWindowPublication=assertWindowUse;
+        if(response?.kind==='window-workflow-proposal'||response?.kind==='concept-map')assertWindowPublication=assertWindowUse;
         let streamed=''
         const structured=kind==='experiment'||kind==='procedure'?kind:undefined
         if(reviewResponse)emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:reviewResponse.progress})
@@ -1030,7 +1032,7 @@ async function command(c:Command):Promise<unknown>{
         await memory?.check();await preferences?.check();
         if(windowSources.length&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'))throw Error('Capture privacy changed during the request.');
         if(epoch!==keyEpoch)throw Error('Connection changed during request.')
-        if(response?.kind==='window-workflow-proposal'){await captureFence?.check();assertWindowUse();}
+        if(response?.kind==='window-workflow-proposal'||response?.kind==='concept-map'){await captureFence?.check();assertWindowUse();}
         if(reviewResponse)return reviewResponse.finish(content)
         if(structured){const draft=parseModelDraft(content,structured);return {title:draft.title,content:JSON.stringify(draft,null,2),mimeType:'application/json'}}
         if(kind==='brief'){const brief=parseScreenBriefModel(content,ctx.sourceRefs);return {title:'Screen brief',content:JSON.stringify(brief),mimeType:'application/json'}}
