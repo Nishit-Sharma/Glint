@@ -156,7 +156,7 @@ function retireDocumentFollow(reason:string){documentSelectionEpoch++;documentFo
 let requestedViewTaskId:string|undefined
 let currentViewTaskId:string|undefined
 const publicGithub=new PublicGithubReader()
-const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md']}]});return choice.canceled?undefined:choice.filePaths[0];})
+const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md','csv']}]});return choice.canceled?undefined:choice.filePaths[0];})
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))
 const documentSpeech=new DocumentSpeech({directory:dataDir,core:{getTask:id=>core.getTask(id),replaceSession:(...args)=>core.replaceSession(...args)}})

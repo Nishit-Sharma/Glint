@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash,randomUUID} from 'node:crypto';
 import {Schema} from 'effect';
 import type {Companion} from '../core/companion';
-import {DOCUMENT_IMPORT_FILE_LIMIT,DOCUMENT_IMPORT_TEXT_LIMIT,documentImportMessages as messages,type ImportedDocument,type DocumentImportOwner,type DocumentImportAdd,type DocumentImportChoice,type DocumentImportResult} from '../shared/document-import';
+import {DOCUMENT_IMPORT_FILE_LIMIT,DOCUMENT_IMPORT_TEXT_LIMIT,readDocumentCsv,documentImportMessages as messages,type ImportedDocument,type DocumentImportOwner,type DocumentImportAdd,type DocumentImportChoice,type DocumentImportResult} from '../shared/document-import';
 
 const hash=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
 const exec=promisify(execFile);
@@ -16,7 +16,7 @@ const knownMessages=new Set<string>(Object.values(messages));
 const PdfReply=Schema.Union(Schema.Struct({kind:Schema.Literal('error'),reason:Schema.Literal('failed','pdf','text')}),Schema.Struct({kind:Schema.Literal('text'),text:Schema.String.pipe(Schema.maxLength(DOCUMENT_IMPORT_TEXT_LIMIT)),pageCount:Schema.Int.pipe(Schema.positive(),Schema.lessThanOrEqualTo(200)),emptyPages:Schema.Array(Schema.Int.pipe(Schema.positive(),Schema.lessThanOrEqualTo(200)))}));
 const formatOf=(path:string):ImportedDocument['format']=>{
  const ext=extname(path).toLowerCase().slice(1);
- if(ext==='pdf'||ext==='docx'||ext==='doc'||ext==='txt'||ext==='md')return ext;
+ if(ext==='pdf'||ext==='docx'||ext==='doc'||ext==='txt'||ext==='md'||ext==='csv')return ext;
  throw Error(messages.unsupported);
 };
 function readable(text:string){
@@ -27,7 +27,7 @@ function readable(text:string){
 }
 /** Only a native-picker path enters this function. Parse an immutable private copy. */
 export async function extractDocument(path:string,signal:AbortSignal):Promise<ImportedDocument>{
- const format=formatOf(path);if(!['txt','md'].includes(format)&&process.platform!=='darwin')throw Error(messages.platform);
+ const format=formatOf(path);if(!['txt','md','csv'].includes(format)&&process.platform!=='darwin')throw Error(messages.platform);
  let bytes:Buffer;
  try{
   const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
@@ -38,7 +38,10 @@ export async function extractDocument(path:string,signal:AbortSignal):Promise<Im
  }catch(error){if(error instanceof Error&&knownMessages.has(error.message))throw error;throw Error(messages.file);}
  signal.throwIfAborted();
  let text='',method='',pageCount:number|undefined;const warnings:string[]=[];
- if(format==='txt'||format==='md'){
+ if(format==='csv'){
+  try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes).replace(/^\ufeff/,'');}catch{throw Error(messages.csvEncoding);}
+  readDocumentCsv(text);method='Local UTF-8 CSV decoding and comma-separated syntax parsing';warnings.push('The original decoded CSV is kept exactly, except an initial UTF-8 BOM is removed. Quotes, line endings, Unicode and formula text are preserved. Cells are inert text: formulas, scripts and links are not executed.');
+ }else if(format==='txt'||format==='md'){
   try{const encoding=bytes[0]===0xff&&bytes[1]===0xfe?'utf-16le':bytes[0]===0xfe&&bytes[1]===0xff?'utf-16be':'utf-8';text=new TextDecoder(encoding,{fatal:true}).decode(bytes);method=`Local ${encoding} text decoding`;}catch{throw Error(messages.failed);}
  }else{
   const directory=await mkdtemp(join(tmpdir(),'glint-document-'));
@@ -87,7 +90,8 @@ export class DocumentImports{
   pending.saving=true;
   try{
    const task=await this.core.getTask(input.taskId);this.current(pending,guard);if(task.status!=='active'||task.archive)throw Error(messages.inactive);
-   const doc=pending.document,content=['# Imported document snapshot',`File: ${JSON.stringify(doc.fileName)}\nFormat: ${doc.format.toUpperCase()}\nFile SHA-256: ${doc.fileDigest}\nOriginal size: ${doc.byteLength} bytes\nExtracted locally: ${doc.extractedAt}\nMethod: ${doc.method}${doc.pageCount===undefined?'':`\nPDF pages: ${doc.pageCount}`}\nExtracted text SHA-256: ${hash(doc.text)}\nReviewed text: ${input.content===doc.text?'unchanged':'corrected by user before adding'}`,'This is an independent local text snapshot. The original file is not linked or monitored. Images and scanned text were not extracted.',...doc.warnings,'## Reviewed document text',readable(input.content)].join('\n\n');
+   const doc=pending.document;if(doc.format==='csv')readDocumentCsv(input.content);
+   const content=['# Imported document snapshot',`File: ${JSON.stringify(doc.fileName)}\nFormat: ${doc.format.toUpperCase()}\nFile SHA-256: ${doc.fileDigest}\nOriginal size: ${doc.byteLength} bytes\nExtracted locally: ${doc.extractedAt}\nMethod: ${doc.method}${doc.pageCount===undefined?'':`\nPDF pages: ${doc.pageCount}`}\nExtracted text SHA-256: ${hash(doc.text)}\nReviewed text: ${input.content===doc.text?'unchanged':'corrected by user before adding'}`,doc.format==='csv'?'This is an independent local CSV text snapshot. The original file is not linked or monitored. Cells remain inert text.':'This is an independent local text snapshot. The original file is not linked or monitored. Images and scanned text were not extracted.',...doc.warnings,...(doc.format==='csv'?[`Original decoded CSV SHA-256: ${hash(doc.text)}`,'## Original decoded CSV',doc.text,...(input.content===doc.text?[]:['## Reviewed CSV text',input.content])]:['## Reviewed document text',readable(input.content)])].join('\n\n');
    const saved=await this.core.putSource(input.taskId,{id:pending.sourceId,kind:'text',label:input.label.trim(),content,role:input.role},task,undefined,()=>this.current(pending,guard),{preserveBrowserContextForNewText:true});
    const version=saved.sources.find(source=>source.id===pending.sourceId)!.versions.at(-1)!;pending.payload=payload;pending.result={task:saved,reference:{sourceId:pending.sourceId,version:version.version,digest:version.digest}};return pending.result;
   }finally{pending.saving=false;}
