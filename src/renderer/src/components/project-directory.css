@@ -1,0 +1,23 @@
+.project-directory{display:grid;gap:10px;min-width:0}
+.project-directory-search{display:flex;align-items:flex-end;gap:10px;min-width:0}
+.project-directory-search .field{flex:1;min-width:0;margin:0}
+.project-directory .project-directory-status{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.project-directory-list{list-style:none;margin:0;padding:0;max-height:340px;overflow:auto;overscroll-behavior:contain;border-block:1px solid var(--line)}
+.project-directory-list>li{padding:10px 0;border-bottom:1px solid var(--line);min-width:0}
+.project-directory-list>li:last-child{border-bottom:0}
+.project-directory-choice{display:grid;gap:4px;width:100%;text-align:left;padding:9px 10px;min-width:0;background:transparent}
+.project-directory-choice[aria-pressed=true]{background:var(--soft);color:var(--ink)}
+.project-directory-choice:hover:not(:disabled){background:var(--soft)}
+.project-directory-name{font-weight:600;overflow-wrap:anywhere}
+.project-directory-counts{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:normal}
+.project-directory .project-directory-match,.project-directory .project-directory-no-sources{padding:5px 10px 0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.project-directory-sources{margin:4px 10px 0;min-width:0}
+.project-directory summary{cursor:pointer;font-size:12px;color:var(--muted);padding:5px 0;overflow-wrap:anywhere}
+.project-directory-sources>ul{list-style:none;margin:5px 0 0;padding:0;max-height:260px;overflow:auto;overscroll-behavior:contain}
+.project-directory-source{display:block;padding:10px 0;border-top:1px solid var(--line);min-width:0;overflow-wrap:anywhere}
+.project-directory-source strong{font-size:13px;font-weight:600}
+.project-directory-source p{font-size:12px;color:var(--muted);margin:4px 0 0}
+.project-directory-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;font:inherit;font-size:13px;line-height:1.5;margin:8px 0 0}
+.project-directory-preview img{display:block;max-width:100%;max-height:200px;object-fit:contain;margin-top:8px}
+.project-directory :is(button,input,summary):focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media(max-width:480px){.project-directory-search{flex-wrap:wrap}.project-directory-search .field{flex-basis:200px}.project-directory-choice{padding-inline:8px}}

@@ -7,6 +7,7 @@ import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field,type Run} from '../ui';
 import './projects.css';
 import {ProjectMemory} from './ProjectMemory';
+import {ProjectDirectory} from './ProjectDirectory';
 import type {ProjectDeleteCommand,ProjectDeletePreview} from '../../../shared/project-deletion';
 
 type Change=<C extends ProjectCommand>(command:C)=>Promise<ProjectReply<C>|undefined>;
@@ -34,7 +35,7 @@ export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTo
   {projects&&<>
    <form className="project-create" onSubmit={event=>{event.preventDefault();if(!name.trim()||held)return;const submitted=name;void change({type:'projects.create',name:name.trim()}).then(saved=>{if(saved&&alive.current){setName(current=>current===submitted?'':current);clearCreate();guardNavigation(()=>onSelect(saved.id));}});}}><Field label="New project name"><input value={name} maxLength={200} disabled={held} onChange={event=>setName(event.currentTarget.value)}/></Field><Button type="submit" disabled={held||!name.trim()}>Create project</Button></form>
    {!projects.length?<p>No projects yet. Create one, then add your tasks.</p>:<>
-    <Field label="Project"><select value={selected} disabled={held} onChange={event=>{const id=event.currentTarget.value;guardNavigation(()=>onSelect(id));}}><option value="">Choose a project</option>{projects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>
+    <ProjectDirectory projects={projects} tasks={tasks} selected={selected} onSelect={id=>guardNavigation(()=>onSelect(id))} busy={held} loadError={loadError}/>
     {project&&<ProjectDetails key={project.id} project={project} projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onOpenTask={onOpenTask} pinned={!!pins?.projectIds.includes(project.id)} pinDisabled={held||pinning||!pins||!!loadError} onTogglePin={onTogglePin} onReviewDelete={()=>reviewDeletion(project.id)}/>}
    </>}
   </>}
