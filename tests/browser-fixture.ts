@@ -54,6 +54,8 @@ export class BrowserFixture {
   checkBarrier?:Promise<void>;
   browserError?:string;
   taskPinError?:string;
+  taskAttentionError?:string;
+  taskAttentionBarrier?:Promise<void>;
   browserCompletion?:Promise<void>;
   browserInspection?:(command:Extract<Command,{type:'browser.inspect'}>)=>Promise<Task>;
   browserInspectionCancel?:(command:Extract<Command,{type:'browser.inspect.cancel'}>)=>Promise<BrowserInspectionStopResult>;
@@ -93,7 +95,7 @@ export class BrowserFixture {
     fixture.learningDrafts=new LearningDraftStore({directory:join(directory,'store'),lookupTask:async id=>(await fixture.core.listTasks()).find(task=>task.id===id)});
     fixture.preferences=await CharacterPreferences.open(join(directory,'store'));
     fixture.responsePreferences=new ResponsePreferences(join(directory,'store'));
-    fixture.viewPreferences=new TaskViewPreferences(join(directory,'store'),async id=>(await fixture.core.listTasks()).some(task=>task.id===id));
+    fixture.viewPreferences=new TaskViewPreferences(join(directory,'store'),async id=>(await fixture.core.listTasks()).some(task=>task.id===id),id=>fixture.core.getTask(id));
     await fixture.viewPreferences.select(taskA.id);
     if(mode==='companion')fixture.lastSurface='companion';if(mode)fixture.surface=mode;
     await page.exposeFunction('__browserFixtureInvoke',async(command:Command)=>{const result=await fixture.invoke(command);return isExportCommand(command)?readExportReply(command,result):result;});
@@ -217,6 +219,8 @@ export class BrowserFixture {
         await this.changed(command.taskId);if(request.status!=='completed')throw Error(request.error);return this.core.getTask(command.taskId);
       }
       case 'context.start':{const activation={activationId:crypto.randomUUID(),tucked:this.surface==='anchor',...(command.newTask?{newTask:true}:{}),...(command.source?{analyze:true,source:command.source,ownerTaskId:command.source.taskId}:command.ownerTaskId?{ownerTaskId:command.ownerTaskId}:{}),...(command.requestId?{requestId:command.requestId}:{}),target:{id:'window:99',title:'Visitor guide',owner:{name:'Document viewer'},bounds:{x:20,y:20,width:600,height:500}},choices:[]};this.activation=activation;await this.emit({type:'context.activate',activation});return null;}
+      case 'task-attention.get':return this.viewPreferences.readAttention();
+      case 'task-attention.change':if(this.taskAttentionBarrier)await this.taskAttentionBarrier;if(this.taskAttentionError)throw Error(this.taskAttentionError);return this.viewPreferences.changeAttention(command.change);
       case 'task-view.get':return this.viewPreferences.read();
       case 'task-pins.get':return this.viewPreferences.readPins();
       case 'task-pins.set':if(this.taskPinError)throw Error(this.taskPinError);return this.viewPreferences.setPinned(command.taskId,command.pinned);

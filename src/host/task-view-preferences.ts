@@ -4,12 +4,17 @@ import {join} from 'node:path';
 import {isCode} from '../core/store';
 import {Schema} from 'effect';
 import type {TaskViewState,TaskPinsState} from '../shared/task-view';
+import type {Task} from '../core/types';
+import type {TaskAttentionChange} from '../shared/task-attention';
+import {readTaskAttention,changeTaskAttention} from './task-attention-preferences';
 
 const Pins=Schema.Struct({schemaVersion:Schema.Literal(1),taskIds:Schema.Array(Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200),Schema.pattern(/^[^\0]+$/))).pipe(Schema.maxItems(100))});
 
 export class TaskViewPreferences{
  private queue:Promise<unknown>=Promise.resolve();
- constructor(private readonly directory:string,private readonly exists:(taskId:string)=>Promise<boolean>){}
+ constructor(private readonly directory:string,private readonly exists:(taskId:string)=>Promise<boolean>,private readonly getTask?:(taskId:string)=>Promise<Task>){}
+ readAttention(){return this.serialize(()=>readTaskAttention(this.directory,this.exists));}
+ changeAttention(change:TaskAttentionChange){return this.serialize(()=>changeTaskAttention(this.directory,this.exists,this.getTask,change));}
  private serialize<T>(action:()=>Promise<T>):Promise<T>{const result=this.queue.then(action);this.queue=result.catch(()=>{});return result;}
  private async load():Promise<TaskViewState>{
   try{

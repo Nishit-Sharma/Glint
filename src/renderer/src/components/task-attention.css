@@ -1,0 +1,6 @@
+.task-sidebar-task[data-unread=true],.task-chooser .list-row[data-unread=true]{position:relative}
+.task-sidebar-task[data-unread=true]::before,.task-chooser .list-row[data-unread=true]::before{content:"";position:absolute;left:0;top:19px;width:5px;height:5px;border-radius:50%;background:#d5d5d5;pointer-events:none}
+.task-chooser .list-row[data-unread=true]::before{left:-10px}
+.task-chooser .task-review-filter{display:grid;gap:4px;margin-bottom:12px;color:var(--muted);font-size:12px}
+.task-chooser .task-review-filter label{display:grid;gap:4px}
+.task-chooser .task-review-filter small{font-size:12px;line-height:1.45}
