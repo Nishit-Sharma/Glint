@@ -27,19 +27,21 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.update'),projectId:Id,expectedRevision:Revision,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT)}),
  Schema.Struct({type:Schema.Literal('projects.assign'),taskId:Id,projectId:Schema.NullOr(Id),expectedProjectId:Schema.NullOr(Id)}),
  Schema.Struct({type:Schema.Literal('projects.sources.add'),projectId:Id,expectedRevision:Revision,taskId:Id,reference:Reference}),
+ Schema.Struct({type:Schema.Literal('projects.sources.update'),projectId:Id,expectedRevision:Revision,sourceKey:Id,taskId:Id,expectedReference:Reference,reference:Reference}),
  Schema.Struct({type:Schema.Literal('projects.sources.remove'),projectId:Id,expectedRevision:Revision,sourceKey:Id}),
  Schema.Struct({type:Schema.Literal('projects.sources.use'),projectId:Id,expectedRevision:Revision,sourceKey:Id,taskId:Id}),
 );
 export type ProjectCommand=typeof CommandSchema.Type;
 export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.sidebar.get'|'projects.sidebar.set'}?ProjectSidebar:C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
 export function readProjectCommand(value:unknown):ProjectCommand{return Schema.decodeUnknownSync(CommandSchema,{onExcessProperty:'error'})(value);}
-export const projectSourceMatches=(source:ProjectSource,taskId:string,reference:SourceRef)=>source.taskId===taskId&&source.reference.sourceId===reference.sourceId&&source.reference.version===reference.version&&source.reference.digest===reference.digest;
+const sameReference=(left:SourceRef,right:SourceRef)=>left.sourceId===right.sourceId&&left.version===right.version&&left.digest===right.digest;
+export const projectSourceMatches=(source:ProjectSource,taskId:string,reference:SourceRef)=>source.taskId===taskId&&sameReference(source.reference,reference);
 export function projectSourceVersion(source:ProjectSource,tasks:readonly Task[]){return tasks.find(task=>task.id===source.taskId)?.sources.find(item=>item.id===source.reference.sourceId)?.versions.find(version=>version.version===source.reference.version&&version.digest===source.reference.digest);}
 export function projectSourceInTask(task:Task,projectId:string,shared:ProjectSource):boolean{
  return task.sources.some(source=>{
   if(source.freshness!=='fresh')return false;
   const current=source.versions.at(-1),origin=source.projectOrigin;
-  return shared.taskId===task.id&&source.id===shared.reference.sourceId&&source.currentVersion===shared.reference.version&&current?.digest===shared.reference.digest||origin?.projectId===projectId&&origin.sourceKey===shared.id&&source.currentVersion===origin.copiedVersion&&current?.digest===origin.copiedDigest;
+  return shared.taskId===task.id&&source.id===shared.reference.sourceId&&source.currentVersion===shared.reference.version&&current?.digest===shared.reference.digest||origin?.projectId===projectId&&origin.sourceKey===shared.id&&origin.taskId===shared.taskId&&sameReference(origin.reference,shared.reference)&&source.currentVersion===origin.copiedVersion&&current?.digest===origin.copiedDigest;
  });
 }
 export function projectInstructionsText(value:ProjectInstructions|undefined):string|undefined{

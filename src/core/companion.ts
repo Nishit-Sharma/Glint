@@ -425,7 +425,7 @@ export class Companion {
         }
         const project=this.project(state,command.projectId);
         if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions)return project;
-        if(project.revision!==command.expectedRevision)reject('conflict','This project changed. Reload its saved details before trying again.');
+        if(command.type!=='projects.sources.update'&&project.revision!==command.expectedRevision)reject('conflict','This project changed. Reload its saved details before trying again.');
         if(command.type==='projects.update'){
           const name=command.name.trim();
           if(state.projects?.some(other=>other.id!==project.id&&other.name.toLocaleLowerCase()===name.toLocaleLowerCase()))reject('conflict','Another project already uses this name.');
@@ -440,6 +440,20 @@ export class Companion {
           if(project.sources.some(source=>projectSourceMatches(source,task.id,command.reference)))return project;
           if(project.sources.length>=64)reject('invalid','A project can share at most 64 saved sources.');
           project.sources.push({id:randomUUID(),taskId:task.id,reference:clone(command.reference)});
+        }else if(command.type==='projects.sources.update'){
+          const shared=project.sources.find(source=>source.id===command.sourceKey);
+          if(!shared)return reject('not-found','This shared source was removed.');
+          const task=this.task(state,command.taskId);
+          if(task.projectId!==project.id)reject('conflict','Move the original task into this project before updating its shared source.');
+          if(shared.taskId!==task.id||shared.reference.sourceId!==command.reference.sourceId||command.expectedReference.sourceId!==command.reference.sourceId)reject('conflict','This shared source changed. Review its saved versions again.');
+          if(command.reference.version<=command.expectedReference.version)reject('invalid','Choose a newer saved version of the same source.');
+          this.validRefs(task,[command.reference]);
+          const version=task.sources.find(source=>source.id===command.reference.sourceId)!.versions.at(-1)!;
+          if(version.kind==='window')reject('invalid','Share saved text or images. Window captures stay with their original task.');
+          if(projectSourceMatches(shared,task.id,command.reference))return project;
+          if(project.revision!==command.expectedRevision)reject('conflict','This project changed. Review its saved versions again.');
+          if(!projectSourceMatches(shared,task.id,command.expectedReference))reject('conflict','This shared source changed. Review its saved versions again.');
+          project.sources=project.sources.map(source=>source.id===shared.id?{...source,reference:clone(command.reference)}:source);
         }else if(command.type==='projects.sources.remove'){
           if(!project.sources.some(source=>source.id===command.sourceKey))return project;
           project.sources=project.sources.filter(source=>source.id!==command.sourceKey);

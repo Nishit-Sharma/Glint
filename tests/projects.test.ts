@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {createCompanion,type RequestContext,type RequestOutput} from '../src/core/companion';
 import {buildMetaMessages} from '../src/host/provider';
 import {buildCodexInput} from '../src/host/codex-provider';
-import {readProjectCommand,projectInstructionsText} from '../src/shared/projects';
+import {readProjectCommand,projectInstructionsText,projectSourceInTask} from '../src/shared/projects';
 import {parseCurrentState} from '../src/core/store';
 
 const cleanup:Array<()=>Promise<void>>=[];
@@ -111,6 +111,49 @@ it('shares exact saved versions into independent task copies once and keeps copi
  await f.reopen();expect((await f.core.getTask(b.id)).sources).toEqual(addedAgain.sources);
  await f.core.deleteTask(a.id);await expect(f.core.projectCommand({...command,taskId:b.id})).rejects.toThrow('unavailable');expect((await f.core.getTask(b.id)).sources).toEqual(addedAgain.sources);
  await f.core.projectCommand({type:'projects.sources.remove',projectId:project.id,expectedRevision:shared.revision,sourceKey:shared.sources[0].id});await f.reopen();expect((await f.core.getTask(b.id)).sources).toEqual(addedAgain.sources);expect((await f.core.getTask(b.id)).sources[1].projectOrigin).toMatchObject({taskId:a.id,reference});
+});
+it('updates a shared reference deliberately while keeping old copies and pinning new copies to the reviewed version',async()=>{
+ const f=await fixture(),owner=await f.core.createTask({title:'Reference owner'}),target=await f.core.createTask({title:'Independent copies'}),project=await f.core.projectCommand({type:'projects.create',name:'Night visits'});
+ for(const task of [owner,target])await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+ const original=await f.core.putSource(owner.id,{kind:'text',label:'Visit guide',role:'fact',content:'Doors open at 18:00.'}),source=original.sources[0],oldReference={sourceId:source.id,version:1,digest:source.versions[0].digest};
+ const shared=await f.core.projectCommand({type:'projects.sources.add',projectId:project.id,expectedRevision:1,taskId:owner.id,reference:oldReference}),sourceKey=shared.sources[0].id;
+ const first=await f.core.projectCommand({type:'projects.sources.use',projectId:project.id,expectedRevision:shared.revision,sourceKey,taskId:target.id});
+ const edited=await f.core.putSource(owner.id,{id:source.id,kind:'text',label:'Updated visit guide',role:'fact',content:'Doors now open at 19:00.'}),current=edited.sources[0].versions.at(-1)!,reference={sourceId:source.id,version:2,digest:current.digest};
+ await f.core.saveComposerDraft(target.id,0,{text:'PRIVATE_UNSENT',kind:'explain'});
+ const before=await f.core.getTask(target.id),browserContext={origin:'https://owned.invalid',url:'https://owned.invalid/current',requestId:'prior-browser'};
+ await f.core.replaceSession(target.id,before.session!.revision,{...before.session!,browserContext});
+ const command={type:'projects.sources.update' as const,projectId:project.id,expectedRevision:shared.revision,sourceKey,taskId:owner.id,expectedReference:oldReference,reference};
+ const updated=await f.core.projectCommand(command);
+ expect(updated.sources).toEqual([{id:sourceKey,taskId:owner.id,reference}]);expect(updated.revision).toBe(3);expect(updated.name).toBe('Night visits');
+ expect(await f.core.projectCommand(command)).toEqual(updated);expect((await f.core.getTask(target.id)).sources).toEqual(first.sources);
+ expect(projectSourceInTask(await f.core.getTask(target.id),project.id,updated.sources[0])).toBe(false);
+ const copied=await f.core.projectCommand({type:'projects.sources.use',projectId:project.id,expectedRevision:updated.revision,sourceKey,taskId:target.id});
+ expect(copied.sources.map(item=>item.versions.at(-1)?.content)).toEqual(['Doors open at 18:00.','Doors now open at 19:00.']);
+ expect(copied.sources[0].projectOrigin?.reference).toEqual(oldReference);expect(copied.sources[1].projectOrigin?.reference).toEqual(reference);
+ expect(copied.session?.draft).toBe('PRIVATE_UNSENT');expect(copied.session?.browserContext).toEqual(browserContext);expect(projectSourceInTask(copied,project.id,updated.sources[0])).toBe(true);
+ await f.reopen();expect((await f.core.getTask(target.id)).sources).toEqual(copied.sources);expect(await f.core.projectCommand({type:'projects.list'})).toEqual([updated]);
+});
+it.each(['project','advanced','stale','owner-moved','old-reference','foreign-owner','different-source','not-newer','removed','window'] as const)('refuses a %s shared-source update review without changing saved project or task content',async scenario=>{
+ const f=await fixture(),owner=await f.core.createTask({title:'Reference owner'}),other=await f.core.createTask({title:'Other task'}),project=await f.core.projectCommand({type:'projects.create',name:'Night visits'});
+ for(const task of [owner,other])await f.core.projectCommand({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
+ const original=await f.core.putSource(owner.id,{kind:'text',label:'Guide',role:'fact',content:'First saved version.'}),source=original.sources[0],expectedReference={sourceId:source.id,version:1,digest:source.versions[0].digest};
+ const shared=await f.core.projectCommand({type:'projects.sources.add',projectId:project.id,expectedRevision:1,taskId:owner.id,reference:expectedReference});
+ const newer=await f.core.putSource(owner.id,{id:source.id,kind:'text',label:'Guide',role:'fact',content:'Second saved version.'}),version=newer.sources[0].versions.at(-1)!;
+ let command={type:'projects.sources.update' as const,projectId:project.id,expectedRevision:shared.revision,sourceKey:shared.sources[0].id,taskId:owner.id,expectedReference,reference:{sourceId:source.id,version:2,digest:version.digest}};
+ if(scenario==='project')await f.core.projectCommand({type:'projects.update',projectId:project.id,expectedRevision:shared.revision,name:'Latest project name',instructions:'Keep this saved guidance.'});
+ if(scenario==='advanced')await f.core.putSource(owner.id,{id:source.id,kind:'text',label:'Guide',role:'fact',content:'Third saved version.'});
+ if(scenario==='stale')await f.core.invalidateSource(owner.id,source.id,'Explicit source refresh required.');
+ if(scenario==='owner-moved')await f.core.projectCommand({type:'projects.assign',taskId:owner.id,projectId:null,expectedProjectId:project.id});
+ if(scenario==='old-reference')command={...command,expectedReference:{...expectedReference,digest:'wrong-old-digest'}};
+ if(scenario==='foreign-owner')command={...command,taskId:other.id};
+ if(scenario==='different-source')command={...command,reference:{...command.reference,sourceId:'another-source'}};
+ if(scenario==='not-newer')command={...command,reference:expectedReference};
+ if(scenario==='removed')await f.core.projectCommand({type:'projects.sources.remove',projectId:project.id,expectedRevision:shared.revision,sourceKey:shared.sources[0].id});
+ if(scenario==='window'){const changed=await f.core.putSource(owner.id,{id:source.id,kind:'window',label:'Window binding',role:'fact',content:'Frozen metadata',windowId:'window:7',documentToken:'owner-token'}),window=changed.sources[0].versions.at(-1)!;command={...command,reference:{sourceId:source.id,version:window.version,digest:window.digest}};}
+ const savedProjects=await f.core.projectCommand({type:'projects.list'}),savedOwner=await f.core.getTask(owner.id),savedOther=await f.core.getTask(other.id);
+ await expect(f.core.projectCommand(command)).rejects.toMatchObject({code:scenario==='advanced'||scenario==='stale'?'stale':scenario==='not-newer'||scenario==='window'?'invalid':scenario==='removed'?'not-found':'conflict'});
+ expect(await f.core.projectCommand({type:'projects.list'})).toEqual(savedProjects);expect(await f.core.getTask(owner.id)).toEqual(savedOwner);expect(await f.core.getTask(other.id)).toEqual(savedOther);
+ expect(()=>readProjectCommand({...command,followOriginal:true})).toThrow();
 });
 it('refuses foreign membership, stale references and live-window bindings without changing saved projects',async()=>{
  const f=await fixture(),task=await f.core.createTask({title:'Original'}),foreign=await f.core.createTask({title:'Other'}),project=await f.core.projectCommand({type:'projects.create',name:'One'});
