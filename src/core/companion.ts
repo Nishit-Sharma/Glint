@@ -469,14 +469,16 @@ export class Companion {
       this.abortCancelled(result.task);return result;
     });
   }
-  putSource(taskId: string, sourceInput: SourceInput, expectedTask?:Task, expectedSource?:SourceRef&{freshness?:Source['freshness']}, assertCurrent:()=>void=()=>{}): Promise<Task> {
+  putSource(taskId: string, sourceInput: SourceInput, expectedTask?:Task, expectedSource?:SourceRef&{freshness?:Source['freshness']}, assertCurrent:()=>void=()=>{}, options?:{preserveBrowserContextForNewText:true}): Promise<Task> {
     const input=clone(sourceInput),expected=expectedTask?clone(expectedTask):undefined,expectedRef=expectedSource?clone(expectedSource):undefined;
     return this.exclusive(async () => {
       const task = await this.commit(state => {
         assertCurrent();const task = this.task(state, taskId);
         if(expectedRef){const source=task.sources.find(source=>source.id===expectedRef.sourceId),current=source?.versions.at(-1);if(input.id!==expectedRef.sourceId||source?.currentVersion!==expectedRef.version||current?.version!==expectedRef.version||current.digest!==expectedRef.digest||(expectedRef.freshness!==undefined&&source?.freshness!==expectedRef.freshness))return reject('conflict','The selected source or its freshness changed while the snapshot was pending.');}
         if(expected&&(expected.id!==taskId||JSON.stringify(task)!==JSON.stringify(expected)))return reject('conflict','This new task changed while the capture was pending. Capture the window again.');
-        this.appendSource(task,input); return task;
+        if(options?.preserveBrowserContextForNewText&&(input.kind!=='text'||task.sources.some(source=>source.id===input.id)))return reject('conflict','Only a new unselected text source can keep the current browser route.');
+        const browserContext=options?.preserveBrowserContextForNewText?task.session?.browserContext:undefined;
+        this.appendSource(task,input);if(browserContext)task.session={...task.session!,browserContext};return task;
       });
       this.abortCancelled(task); return task;
     });

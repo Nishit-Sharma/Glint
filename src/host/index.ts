@@ -1,3 +1,5 @@
+import {DocumentImports} from './document-import';
+import {readDocumentImportOwner,readDocumentImportAdd,documentImportMessages} from '../shared/document-import';
 import {readBrowserContinuationInput} from '../shared/browser-continuation';
 import {inspectTargetPractice,inspectOriginalTargetPractice,submitTargetPractice} from '../core/experiment-target-practice-host';
 import {readTargetPracticeInput,readTargetPracticeSubmission} from '../learning/experiment-target-practice';
@@ -123,6 +125,7 @@ let documentSelectionEpoch=0
 function retireDocumentFollow(reason:string){documentSelectionEpoch++;documentFollow.stop(reason)}
 let requestedViewTaskId:string|undefined
 let currentViewTaskId:string|undefined
+const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md']}]});return choice.canceled?undefined:choice.filePaths[0];})
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id))
 const learningDrafts=new LearningDraftStore({directory:dataDir,lookupTask:async id=>(await core.listTasks()).find(task=>task.id===id)})
@@ -159,7 +162,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
-  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.run','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='browser.continue'||c.type==='browser.continue.prepare'||c.type==='browser.continue.release'){const {type,...input}=c;return {type:c.type,...readBrowserContinuationInput(input)};}
   if(c.type==='tasks.branch'){const {type,...input}=c;return {type:'tasks.branch',...readResponseBranchInput(input)};}
   if(!allowed.includes(c.type as string))throw Error('Unknown companion command.')
@@ -206,6 +209,8 @@ function validate(value:unknown):Command{
     const owner=parseLearningDraftOwner(c.owner),slot=parseLearningDraftSlot(c.slot);
     return {type:c.type,owner,expectedEpoch:parseLearningDraftEpoch(c.expectedEpoch),slot,expectedRevision:Number(c.expectedRevision),value:parseLearningDraftValue(c.value,owner,slot)};
   }
+  if(c.type==='source.import.choose'||c.type==='source.import.cancel'){const {type,...input}=c;return {type,...readDocumentImportOwner(input)};}
+  if(c.type==='source.import.add'){const {type,...input}=c;return {type,...readDocumentImportAdd(input)};}
   if(c.type==='source.document'){const {type,...input}=c;return {type,...readSavedDocumentSourceInput(input)};}
   if(c.type==='artifact.handoff'){const {type,...input}=c;return {type,...readTaskHandoffSave(input)};}
   if(c.type==='source.text.inspect'){
@@ -817,6 +822,14 @@ async function command(c:Command):Promise<unknown>{
     }
     case 'browser.inspect.cancel':return browserInspectionAttempts.stop(c)
     case 'browser.detach':return taskMutation(c.taskId,()=>core.clearBrowserContext(c.taskId))
+    case 'source.import.cancel':return documentImports.cancel(c)
+    case 'source.import.choose':
+    case 'source.import.add':{
+      const ownerTaskId=c.taskId,context=sourceContextEpoch;
+      const guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==ownerTaskId||requestedViewTaskId!==ownerTaskId||context!==sourceContextEpoch)throw Error(documentImportMessages.inactive);};
+      guard();if(c.type==='source.import.choose')return documentImports.pick(c,guard);
+      const result=await documentImports.add(c,guard);changed(c.taskId);return result;
+    }
     case 'source.document':{const {type,...input}=c;const result=await core.copySavedDocumentSource(input,()=>assertCurrentWork(lifecycle));changed(c.taskId);return result;}
     case 'artifact.handoff':{const {type,...input}=c;const saved=await core.saveTaskHandoff(input,()=>assertCurrentWork(lifecycle));changed(c.taskId);return saved;}
     case 'source.text.inspect':{const {type,...input}=c;return core.inspectTextSourceSave(input)}

@@ -1,3 +1,4 @@
+import type {DocumentImportOwner,DocumentImportAdd} from './document-import';
 import type {BrowserContinuationInput} from './browser-continuation';
 import type {TargetPracticeInput,TargetPracticeSubmission} from '../learning/experiment-target-practice';
 import type {SourceFormulaInput,SourceFormulaCommand} from '../learning/source-formula';
@@ -48,6 +49,9 @@ export type Command =
   | {type:'source.text';taskId:string;source:SourceInput;expectedSource?:SourceTextExpected;edit?:{intentId:string;binding:string}}
   | ({type:'source.text.inspect'} & SourceTextSaveInspectionInput)
   | ({type:'source.document'} & SavedDocumentSourceInput)
+  | ({type:'source.import.choose'} & DocumentImportOwner)
+  | ({type:'source.import.cancel'} & DocumentImportOwner)
+  | ({type:'source.import.add'} & DocumentImportAdd)
   | {type:'source.image';taskId:string;role:SourceInput['role'];sourceId?:string}
   | {type:'source.follow.get'|'source.follow.enable'|'source.follow.stop'}
   | {type:'source.drag.cancel'} | {type:'source.choose'}

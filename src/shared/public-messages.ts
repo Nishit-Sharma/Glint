@@ -1,3 +1,4 @@
+import {documentImportMessages} from './document-import';
 import {RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT} from './response-preferences';
 export const RESPONSE_BRANCH_IMAGE_LIMIT = 'This conversation includes embedded image data. Choose an earlier response, or start a new task with selected readable text without image data. Your original task is unchanged.';
 export const BROWSER_LAUNCH_UNAVAILABLE = 'Companion could not open its browser. Your task is kept.';
@@ -46,7 +47,7 @@ export function publicErrorMessage(error:unknown):string {
  const branded=glintCopy.get(text);if(branded)return branded;
  const browserRecovery=browserRecoveryMessage(text)??inspectionRecoveryMessages.get(text);
  if(browserRecovery)return glintCopy.get(browserRecovery)??browserRecovery;
- if([...glintCopy.values()].includes(text))return text;
+ if([...glintCopy.values()].includes(text)||Object.values(documentImportMessages).some(message=>message===text))return text;
  if([RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT].includes(text)||text===RESPONSE_BRANCH_IMAGE_LIMIT||publicMessages.has(text)||savedWorkMessages.has(text)||text===MODULE_EXPORT_RECOVERY||text===MODULE_REVISION_RECOVERY)return text;
  if(text==='Browser inspection stopped.'||text==='Stopped checking. The earlier action still needs review.')return 'Stopped checking. The earlier action still needs review.';
  if(/native source targeting is unavailable/i.test(text))return 'Drag attachment is unavailable on this device. Press Down Arrow to choose a window.';

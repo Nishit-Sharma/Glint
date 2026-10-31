@@ -62,6 +62,7 @@
       "out/preload/**/*",
       "out/renderer/**/*",
       "out/native/document-source",
+      "out/native/pdf-text",
       "out/native/mac-window-at-point",
       "package.json"
     ],
@@ -79,6 +80,7 @@
     "asarUnpack": [
       "**/*.node",
       "out/native/document-source",
+      "out/native/pdf-text",
       "out/native/mac-window-at-point"
     ]
   },
