@@ -1,4 +1,5 @@
 import type {LocalContactsChange} from './local-contacts';
+import type {PublicGithubCommand} from './public-github';
 import type {ContentBackupCommand} from './content-backup';
 import type {SpeechCommand} from './document-speech';
 import type {CodeCommand} from './code-workspace';
@@ -36,6 +37,7 @@ import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
 import type {TaskAttentionCommand} from './task-attention';
 
 export type Command =
+  | PublicGithubCommand
   | ContentBackupCommand
   | SpeechCommand
   | CodeCommand

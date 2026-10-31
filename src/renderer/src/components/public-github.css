@@ -1,0 +1,8 @@
+.public-github-scope{margin:1rem 0}
+.public-github-scope>code{display:block;overflow-wrap:anywhere;font-size:.76rem;margin:.35rem 0}
+.public-github-result{margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--line)}
+.public-github-result h3{font-size:1rem;margin:0 0 .5rem}
+.public-github-details{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.45rem .8rem;font-size:.8rem;margin:1rem 0}
+.public-github-details dt{color:var(--muted)}
+.public-github-details dd{margin:0;overflow-wrap:anywhere}
+.public-github code{overflow-wrap:anywhere}

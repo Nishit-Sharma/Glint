@@ -1,4 +1,5 @@
 import {LocalContactsSchema,type LocalContacts} from '../shared/local-contacts';
+import {PublicGithubSnapshotSchema,PublicGithubConnectionSchema} from '../shared/public-github';
 import {ConversationAttemptReceiptSchema} from '../shared/conversation-attempt';
 import {RecurringWorkListSchema,type RecurringWork} from '../shared/recurring-work';
 import {UserMemorySchema,MemoryUseSchema,type UserMemory} from '../shared/user-memory';
@@ -16,6 +17,7 @@ import {ProjectSchema,type Project} from '../shared/projects';
 const list = <A, I, R>(schema: Schema.Schema<A, I, R>) => Schema.mutable(Schema.Array(schema));
 const optionalText = Schema.optional(Schema.String);
 const sourceFields = {
+  publicGithub:Schema.optional(PublicGithubSnapshotSchema),
   id: Schema.String, kind: Schema.Literal('text', 'image', 'window'), label: Schema.String,
   content: Schema.String, role: Schema.Literal('fact', 'style', 'inspiration'),
   windowId: optionalText, documentToken: optionalText, windowProcessId: Schema.optional(Schema.Int.pipe(Schema.positive())), documentStamp:Schema.optional(DocumentStampSchema), title: optionalText, boundsToken: optionalText,
@@ -33,7 +35,7 @@ const Checkpoint = Schema.Struct({ id: Schema.String, note: Schema.String, creat
 const Proposal = Schema.Struct({ id: Schema.String, taskId: Schema.String, artifactId: Schema.String, revision: Schema.Int, path: Schema.String, parentRealPath: Schema.String, parentDevice: Schema.String, parentInode: Schema.String, artifactDigest: Schema.String, sourceRefs: list(Ref), byteLength: Schema.Int, digest: Schema.String, createdAt: Schema.String });
 const Evidence = Schema.Struct({ path: Schema.String, byteLength: Schema.Int, digest: Schema.String, verifiedAt: Schema.String });
 const Action = Schema.Struct({ proposal: Proposal, status: Schema.Literal('proposed', 'approved', 'executing', 'verified', 'failed', 'uncertain', 'retired'), approvalId: optionalText, approvalRetiredAt: optionalText, requestId: optionalText, evidence: Schema.optional(Evidence), error: optionalText });
-const taskFields = { id: Schema.String, title: Schema.String, goal: Schema.String, status: Schema.Literal('active', 'paused'), createdAt: Schema.String, updatedAt: Schema.String, sources: list(Source), artifacts: list(Artifact), requests: list(Request), procedures: list(Procedure), checkpoints: list(Checkpoint), actions: list(Action), memory: Schema.Struct({ enabled: Schema.Literal(false) }) };
+const taskFields = { publicGithub:Schema.optional(PublicGithubConnectionSchema),id: Schema.String, title: Schema.String, goal: Schema.String, status: Schema.Literal('active', 'paused'), createdAt: Schema.String, updatedAt: Schema.String, sources: list(Source), artifacts: list(Artifact), requests: list(Request), procedures: list(Procedure), checkpoints: list(Checkpoint), actions: list(Action), memory: Schema.Struct({ enabled: Schema.Literal(false) }) };
 const LegacyStateSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), tasks: list(Schema.Struct(taskFields)), usedRequestIds: list(Schema.String) });
 const TaskSchema = Schema.Struct({ ...taskFields, projectId:optionalText, assignedBotId: optionalText, provenance: Schema.optional(Schema.Literal('local-example')), session: Schema.optional(TaskSessionSchema),archive:Schema.optional(TaskArchiveSchema) }).pipe(Schema.filter(task=>!task.archive||task.status==='paused'));
 const StateSchema = Schema.Struct({ localContacts:Schema.optional(LocalContactsSchema),recurringWork:Schema.optional(RecurringWorkListSchema),userMemory:Schema.optional(UserMemorySchema),schemaVersion: Schema.Literal(2), tasks: list(TaskSchema), usedRequestIds: list(Schema.String),projects:Schema.optional(list(ProjectSchema)) }).pipe(Schema.filter(state=>new Set(state.projects?.map(project=>project.id)).size===(state.projects?.length??0)&&state.tasks.every(task=>!task.projectId||state.projects?.some(project=>project.id===task.projectId))));

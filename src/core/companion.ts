@@ -20,6 +20,7 @@ import {readResponseBranchInput,responseBranchSnapshot} from './response-branch'
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
 import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectInstructions} from '../shared/projects';
+import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
 import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
@@ -624,6 +625,32 @@ export class Companion {
       return task;
     }));
   }
+  async savePublicGithubSnapshot(command:PublicGithubCapture,snapshotInput:unknown,content:string,assertCurrent:()=>void=()=>{}):Promise<PublicGithubResult>{
+    const value=readPublicGithubCommand(command),snapshot=readPublicGithubSnapshot(snapshotInput);
+    if(value.type!=='github.capture'||snapshot.repository!==value.repository)return reject('invalid','GitHub snapshot scope does not match the chosen repository.');
+    text(content,'README text',PUBLIC_GITHUB_README_LIMIT);
+    if(Buffer.byteLength(content,'utf8')>PUBLIC_GITHUB_README_LIMIT)return reject('invalid','The README exceeds 256 KiB.');
+    return this.exclusive(async()=>{
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId);
+        if(task.status!=='active'||task.archive)return reject('conflict','Resume this task before reading GitHub.');
+        if(!samePublicGithubConnection(task.publicGithub,value.expectedConnection))return reject('conflict','The GitHub connection changed. Review the current task before refreshing.');
+        const connected=task.publicGithub,source=connected?task.sources.find(source=>source.id===connected.sourceId):undefined,current=source?.versions.at(-1);
+        if(connected&&(!source||!current||!value.expectedSource||source.id!==value.expectedSource.sourceId||source.currentVersion!==value.expectedSource.version||current.digest!==value.expectedSource.digest||current.kind!=='text'||current.publicGithub?.repository!==connected.repository||connected.repository!==snapshot.repository))return reject('conflict','The saved GitHub source changed. Open it before refreshing, or disconnect to capture a new source.');
+        if(!connected&&value.expectedSource)return reject('conflict','This source refresh no longer has a GitHub connection.');
+        const unchanged=!!current&&current.content===content;
+        if(source&&source.currentVersion>=Number.MAX_SAFE_INTEGER&&!unchanged)return reject('invalid','The source version limit was reached. The saved snapshot is unchanged.');
+        const reference=unchanged?{sourceId:source!.id,version:current!.version,digest:current!.digest}:this.appendSource(task,{...(source?{id:source.id}:{}),kind:'text',label:snapshot.repository+' · README',content,role:'fact',publicGithub:snapshot});
+        if(unchanged){source!.freshness='fresh';delete source!.staleReason;delete source!.documentChange;}
+        task.publicGithub={repository:snapshot.repository,sourceId:reference.sourceId,checkedAt:snapshot.snapshotAt,readmeSha:snapshot.blobSha};task.updatedAt=this.time();
+        return {task,reference,unchanged};
+      });this.abortCancelled(result.task);return result;
+    });
+  }
+  async disconnectPublicGithub(command:Extract<PublicGithubCommand,{type:'github.disconnect'}>,assertCurrent:()=>void=()=>{}):Promise<Task>{
+    const value=readPublicGithubCommand(command);if(value.type!=='github.disconnect')return reject('invalid','Invalid GitHub disconnect operation.');
+    return this.exclusive(()=>this.commit(state=>{assertCurrent();const task=this.task(state,value.taskId);if(!samePublicGithubConnection(task.publicGithub,value.expectedConnection))return reject('conflict','The GitHub connection changed. Review it before disconnecting.');delete task.publicGithub;task.updatedAt=this.time();return task;}));
+  }
   private appendSource(task:Task,input:SourceInput):SourceRef {
     text(input.label, 'Source label', 500); text(input.content, 'Source content', 12_000_000);
     if (!['text', 'image', 'window'].includes(input.kind) || !['fact', 'style', 'inspiration'].includes(input.role)) reject('invalid', 'Invalid source kind or role.');
@@ -983,7 +1010,8 @@ export class Companion {
         task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
-        return { ...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...task,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        const {publicGithub:_publicGithub,...requestTask}=task;
+        return { ...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...requestTask,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
       return { context };

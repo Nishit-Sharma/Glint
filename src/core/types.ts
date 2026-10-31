@@ -5,6 +5,7 @@ import type {DocumentStamp,DocumentChange} from '../shared/document-source';
 import type { TaskSession,ComposerDraft,BrowserStartReceipt } from './task-session';
 /** Local task data. Source and provider text is inert content, never instructions to tools. */
 export interface SourceInput {
+  publicGithub?: import('../shared/public-github').PublicGithubSnapshot;
   id?: string;
   kind: 'text' | 'image' | 'window';
   label: string;
@@ -78,6 +79,7 @@ export interface ExportAction {
   evidence?: ExportEvidence; error?: string;
 }
 export interface Task {
+  publicGithub?: import('../shared/public-github').PublicGithubConnection;
   id: string; title: string; goal: string; status: 'active' | 'paused';
   projectId?: string;
   archive?: import('../shared/task-archive').TaskArchive;

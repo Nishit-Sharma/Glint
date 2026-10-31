@@ -11,6 +11,8 @@ import {readRecurringWorkChange} from '../shared/recurring-work';
 import {readBrowserWorkflowSave,readBrowserWorkflowRun} from '../shared/browser-workflow';
 import {readMemoryChange} from '../shared/user-memory';
 import {readLocalContactsCommand} from '../shared/local-contacts';
+import {readPublicGithubCommand} from '../shared/public-github';
+import {PublicGithubReader} from './public-github';
 import {userMemoryContext} from './user-memory-context';
 import {DocumentImports} from './document-import';
 import {readDocumentImportOwner,readDocumentImportAdd,documentImportMessages} from '../shared/document-import';
@@ -148,6 +150,7 @@ let documentSelectionEpoch=0
 function retireDocumentFollow(reason:string){documentSelectionEpoch++;documentFollow.stop(reason)}
 let requestedViewTaskId:string|undefined
 let currentViewTaskId:string|undefined
+const publicGithub=new PublicGithubReader()
 const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md']}]});return choice.canceled?undefined:choice.filePaths[0];})
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))
@@ -192,6 +195,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
+  if(String(c.type).startsWith('github.'))return readPublicGithubCommand(c);
   if(String(c.type).startsWith('content-backup.'))return readContentBackupCommand(c);
   if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
@@ -883,7 +887,14 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(contentBackupGate.busy&&!['draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('Content backup: Content is frozen. Finish the backup or restart Glint after restore.')
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
-  if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
+  if(c.type==='github.cancel'){publicGithub.cancel(c.taskId,c.operationId);return null;}
+  if(c.type==='github.capture'||c.type==='github.disconnect'){
+    const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The selected task changed. The saved GitHub snapshot is unchanged.');};
+    guard();
+    if(c.type==='github.disconnect'){publicGithub.cancel(c.taskId);const saved=await core.disconnectPublicGithub(c,guard);changed(c.taskId);return saved;}
+    const saved=await publicGithub.read(c.taskId,c.operationId,c.repository,guard,(read,current)=>core.savePublicGithubSnapshot(c,read.snapshot,read.content,current));changed(c.taskId);return saved;
+  }
+  if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){publicGithub.cancel();sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
   if(isSpeechCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Listening selection changed.');};const result=await documentSpeech.command(c,guard);if(c.type==='speech.select'||c.type==='speech.generate')changed(c.taskId);return result;}
   if(isCodeCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error(CODE_WORKSPACE_ERROR);};const result=await codeWorkspaces.command(c,guard);if(['code.file.open','code.file.reload','code.file.save'].includes(c.type))changed(c.taskId);return result;}
   switch(c.type){
@@ -1059,7 +1070,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     }
     case 'context.view':documentSpeech.cancel();{
       const requestedTaskChanged=requestedViewTaskId!==c.taskId;
-      if(requestedTaskChanged||currentViewTaskId!==c.taskId){sourceDrag?.cancel();sourceContextEpoch++;}
+      if(requestedTaskChanged||currentViewTaskId!==c.taskId){publicGithub.cancel();sourceDrag?.cancel();sourceContextEpoch++;}
       // A requested task change permanently retires the scoped gesture.
       if(requestedTaskChanged&&contextIntake?.sourceScope)contextIntake=undefined;
       documentSelectionEpoch++;requestedViewTaskId=c.taskId;const follow=documentFollow.read();if(follow.kind==='bound'&&follow.taskId!==c.taskId)retireDocumentFollow('Task selection changed.');const selection=viewSelectionQueue.then(async()=>{if(c.taskId)await core.getTask(c.taskId);const current=documentFollow.read();if(current.kind==='bound'&&current.taskId!==c.taskId)retireDocumentFollow('Task selection changed.');currentViewTaskId=c.taskId;return taskViewPreferences.select(c.taskId??null)});viewSelectionQueue=selection.catch(()=>{});return selection}
@@ -1331,6 +1342,7 @@ const quitDrafts=createQuitDraftBarrier({
  confirmDiscard:async reason=>{const options={type:'warning',message:'Quit without saving unfinished work?',detail:reason+'\n\nKeep the app open to retain your unsent messages and practice edits, or quit without saving the unconfirmed edits.',buttons:['Keep app open','Quit without saving'],defaultId:0,cancelId:0} as const;const result=await (panel&&!panel.isDestroyed()?dialog.showMessageBox(panel,{...options,buttons:[...options.buttons]}):dialog.showMessageBox({...options,buttons:[...options.buttons]}));return result.response===1;},
 })
 async function stopForQuit(){
+ publicGithub.cancel();
  await documentSpeech.close();
  sourceDrag?.cancel();sourceDragPreview?.clear();sourceContextEpoch++
  retireDocumentFollow('App closing. A new user gesture is required after restart.');quitting=true;quitEpoch++;keyEpoch++;contextIntake=undefined;modifierShortcut.stop();globalShortcut.unregisterAll();shortcutRegistered=false;if(monitor){clearInterval(monitor);monitor=undefined;}
@@ -1375,6 +1387,7 @@ function createContentBackups(){return new ContentBackups({
  chooseOpen:async()=>{const selected=await dialog.showOpenDialog(panel,{title:'Choose Glint content backup to restore',properties:['openFile','dontAddToRecent'],filters:[{name:'Glint content backup',extensions:['json']}]});return selected.canceled?undefined:selected.filePaths[0];},
  maintain:operation=>contentBackupGate.maintain(operation,{
   before:async()=>{
+   publicGithub.cancel();
    if((await core.listTasks()).some(task=>task.requests.some(request=>request.status==='running')))throw Error('Content backup: Stop active responses before backing up or restoring.');
    await recurringWorkRunner.stop();
    // The integrated condition-watch owner adds its awaited suspend() here before capture.
