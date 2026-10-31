@@ -22,6 +22,8 @@ import {readResponseBranchInput,responseBranchSnapshot} from './response-branch'
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
 import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,type ProjectCommand,type ProjectReply,type Project,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
+import {taskDeletionBlocker,type ProjectDeletePreview,type ProjectDeleteResult} from '../shared/project-deletion';
+import {encodeProjectDeletion,findProjectDeletion} from './project-deletion-receipt';
 import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
@@ -392,11 +394,35 @@ export class Companion {
     this.cancelRunning(task,'Project context changed during this request.');
   }
   projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
-  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|UserMemory|MemoryCommit|Task|Task[]>{
+  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|UserMemory|MemoryCommit|Task|Task[]|ProjectDeletePreview|ProjectDeleteResult>{
     const command=readProjectCommand(input);
     return this.exclusive(async()=>{
       assertCurrent();
       if(command.type==='projects.list')return clone(this.state.projects??[]);
+      if(command.type==='projects.delete.preview'){
+        const project=this.project(this.state,command.projectId);
+        return clone({projectId:project.id,revision:project.revision,snapshot:hash(JSON.stringify(project)),name:project.name,sharedSources:project.sources.length,memoryFacts:project.memory?.facts.length??0,members:this.state.tasks.filter(task=>task.projectId===project.id).sort((a,b)=>a.id.localeCompare(b.id)).map(task=>({taskId:task.id,title:task.title,snapshot:hash(JSON.stringify(task)),blocker:taskDeletionBlocker(task)}))});
+      }
+      if(command.type==='projects.delete'){
+        const intent='project-delete:v1:'+hash(command.intentId),intentHash=hash(intent),members=[...command.members].sort((a,b)=>a.taskId.localeCompare(b.taskId)),payloadDigest=hash(JSON.stringify({...command,members})),previous=findProjectDeletion(this.state.usedRequestIds,intentHash);
+        if(previous){if(previous.payloadDigest!==payloadDigest)reject('conflict','This deletion intent has a different project, choice or snapshot.');return clone(previous.result);}
+        const selected=this.state.tasks.filter(task=>task.projectId===command.projectId),result=await this.commit(state=>{
+          assertCurrent();const project=this.project(state,command.projectId),tasks=state.tasks.filter(task=>task.projectId===project.id).sort((a,b)=>a.id.localeCompare(b.id));
+          if(project.revision!==command.expectedRevision||hash(JSON.stringify(project))!==command.expectedSnapshot||tasks.length!==members.length||tasks.some((task,index)=>task.id!==members[index].taskId||hash(JSON.stringify(task))!==members[index].snapshot))reject('conflict','The project or its member tasks changed. Reload the deletion review before deleting.');
+          if(command.mode==='delete-tasks')for(const task of tasks){const blocker=taskDeletionBlocker(task);if(blocker)reject('conflict',blocker);}
+          const pins=state.projectPins;if(pins?.projectIds.includes(project.id)&&pins.revision===Number.MAX_SAFE_INTEGER)reject('invalid','Project star revision limit reached. Saved work is kept.');
+          this.claimRequest(state,intent);
+          const result:ProjectDeleteResult={kind:'deleted',projectId:project.id,mode:command.mode,taskIds:tasks.map(task=>task.id)};
+          if(command.mode==='delete-tasks'){const ids=new Set(result.taskIds);state.tasks=state.tasks.filter(task=>!ids.has(task.id));}
+          else for(const task of tasks){delete task.projectId;this.cancelProjectRequests(task);task.updatedAt=this.time();}
+          state.projects=state.projects!.filter(item=>item.id!==project.id);
+          if(pins?.projectIds.includes(project.id))state.projectPins={revision:pins.revision+1,projectIds:pins.projectIds.filter(id=>id!==project.id)};
+          state.usedRequestIds.push(encodeProjectDeletion({intentHash,payloadDigest,result}));return result;
+        });
+        this.projectMemoryChanges.get(command.projectId)?.abort(Error(MEMORY_CHANGED));this.projectMemoryChanges.delete(command.projectId);
+        for(const task of selected)for(const request of task.requests)this.controllers.get(request.id)?.abort();
+        return result;
+      }
       if(command.type==='projects.memory.get')return clone(this.project(this.state,command.projectId).memory??emptyUserMemory());
       if(command.type==='projects.memory.change'){
         const current=this.project(this.state,command.projectId).memory??emptyUserMemory();

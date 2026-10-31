@@ -6,11 +6,15 @@ import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field,type Run} from '../ui';
 import './projects.css';
 import {ProjectMemory} from './ProjectMemory';
+import type {ProjectDeleteCommand,ProjectDeletePreview} from '../../../shared/project-deletion';
 
 type Change=<C extends ProjectCommand>(command:C)=>Promise<ProjectReply<C>|undefined>;
 type SourceUpdateReview={command:Extract<ProjectCommand,{type:'projects.sources.update'}>;previous:SourceVersion;next:SourceVersion};
 export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTogglePin,onReload,tasks,currentTaskId,busy,run,onOpenTask}:{projects?:Project[];pins?:ProjectPins;selected:string;onSelect:(id:string)=>void;loadError:string;pinning:boolean;onTogglePin:(project:Project)=>void;onReload:()=>Promise<void>;tasks:Task[];currentTaskId?:string;busy:boolean;run:Run;onOpenTask:(task:Task)=>void}){
  const [name,setName]=useState(''),[error,setError]=useState(''),[working,setWorking]=useState(false);
+ const [deletion,setDeletion]=useState<{review:ProjectDeletePreview;mode:ProjectDeleteCommand['mode'];command?:ProjectDeleteCommand}>();
+ const deletionHeading=useRef<HTMLHeadingElement>(null);
+ useEffect(()=>{if(deletion)deletionHeading.current?.focus();},[deletion?.review]);
  const alive=useRef(true),locked=useRef(false);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  const clearCreate=useNavigationDraft(name.length>0,()=>setName(''));
@@ -21,6 +25,7 @@ export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTo
   finally{locked.current=false;if(alive.current)setWorking(false);}
  }
  const project=projects?.find(project=>project.id===selected),held=busy||working;
+ const reviewDeletion=(projectId:string)=>{void change({type:'projects.delete.preview',projectId}).then(review=>{if(review&&alive.current)setDeletion({review,mode:'keep-tasks'});});};
  return <section className="projects" aria-label="Projects">
   <p>Keep related tasks, instructions and saved sources together.</p>
   {(error||loadError)&&<p role="alert">{error||loadError} <Button disabled={held||pinning} onClick={()=>{setError('');void onReload();}}>Reload projects</Button></p>}
@@ -29,13 +34,14 @@ export function Projects({projects,pins,selected,onSelect,loadError,pinning,onTo
    <form className="project-create" onSubmit={event=>{event.preventDefault();if(!name.trim()||held)return;const submitted=name;void change({type:'projects.create',name:name.trim()}).then(saved=>{if(saved&&alive.current){setName(current=>current===submitted?'':current);clearCreate();guardNavigation(()=>onSelect(saved.id));}});}}><Field label="New project name"><input value={name} maxLength={200} disabled={held} onChange={event=>setName(event.currentTarget.value)}/></Field><Button type="submit" disabled={held||!name.trim()}>Create project</Button></form>
    {!projects.length?<p>No projects yet. Create one, then add your tasks.</p>:<>
     <Field label="Project"><select value={selected} disabled={held} onChange={event=>{const id=event.currentTarget.value;guardNavigation(()=>onSelect(id));}}><option value="">Choose a project</option>{projects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</select></Field>
-    {project&&<ProjectDetails key={project.id} project={project} projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onOpenTask={onOpenTask} pinned={!!pins?.projectIds.includes(project.id)} pinDisabled={held||pinning||!pins||!!loadError} onTogglePin={onTogglePin}/>}
+    {project&&<ProjectDetails key={project.id} project={project} projects={projects} tasks={tasks} currentTaskId={currentTaskId} busy={held} change={change} onOpenTask={onOpenTask} pinned={!!pins?.projectIds.includes(project.id)} pinDisabled={held||pinning||!pins||!!loadError} onTogglePin={onTogglePin} onReviewDelete={()=>reviewDeletion(project.id)}/>}
    </>}
   </>}
+  {deletion&&<section className="project-details" aria-label="Review project deletion"><h3 ref={deletionHeading} tabIndex={-1}>Delete {deletion.review.name}?</h3><p>This removes the local project, its instructions, {deletion.review.sharedSources} shared source references and {deletion.review.memoryFacts} project facts. Account memory stays unchanged.</p><Field label="Member tasks"><select disabled={held||!!deletion.command} value={deletion.mode} onChange={event=>setDeletion({...deletion,mode:event.currentTarget.value as ProjectDeleteCommand['mode']})}><option value="keep-tasks">Keep member tasks</option><option value="delete-tasks">Delete project and member tasks</option></select></Field><p>{deletion.mode==='keep-tasks'?'Tasks return to the task list with their sources, saved work, history, unsent messages and browser routes. Running responses in these tasks will stop.':'The listed tasks and their local sources, saved work, history and unsent messages will be deleted.'}</p><ul>{deletion.review.members.map(member=><li key={member.taskId}><div><strong>{member.title}</strong>{deletion.mode==='delete-tasks'&&member.blocker&&<p role="status">{member.blocker}</p>}</div></li>)}</ul><p>Independent copies in other tasks stay. Original files, exported files, backups and existing recovery copies may remain. This does not delete anything in connected services.</p>{deletion.command&&<p role="status">If the result was not confirmed, check the same deletion. This will not delete a different set of tasks.</p>}<div className="row"><Button kind="danger" disabled={held||deletion.mode==='delete-tasks'&&deletion.review.members.some(member=>!!member.blocker)} onClick={()=>{const command=deletion.command??{type:'projects.delete',projectId:deletion.review.projectId,intentId:crypto.randomUUID(),expectedRevision:deletion.review.revision,expectedSnapshot:deletion.review.snapshot,mode:deletion.mode,members:deletion.review.members.map(({taskId,snapshot})=>({taskId,snapshot})),confirmed:'delete-local-project'};setDeletion({...deletion,command});void change(command).then(saved=>{if(saved&&alive.current){setDeletion(undefined);onSelect('');}});}}>{deletion.command?'Check same deletion':deletion.mode==='keep-tasks'?'Delete project, keep tasks':`Delete project and ${deletion.review.members.length} tasks`}</Button><Button disabled={held} onClick={()=>setDeletion(undefined)}>{deletion.command?'Close review':'Cancel deletion'}</Button></div></section>}
  </section>;
 }
 
-function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpenTask,pinned,pinDisabled,onTogglePin}:{project:Project;projects:Project[];tasks:Task[];currentTaskId?:string;busy:boolean;change:Change;onOpenTask:(task:Task)=>void;pinned:boolean;pinDisabled:boolean;onTogglePin:(project:Project)=>void}){
+function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpenTask,pinned,pinDisabled,onTogglePin,onReviewDelete}:{project:Project;projects:Project[];tasks:Task[];currentTaskId?:string;busy:boolean;change:Change;onOpenTask:(task:Task)=>void;pinned:boolean;pinDisabled:boolean;onTogglePin:(project:Project)=>void;onReviewDelete:()=>void}){
  const [base,setBase]=useState(project),[name,setName]=useState(project.name),[instructions,setInstructions]=useState(project.instructions),[taskChoice,setTaskChoice]=useState(''),[sourceChoice,setSourceChoice]=useState(''),[target,setTarget]=useState(currentTaskId??'');
  const [useAccountMemory,setUseAccountMemory]=useState(project.useAccountMemory??true);
  const [review,setReview]=useState<SourceUpdateReview>();
@@ -78,6 +84,7 @@ function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpen
     </div><div className="project-source-actions"><Button disabled={held||!version||!destination||added} title={version?`Add ${version.label} to task`:'Original source unavailable'} onClick={()=>{if(destination)void change({type:'projects.sources.use',projectId:project.id,expectedRevision:project.revision,sourceKey:source.id,taskId:destination.id});}}>{added?'In task':'Add to task'}</Button>{canUpdate&&<Button disabled={held||!!activeReview} title={`Review update to ${version.label}`} onClick={()=>{reviewTrigger.current=document.activeElement instanceof HTMLButtonElement?document.activeElement:null;setReview({command:{type:'projects.sources.update',projectId:project.id,expectedRevision:project.revision,sourceKey:source.id,taskId:source.taskId,expectedReference:{...source.reference},reference:{sourceId:source.reference.sourceId,version:next.version,digest:next.digest}},previous:version,next});}}>Review update</Button>}<Button disabled={held} title={`Stop sharing ${version?.label??'unavailable source'}`} onClick={()=>void change({type:'projects.sources.remove',projectId:project.id,expectedRevision:project.revision,sourceKey:source.id})}>Remove</Button></div></li>;
    })}</ul></>}
   </section>
+  <section><h3>Delete project</h3><p>Review whether to keep this project’s tasks or delete them with the project.</p><Button kind="text danger" disabled={held} onClick={onReviewDelete}>Review project deletion</Button></section>
  </div>;
 }
 

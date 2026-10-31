@@ -18,6 +18,7 @@ import {CanvasCreateButton,CanvasPreview,CanvasSvgView,DesignCanvasEditor} from 
 import {ConceptMapView} from './components/ConceptMapView';
 import {BrowserControl} from './components/BrowserControl';
 import {MemorySettings,MemoryStatus,useUserMemory} from './UserMemory';
+import {readProjectDeleteResult} from '../../shared/project-deletion';
 import {BrowserContinuationReview} from './components/BrowserContinuationReview';
 import {reviewBrowserContinuation,prepareBrowserContinuation,pendingBrowserContinuation,type BrowserContinuationSelection,type BrowserContinuationCommand,type BrowserContinuationRelease} from '../../shared/browser-continuation';
 import {SourceFormulaWorkbench} from './components/SourceFormulaWorkbench';
@@ -240,6 +241,15 @@ export default function App() {
         return; const revisionErrorScope=command.type==='model.run'&&command.kind==='revise'&&command.revisionBasis!==undefined?{navigation:newQuestionEpoch.current,activation:incomingActivationEpoch.current}:undefined;
         lock.current = true; setBusy(true); setError('');lastRunError.current=''; try {
         const result = isExportCommand(command)?await bridge.invoke(command):await bridge.invoke(command);
+        if(command.type==='projects.delete'){
+            const deleted=readProjectDeleteResult(command,result);
+            if(deleted.mode==='delete-tasks')forgetDeletedTasks(deleted.taskIds,!!taskRef.current&&deleted.taskIds.includes(taskRef.current.id));
+            setSelectedProjectId(current=>current===deleted.projectId?'':current);
+            if(deleted.draftCleanup){learningDrafts.noteCleanupNeeded();setNotice('Project deleted. Some unfinished-practice bytes remain preserved and cannot reopen deleted tasks.');}
+            if(deleted.viewCleanup)setNotice('Project deleted. The last-open-task preference could not be cleared; deleted tasks cannot reopen.');
+            try{await refresh();}catch{setError('Project deleted. The remaining task list could not be refreshed. Your other tasks are kept.');}
+            return deleted;
+        }
         await refresh();
         if (success && (!scope||scope.isCurrent()) && (!('taskId' in command) || command.taskId === taskRef.current?.id))
             setNotice(success);
@@ -320,6 +330,13 @@ export default function App() {
         });
       });
     }
+    function forgetDeletedTasks(taskIds:readonly string[],affectCurrent=true){
+        const ids=new Set(taskIds);if(affectCurrent){viewSelectionEpoch.current++;newQuestionEpoch.current++;viewRestored.current=true;}
+        for(const id of ids){deletedTaskIds.current.add(id);drafts.forget(id);learningDrafts.forgetTask(id);}
+        setTasks(previous=>previous.filter(item=>!ids.has(item.id)));
+        setSourceScopes(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>!ids.has(id))));
+        if(affectCurrent&&(!taskRef.current||ids.has(taskRef.current.id))){retireContext();taskRef.current=undefined;setTask(undefined);setArtifact(undefined);setProcedure(undefined);setReviewSource(undefined);setReviewRevision(undefined);setDeleteConfirm(false);setBasePage('tasks');setPage('tasks');}
+    }
     async function deleteTask(){
       const owner=taskRef.current?.id;if(!owner||deleteLock.current||dirtyEditors||lock.current)return;
       deleteLock.current=true;lock.current=true;setBusy(true);setDeletingTaskId(owner);setError('');
@@ -327,10 +344,7 @@ export default function App() {
         const deleted=await bridge.invoke<null|{kind:'deleted';draftCleanup:'unconfirmed'}>({type:'tasks.delete',taskId:owner});
         if(deleted!==null&&!(deleted?.kind==='deleted'&&deleted.draftCleanup==='unconfirmed'))throw Error('Task deletion was not confirmed.');
         // The host receipt commits deletion; a later list refresh cannot undo it.
-        viewSelectionEpoch.current++;newQuestionEpoch.current++;viewRestored.current=true;deletedTaskIds.current.add(owner);drafts.forget(owner);learningDrafts.forgetTask(owner);
-        setTasks(previous=>previous.filter(item=>item.id!==owner));
-        setSourceScopes(previous=>{const next={...previous};delete next[owner];return next;});
-        if(!taskRef.current||taskRef.current.id===owner){retireContext();taskRef.current=undefined;setTask(undefined);setArtifact(undefined);setProcedure(undefined);setReviewSource(undefined);setReviewRevision(undefined);setDeleteConfirm(false);setBasePage('tasks');setPage('tasks');}
+        forgetDeletedTasks([owner]);
         if(deleted?.draftCleanup==='unconfirmed'){learningDrafts.noteCleanupNeeded();setNotice('Task deleted. Its unfinished-practice file could not be cleaned; the old bytes are preserved and cannot reopen the deleted task.');}
         try{await refresh();}catch{setError('Task deleted. The remaining task list could not be refreshed. Your other tasks are kept.');}
       }catch(error){setError(publicErrorMessage(error));}

@@ -543,6 +543,18 @@ async function monitorAttached(){
   }
 }
 async function taskMutation(taskId:string,work:()=>Promise<unknown>){await work();changed(taskId);return core.getTask(taskId)}
+async function cleanupDeletedTasks(taskIds:readonly string[],clearView=false){
+ const ids=new Set(taskIds);let draftCleanup:'unconfirmed'|undefined,viewCleanup:'unconfirmed'|undefined;
+ const follow=documentFollow.read();if(currentViewTaskId&&ids.has(currentViewTaskId)||follow.kind==='bound'&&ids.has(follow.taskId))retireDocumentFollow('Task deleted.');
+ for(const id of ids){publicGithub.cancel(id);try{await learningDrafts.purgeTask(id);}catch{draftCleanup='unconfirmed';}for(const key of captures.keys())if(key.startsWith(id+':'))captures.delete(key);}
+ if(clearView&&(currentViewTaskId&&ids.has(currentViewTaskId)||requestedViewTaskId&&ids.has(requestedViewTaskId))){
+  documentSpeech.cancel();sourceDrag?.cancel();sourceContextEpoch++;if(contextIntake?.ownerTaskId&&ids.has(contextIntake.ownerTaskId))contextIntake=undefined;
+  if(requestedViewTaskId&&ids.has(requestedViewTaskId))requestedViewTaskId=undefined;
+  const selection=viewSelectionQueue.then(async()=>{if(currentViewTaskId&&ids.has(currentViewTaskId)){currentViewTaskId=undefined;const saved=await taskViewPreferences.select(null);if(saved.kind==='unavailable')viewCleanup='unconfirmed';}});viewSelectionQueue=selection.catch(()=>{});
+  try{await selection;}catch{viewCleanup='unconfirmed';}
+ }
+ return {...(draftCleanup?{draftCleanup}:{}),...(viewCleanup?{viewCleanup}:{})};
+}
 function boundCapture(taskId:string,source:SourceVersion):NativeCapture|undefined{
   purgeExpiredCaptures()
   const key=`${taskId}:${source.id}`,bound=captures.get(key)
@@ -909,7 +921,8 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const choice=await dialog.showSaveDialog(panel,{title:'Save conversation transcript',defaultPath:`${snapshot.title.replace(/[^\w -]/g,'').slice(0,70)||'conversation'}-conversation.${snapshot.format==='markdown'?'md':'json'}`,filters:[{name:snapshot.format==='markdown'?'Markdown':'JSON',extensions:[snapshot.format==='markdown'?'md':'json']}],properties:['createDirectory','dontAddToRecent']})
       return choice.canceled?null:choice.filePath??null
     },()=>assertCurrentWork(lifecycle))
-    case 'projects.list':case 'projects.pins.get':case 'projects.sidebar.get':case 'projects.memory.get':return core.projectCommand(c)
+    case 'projects.list':case 'projects.pins.get':case 'projects.sidebar.get':case 'projects.memory.get':case 'projects.delete.preview':return core.projectCommand(c)
+    case 'projects.delete':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle)),cleanup=saved.mode==='delete-tasks'?await cleanupDeletedTasks(saved.taskIds,true):{};changed();return {...saved,...cleanup};}
     case 'projects.memory.change':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));if(saved.kind==='saved')changed();return saved;}
     case 'projects.assign.bulk':case 'projects.sidebar.set':case 'projects.pins.set':case 'projects.create':case 'projects.update':case 'projects.assign':case 'projects.sources.add':case 'projects.sources.update':case 'projects.sources.remove':case 'projects.sources.use':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));changed();return saved;}
     case 'source.follow.get':return documentFollow.read()
@@ -948,7 +961,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     case 'tasks.branch':{const {type,...input}=c,state=await botPreferences.read();assertCurrentWork(lifecycle);if(state.kind!=='available'||state.current.kind!=='ready')throw Error('Choose your companion before starting a task.');const saved=await core.branchFromResponse(input,state.current.defaultBotId,()=>assertCurrentWork(lifecycle));changed(saved.task.id);return saved;}
     case 'tasks.start-local':{const {type,...input}=c,value=readLocalTaskStart(input),state=await botPreferences.read();assertCurrentWork(lifecycle);if(state.kind!=='available'||state.current.kind!=='ready')throw Error('Choose your companion before starting a task.');const saved=await core.startLocalTask(value,state.current.defaultBotId,()=>assertCurrentWork(lifecycle));changed(saved.task.id);return saved;}
     case 'tasks.update':return taskMutation(c.taskId,()=>core.updateTask(c.taskId,{title:c.title,...(c.goal!==undefined?{goal:c.goal}:{})}))
-    case 'tasks.delete':{const follow=documentFollow.read();if(currentViewTaskId===c.taskId||follow.kind==='bound'&&follow.taskId===c.taskId)retireDocumentFollow('Task deleted.');}await core.deleteTask(c.taskId);let draftCleanup:'removed'|'unconfirmed'='removed';try{await learningDrafts.purgeTask(c.taskId);}catch{draftCleanup='unconfirmed';}for(const k of captures.keys())if(k.startsWith(c.taskId+':'))captures.delete(k);changed();return draftCleanup==='removed'?null:{kind:'deleted',draftCleanup}
+    case 'tasks.delete':{await core.deleteTask(c.taskId);const cleanup=await cleanupDeletedTasks([c.taskId]);changed();return cleanup.draftCleanup?{kind:'deleted',draftCleanup:'unconfirmed'}:null;}
     case 'tasks.pause':{const follow=documentFollow.read();if(currentViewTaskId===c.taskId||follow.kind==='bound'&&follow.taskId===c.taskId)retireDocumentFollow('Task paused.');}return taskMutation(c.taskId,()=>core.pause(c.taskId))
     case 'tasks.resume':return taskMutation(c.taskId,()=>core.resume(c.taskId))
     case 'tasks.archive':{const {type,...input}=c;return taskMutation(c.taskId,()=>core.setTaskArchived(input,()=>assertCurrentWork(lifecycle)));}

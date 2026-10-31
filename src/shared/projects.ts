@@ -1,6 +1,7 @@
 import {Schema} from 'effect';
 import type {SourceRef,Task} from '../core/types';
 import {UserMemorySchema,MemoryChangeSchema,type UserMemory,type MemoryCommit} from './user-memory';
+import {ProjectDeleteCommandSchema,type ProjectDeletePreview,type ProjectDeleteResult} from './project-deletion';
 
 export const PROJECT_INSTRUCTIONS_LIMIT=8000;
 const bounded=(max:number)=>Schema.String.pipe(Schema.maxLength(max),Schema.filter(value=>!value.includes('\0')));
@@ -23,6 +24,8 @@ export type ProjectAssignment=typeof Assignment.Type;
 const Assignments=Schema.Array(Assignment).pipe(Schema.minItems(1),Schema.filter(tasks=>new Set(tasks.map(task=>task.taskId)).size===tasks.length));
 const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.list')}),
+ Schema.Struct({type:Schema.Literal('projects.delete.preview'),projectId:Id}),
+ ProjectDeleteCommandSchema,
  Schema.Struct({type:Schema.Literal('projects.memory.get'),projectId:Id}),
  Schema.Struct({type:Schema.Literal('projects.memory.change'),projectId:Id,...MemoryChangeSchema.fields}).pipe(Schema.filter(command=>command.change.kind!=='forget')),
  Schema.Struct({type:Schema.Literal('projects.pins.get')}),
@@ -39,7 +42,7 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.sources.use'),projectId:Id,expectedRevision:Revision,sourceKey:Id,taskId:Id}),
 );
 export type ProjectCommand=typeof CommandSchema.Type;
-export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.memory.get'}?UserMemory:C extends {type:'projects.memory.change'}?MemoryCommit:C extends {type:'projects.assign.bulk'}?Task[]:C extends {type:'projects.sidebar.get'|'projects.sidebar.set'}?ProjectSidebar:C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
+export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.delete.preview'}?ProjectDeletePreview:C extends {type:'projects.delete'}?ProjectDeleteResult:C extends {type:'projects.memory.get'}?UserMemory:C extends {type:'projects.memory.change'}?MemoryCommit:C extends {type:'projects.assign.bulk'}?Task[]:C extends {type:'projects.sidebar.get'|'projects.sidebar.set'}?ProjectSidebar:C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
 export function readProjectCommand(value:unknown):ProjectCommand{return Schema.decodeUnknownSync(CommandSchema,{onExcessProperty:'error'})(value);}
 const sameReference=(left:SourceRef,right:SourceRef)=>left.sourceId===right.sourceId&&left.version===right.version&&left.digest===right.digest;
 export const projectSourceMatches=(source:ProjectSource,taskId:string,reference:SourceRef)=>source.taskId===taskId&&sameReference(source.reference,reference);
