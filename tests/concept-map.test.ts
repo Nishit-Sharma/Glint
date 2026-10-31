@@ -23,9 +23,9 @@ test('a source-only generation binds exact excerpts, persists real directed rela
  await core.close();core=await createCompanion({dataDir:directory});task=await core.getTask(task.id);expect(readConceptMap(task.artifacts[0].revisions[0].content,revision.sourceRefs)).toEqual(map);
  expect(await core.runRequest(plan.request,async()=>{throw Error('Replay called provider');})).toEqual(result);
 });
-test.each(['unknown-source','invented-quote','self-link','missing-node','duplicate-node','unlabeled-inference','disconnected','fake-quotation','extra-authority','duplicate-key','oversize'])('rejects %s before an interactive map can be admitted',async variation=>{
+test.each(['unknown-source','invented-quote','self-link','missing-node','duplicate-node','unlabeled-inference','disconnected','extra-authority','duplicate-key','oversize'])('rejects %s before an interactive map can be admitted',async variation=>{
  const f=await fixture(),value=conceptProposal();let raw:string;
- switch(variation){case'unknown-source':value.nodes[0].citations[0].source='S2';break;case'invented-quote':value.nodes[0].citations[0].quote='Not in the notes.';break;case'self-link':value.relationships[0].to='sunlight';break;case'missing-node':value.relationships[0].to='missing';break;case'duplicate-node':value.nodes[1].id='sunlight';break;case'unlabeled-inference':value.relationships[0].reason='';break;case'disconnected':value.relationships=value.relationships.slice(0,1);break;case'fake-quotation':value.nodes[0].detail='A paraphrase labeled as a quotation.';break;case'extra-authority':Object.assign(value,{approval:true});break;}
+ switch(variation){case'unknown-source':value.nodes[0].citations[0].source='S2';break;case'invented-quote':value.nodes[0].citations[0].quote='Not in the notes.';break;case'self-link':value.relationships[0].to='sunlight';break;case'missing-node':value.relationships[0].to='missing';break;case'duplicate-node':value.nodes[1].id='sunlight';break;case'unlabeled-inference':value.relationships[0].reason='';break;case'disconnected':value.relationships=value.relationships.slice(0,1);break;case'extra-authority':Object.assign(value,{approval:true});break;}
  raw=variation==='duplicate-key'?JSON.stringify(value).replace('"schemaVersion":1','"schemaVersion":1,"schemaVersion":1'):variation==='oversize'?'x'.repeat(64001):JSON.stringify(value);
  expect(()=>parseConceptMapModel(raw,f.sources)).toThrow();
 });
@@ -47,4 +47,15 @@ test('sparse evidence produces a readable unsupported answer; changed sources ca
  const next=prepareConceptMapGeneration(await core.getTask(f.task.id),{...f.command,requestId:'second-attempt'})!;
  const changed=await core.runRequest(next.request,async context=>{const output=next.bind(context).finish(JSON.stringify(conceptProposal()));await core.putSource(f.task.id,{id:'science',kind:'text',role:'fact',label:'Changed notes',content:'A replacement source.'});return output;});
  expect(changed.status).toBe('cancelled');expect((await core.getTask(f.task.id)).artifacts).toHaveLength(1);
+});
+
+test('a quotation node displays its first exactly bound citation rather than duplicated generated prose',async()=>{
+ // The persisted native error proves this mismatch family, not the unseen rejected model response.
+ const f=await fixture(),proposal=conceptProposal(),generatedProse='A synthetic paraphrase that must never be displayed as quoted source text.';proposal.nodes[0].detail=generatedProse;proposal.nodes[0].citations.push({source:'S1',quote:'Surface water evaporates into water vapor.'});
+ const plan=prepareConceptMapGeneration(f.task,f.command)!;let boundPrompt='';const result=await core.runRequest(plan.request,async context=>{const bound=plan.bind(context);boundPrompt=bound.prompt;return bound.finish(JSON.stringify(proposal));});
+ expect(result.status).toBe('completed');expect(boundPrompt).toContain('The host displays the first exactly verified cited excerpt as the detail of a quotation node');const task=await core.getTask(f.task.id),revision=task.artifacts[0].revisions[0],map=readConceptMap(revision.content,revision.sourceRefs)!;
+ expect(map.nodes[0]).toMatchObject({basis:'quotation',detail:'Sunlight heats surface water.',citations:[{sourceRef:f.sources[0].ref,quote:'Sunlight heats surface water.',start:0},{sourceRef:f.sources[0].ref,quote:'Surface water evaporates into water vapor.',start:30}]});expect(revision.content).not.toContain(generatedProse);
+ const tampered=structuredClone(map);tampered.nodes[0].detail=generatedProse;expect(readConceptMap(JSON.stringify(tampered),revision.sourceRefs)).toBeUndefined();
+ proposal.nodes[0].citations[0].quote='Invented text that is absent from the selected source.';expect(()=>parseConceptMapModel(JSON.stringify(proposal),f.sources)).toThrow('does not occur exactly');
+ await core.close();core=await createCompanion({dataDir:directory});expect(readConceptMap((await core.getTask(task.id)).artifacts[0].revisions[0].content,revision.sourceRefs)).toEqual(map);
 });
