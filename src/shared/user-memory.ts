@@ -14,7 +14,10 @@ const topics=Schema.mutable(Schema.Array(topic).pipe(Schema.maxItems(8)));
 export const MemoryFactSchema=Schema.Struct({id,revision,text,topics});
 export const UserMemorySchema=Schema.Struct({revision,enabled:Schema.Boolean,facts:Schema.mutable(Schema.Array(MemoryFactSchema).pipe(Schema.maxItems(MEMORY_FACT_COUNT)))}).pipe(Schema.filter(value=>new Set(value.facts.map(fact=>fact.id)).size===value.facts.length&&value.facts.every(fact=>fact.revision<=value.revision)));
 const ref=Schema.Struct({id,revision});
-export const MemoryUseSchema=Schema.Struct({revision,status:Schema.Literal('off','included','no-match'),facts:Schema.mutable(Schema.Array(ref).pipe(Schema.maxItems(MEMORY_REQUEST_FACTS))),omitted:Schema.Number.pipe(Schema.int(),Schema.between(0,MEMORY_FACT_COUNT))}).pipe(Schema.filter(value=>value.status==='included'?value.facts.length>0:value.facts.length===0));
+const useFields={revision,status:Schema.Literal('off','included','no-match'),facts:Schema.mutable(Schema.Array(ref).pipe(Schema.maxItems(MEMORY_REQUEST_FACTS))),omitted:Schema.Number.pipe(Schema.int(),Schema.between(0,MEMORY_FACT_COUNT))};
+const validUse=(value:{status:string;facts:readonly unknown[]})=>value.status==='included'?value.facts.length>0:value.facts.length===0;
+export const ProjectMemoryUseSchema=Schema.Struct({projectId:id,projectName:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200)),...useFields}).pipe(Schema.filter(validUse));
+export const MemoryUseSchema=Schema.Struct({...useFields,project:Schema.optional(ProjectMemoryUseSchema)}).pipe(Schema.filter(value=>validUse(value)&&(!value.project||validUse(value.project))&&value.facts.length+(value.project?.facts.length??0)<=MEMORY_REQUEST_FACTS));
 export const MemoryChangeSchema=Schema.Struct({expectedRevision:revision,change:Schema.Union(
  Schema.Struct({kind:Schema.Literal('enabled'),enabled:Schema.Boolean}),
  Schema.Struct({kind:Schema.Literal('save'),id:Schema.optional(id),text,topics}),

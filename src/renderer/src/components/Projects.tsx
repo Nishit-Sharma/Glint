@@ -5,6 +5,7 @@ import {PROJECT_INSTRUCTIONS_LIMIT,projectSourceMatches,projectSourceVersion,pro
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field,type Run} from '../ui';
 import './projects.css';
+import {ProjectMemory} from './ProjectMemory';
 
 type Change=<C extends ProjectCommand>(command:C)=>Promise<ProjectReply<C>|undefined>;
 type SourceUpdateReview={command:Extract<ProjectCommand,{type:'projects.sources.update'}>;previous:SourceVersion;next:SourceVersion};
@@ -58,6 +59,7 @@ function ProjectDetails({project,projects,tasks,currentTaskId,busy,change,onOpen
    {changed&&dirty&&<p role="status">The saved project changed. Your edits are kept here. Reload saved details before editing again.</p>}
    <div className="row"><Button type="submit" disabled={busy||!dirty||changed||!name.trim()}>Save project</Button>{(dirty||changed)&&<Button disabled={busy} onClick={()=>navigation.guard(reset)}>Reload saved details</Button>}</div>
   </form>
+  <ProjectMemory key={project.id} project={project} busy={held}/>
   <section aria-label="Project tasks"><h3>Tasks</h3>
    {members.length?<ul>{members.map(task=><li key={task.id}><div><button type="button" className="project-task-link" onClick={()=>onOpenTask(task)}>{task.title}</button><small>{task.archive?'Archived':task.status==='paused'?'Paused':'Active'}</small></div><Button disabled={held} title={`Remove ${task.title} from project`} onClick={()=>void change({type:'projects.assign',taskId:task.id,projectId:null,expectedProjectId:project.id})}>Remove</Button></li>)}</ul>:<p>No tasks in this project.</p>}
    {others.length>0&&<div className="project-add"><Field label="Task to add"><select value={taskChoice} disabled={held} onChange={event=>setTaskChoice(event.currentTarget.value)}><option value="">Choose a task</option>{others.map(task=><option key={task.id} value={task.id}>{task.title}{task.projectId?' · '+(projects.find(project=>project.id===task.projectId)?.name??'Another project'):''}</option>)}</select></Field><Button disabled={held||!others.some(task=>task.id===taskChoice)} onClick={()=>{const task=others.find(task=>task.id===taskChoice);if(task)void change({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:task.projectId??null}).then(saved=>{if(saved)setTaskChoice('');});}}>Add task</Button></div>}

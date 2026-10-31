@@ -1,9 +1,9 @@
 import {useEffect,useRef,useState} from 'react';
-import {emptyUserMemory,readUserMemory,readMemoryCommit,selectUserMemory,MEMORY_FACT_LIMIT,MEMORY_FACT_COUNT,type UserMemory,type MemoryFact,type MemoryChange,type MemoryUse} from '../../shared/user-memory';
+import {readUserMemory,readMemoryCommit,MEMORY_FACT_LIMIT,MEMORY_FACT_COUNT,type UserMemory,type MemoryFact,type MemoryChange,type MemoryUse} from '../../shared/user-memory';
 import {Button,Field,type RequestKind} from './ui';
 import {useNavigationDraft} from './draft-navigation';
 import {publicErrorMessage} from '../../shared/public-messages';
-import type {Project} from '../../shared/projects';
+import {readMemoryPreview,type TaskMemorySelection} from '../../shared/project-memory';
 
 export function useUserMemory(enabled=true){
  const [memory,setMemory]=useState<UserMemory>(),[error,setError]=useState('');
@@ -69,17 +69,34 @@ function MemoryForm({initial}:{initial:UserMemory}){
  </section>;
 }
 
-export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{task?:{title:string;goal:string;projectId?:string};project?:Pick<Project,'id'|'useAccountMemory'>;prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
- const {memory,error}=useUserMemory();
- if(browser||!['explain','create'].includes(kind))return null;
- const projectUnavailable=!!task?.projectId&&project?.id!==task.projectId;
- const selected=selectUserMemory(memory??emptyUserMemory(),{title:task?.title??'',goal:task?.goal??'',prompt},projectUnavailable?{useAccountMemory:false}:project);
- return <div className="memory-question-context" aria-label="Memory for this question">{projectUnavailable?<span role="status">Project memory preview unavailable</span>:project?.useAccountMemory===false?<span>Account memory off for this project</span>:error?<span role="status">Memory preview unavailable</span>:!memory?<span>Checking memory…</span>:selected.facts.length?<details><summary>Memory · {selected.facts.length} {selected.facts.length===1?'fact':'facts'} for this question</summary><ul>{selected.facts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul>{selected.receipt.omitted>0&&<p>{selected.receipt.omitted} matching facts omitted by the memory limit.</p>}<p>Shared as guidance if you send this question.</p></details>:<span>{memory.enabled?'Memory on · no matching facts':'Memory off'}</span>}<button type="button" className="text" onClick={onManage}>Manage memory</button></div>;
+export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{task?:{id?:string;title:string;goal:string;projectId?:string};project?:{id:string;useAccountMemory?:boolean};prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
+ const supported=!browser&&['explain','create'].includes(kind),key=JSON.stringify([task?.id,task?.projectId,task?.title,task?.goal,project?.id,project?.useAccountMemory,prompt,kind,browser]);
+ const generation=useRef(0),[preview,setPreview]=useState<{key:string;generation:number;selected?:TaskMemorySelection;error?:boolean}>();
+ useEffect(()=>{
+  if(!supported)return;let alive=true;
+  const load=async()=>{const token=++generation.current;setPreview(undefined);try{const selected=readMemoryPreview(await window.companion.invoke({type:'memory.preview',...(task?.id?{taskId:task.id}:{}),prompt}));if(alive&&token===generation.current)setPreview({key,generation:token,selected});}catch{if(alive&&token===generation.current)setPreview({key,generation:token,error:true});}};
+  void load();const unsubscribe=window.companion.subscribe(event=>{if(event.type==='changed')void load();});
+  return()=>{alive=false;generation.current++;unsubscribe();};
+ },[key,supported]);
+ if(!supported)return null;
+ const current=preview?.key===key&&preview.generation===generation.current?preview:undefined,selected=current?.selected;
+ const scoped=selected&&(!task?.id||(selected.receipt.project?.projectId??null)===(task.projectId??null))?selected:undefined,total=scoped?scoped.facts.length+scoped.projectFacts.length:0;
+ return <div className="memory-question-context" aria-label="Memory for this question">
+  {current?.error?<span role="status">Memory preview unavailable</span>:!scoped?<span role="status">Checking memory…</span>:!scoped.globalEnabled?<span>Memory off</span>:<>
+   {scoped.project?.useAccountMemory===false&&<span>Account memory off for this project</span>}
+   {total?<details><summary>Memory · {total} {total===1?'fact':'facts'} for this question</summary>{scoped.projectFacts.length>0&&<><p>Project memory: {scoped.project?.name}</p><ul>{scoped.projectFacts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul></>}{scoped.facts.length>0&&<><p>Account memory</p><ul>{scoped.facts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul></>}{scoped.receipt.omitted>0&&<p>{scoped.receipt.omitted} matching account facts omitted by the shared memory limit.</p>}{(scoped.receipt.project?.omitted??0)>0&&<p>{scoped.receipt.project!.omitted} matching project facts omitted by the shared memory limit.</p>}<p>Shared as guidance only if you send this question.</p></details>:<span>{scoped.project&&!scoped.project.enabled?'Project memory off':'Memory on · no matching facts'}</span>}
+  </>}
+  <button type="button" className="text" onClick={onManage}>{scoped?.project?'Manage account memory':'Manage memory'}</button>
+ </div>;
 }
 
-export function MemoryReceipt({receipt,status,memory}:{receipt?:MemoryUse;status:string;memory?:UserMemory}){
+function AccountMemoryReceipt({receipt,status,memory}:{receipt?:MemoryUse;status:string;memory?:UserMemory}){
  if(!receipt)return null;
- if(receipt.status!=='included')return <p className="memory-receipt">{receipt.status==='off'?'Memory was off for this request.':'No matching memory facts were included.'}</p>;
+ if(receipt.status!=='included')return <p className="memory-receipt">{receipt.status==='off'?(receipt.project?'Account memory was off for this request.':'Memory was off for this request.'):'No matching account memory facts were included.'}</p>;
  const completed=status==='completed';
  return <details className="memory-receipt"><summary>{completed?'Shared':'Selected'} {receipt.facts.length} memory {receipt.facts.length===1?'fact':'facts'}</summary><p>{completed?'Shared with the AI service as guidance for this response.':'The request did not complete. Transmission of these facts is unverified.'}</p><ul>{receipt.facts.map(ref=>{const current=memory?.facts.find(fact=>fact.id===ref.id&&fact.revision===ref.revision);return <li key={ref.id}>{current?.text??'This fact was edited or forgotten, or saved memory is unavailable.'}</li>;})}</ul>{receipt.omitted>0&&<p>{receipt.omitted} matching facts were omitted by the memory limit.</p>}</details>;
+}
+export function MemoryReceipt({receipt,status,memory}:{receipt?:MemoryUse;status:string;memory?:UserMemory}){
+ const project=receipt?.project;
+ return <><AccountMemoryReceipt receipt={receipt} status={status} memory={memory}/>{project&&(project.status==='included'?<details className="memory-receipt"><summary>{status==='completed'?'Shared':'Selected'} {project.facts.length} project memory {project.facts.length===1?'fact':'facts'} · {project.projectName}</summary><p>These facts belonged to this project when the request was prepared. Current saved project facts may have changed since then.</p>{project.omitted>0&&<p>{project.omitted} matching project facts were omitted by the shared limit.</p>}</details>:<p className="memory-receipt">{project.status==='off'?'Project memory was off for this request.':'No matching project memory facts were included.'}</p>)}</>;
 }

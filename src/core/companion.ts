@@ -4,7 +4,8 @@ import {changeLocalContacts} from './local-contacts';
 import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
-import {emptyUserMemory,readMemoryChange,readMemoryUse,selectUserMemory,memoryConsent,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
+import {emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
+import {selectTaskMemory as selectScopedTaskMemory,taskMemoryConsent,readMemoryPreviewInput} from '../shared/project-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
 import {encodeHelperSourceReportReceipt,findHelperSourceReportReceipt} from './helper-source-report-receipt';
@@ -82,6 +83,7 @@ export class Companion {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly controllers = new Map<string, AbortController>();
   private memoryChanges = new AbortController();
+  private readonly projectMemoryChanges = new Map<string,AbortController>();
   private closed = false;
   private persistenceFailed = false;
   private constructor(private readonly options: CompanionOptions, state: State, private readonly releaseLock: () => Promise<void>) { this.state = state; }
@@ -289,15 +291,18 @@ export class Companion {
     });
   }
 
-  private selectTaskMemory(task:Task,prompt:string){
-    return selectUserMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined);
+  private selectTaskMemory(task:Task,prompt:string){return selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined);}
+  previewUserMemory(input:unknown){
+    const value=readMemoryPreviewInput(input);
+    return this.exclusive(()=>clone(value.taskId?this.selectTaskMemory(this.task(this.state,value.taskId),value.prompt):selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:'',goal:'',prompt:value.prompt})));
   }
   leaseUserMemory(taskId:string,prompt:string){
     return this.exclusive(()=>{
-      const task=this.task(this.state,taskId),memory=this.state.userMemory??emptyUserMemory(),project=task.projectId?this.project(this.state,task.projectId):undefined,projectId=task.projectId,projectRevision=project?.revision;
-      const selected=clone(this.selectTaskMemory(task,prompt)),signal=this.memoryChanges.signal;
-      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||current.projectId!==projectId||currentProject?.revision!==projectRevision)throw Error(MEMORY_CHANGED);};
-      return {...selected,signal,assertCurrent,consent:memoryConsent(selected,project),check:async()=>{assertCurrent();}};
+      const task=this.task(this.state,taskId),memory=this.state.userMemory??emptyUserMemory(),project=task.projectId?this.project(this.state,task.projectId):undefined,projectId=task.projectId,projectRevision=project?.revision,projectMemoryRevision=project?.memory?.revision??0;
+      if(project&&!this.projectMemoryChanges.has(project.id))this.projectMemoryChanges.set(project.id,new AbortController());
+      const selected=clone(this.selectTaskMemory(task,prompt)),projectSignal=project?this.projectMemoryChanges.get(project.id)!.signal:undefined,signal=projectSignal?AbortSignal.any([this.memoryChanges.signal,projectSignal]):this.memoryChanges.signal;
+      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||current.projectId!==projectId||currentProject?.revision!==projectRevision||(currentProject?.memory?.revision??0)!==projectMemoryRevision)throw Error(MEMORY_CHANGED);};
+      return {...selected,signal,assertCurrent,consent:taskMemoryConsent(selected),check:async()=>{assertCurrent();}};
     });
   }
 
@@ -387,11 +392,30 @@ export class Companion {
     this.cancelRunning(task,'Project context changed during this request.');
   }
   projectCommand<C extends ProjectCommand>(input:C,assertCurrent?:()=>void):Promise<ProjectReply<C>>;
-  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|Task|Task[]>{
+  projectCommand(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Project[]|Project|ProjectPins|ProjectSidebar|UserMemory|MemoryCommit|Task|Task[]>{
     const command=readProjectCommand(input);
     return this.exclusive(async()=>{
       assertCurrent();
       if(command.type==='projects.list')return clone(this.state.projects??[]);
+      if(command.type==='projects.memory.get')return clone(this.project(this.state,command.projectId).memory??emptyUserMemory());
+      if(command.type==='projects.memory.change'){
+        const current=this.project(this.state,command.projectId).memory??emptyUserMemory();
+        if(command.expectedRevision!==current.revision)return {kind:'conflict' as const,current:clone(current)};
+        if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Project memory revision limit reached. Saved facts are preserved.');
+        const result=await this.commit(state=>{
+          assertCurrent();const project=this.project(state,command.projectId),next={...clone(current),revision:current.revision+1},change=command.change;
+          if(change.kind==='enabled')next.enabled=change.enabled;
+          else if(change.kind==='save'){
+            const previous=change.id?next.facts.find(fact=>fact.id===change.id):undefined;
+            if(change.id&&!previous)reject('not-found','This project memory fact is no longer available.');
+            if(!previous&&next.facts.length>=MEMORY_FACT_COUNT)reject('invalid','The project memory fact limit is reached. Edit an existing fact.');
+            const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:[...new Set(change.topics.map(topic=>topic.trim()).filter(Boolean))]};
+            if(previous)next.facts[next.facts.indexOf(previous)]=fact;else next.facts.push(fact);
+          }else reject('invalid','Project memory supports explicit saved facts and opt-in only.');
+          project.memory=next;return {kind:'saved' as const,current:next};
+        });
+        this.projectMemoryChanges.get(command.projectId)?.abort(Error(MEMORY_CHANGED));this.projectMemoryChanges.set(command.projectId,new AbortController());return result;
+      }
       if(command.type==='projects.pins.get')return clone(this.state.projectPins??{revision:0,projectIds:[]});
       if(command.type==='projects.sidebar.get')return clone(this.state.projectSidebar??{revision:0,collapsed:false});
       if(command.type==='projects.sidebar.set')return this.commit(state=>{

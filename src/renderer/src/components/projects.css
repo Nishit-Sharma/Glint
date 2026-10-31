@@ -7,6 +7,9 @@
 .project-heading>strong{min-width:0;overflow-wrap:anywhere}
 .project-star{display:inline-flex;align-items:center;gap:7px}
 .project-star[aria-pressed=true]{background:var(--soft);color:var(--ink)}
+.project-memory h4{margin:0;font-size:14px;font-weight:600}
+.project-memory h4:focus{outline:2px solid var(--focus);outline-offset:4px}
+.project-memory .memory-facts li{align-items:flex-start;flex-wrap:wrap}
 .project-details section{border-top:1px solid var(--line);padding-top:22px}
 .project-details h3{margin:0;font-size:15px;font-weight:600}
 .project-details ul{list-style:none;margin:0;padding:0}

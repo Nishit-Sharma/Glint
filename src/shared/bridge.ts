@@ -8,6 +8,7 @@ import type {ConversationAttemptReceipt} from './conversation-attempt';
 import type {QueueCommand} from './queued-followup';
 import type {RecurringWorkChange} from './recurring-work';
 import type {MemoryChange} from './user-memory';
+import type {MemoryPreviewInput} from './project-memory';
 import type {DocumentImportOwner,DocumentImportAdd} from './document-import';
 import type {BrowserContinuationInput} from './browser-continuation';
 import type {BrowserWorkflowSave,BrowserWorkflowRun} from './browser-workflow';
@@ -54,6 +55,7 @@ export type Command =
   | {type:'contacts.get'}
   | ({type:'contacts.change'} & LocalContactsChange)
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
+  | ({type:'memory.preview'} & MemoryPreviewInput)
   | ProjectCommand
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
   | {type:'experiment.source.inspect';input:SourceFormulaInput}
