@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {createHash,randomUUID} from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConnectionStatus } from '../shared/bridge';
@@ -155,6 +156,7 @@ export class CodexProvider {
   private active?: AbortController;
   private capabilityCache?: { at: number; configured: boolean };
   private connection?: CodexConnection;
+  private readonly accountSalt=randomUUID();
   lastRun?: CodexRunEvidence;
   readonly cliPath: string;
   private readonly tier: 'priority' | 'default';
@@ -169,12 +171,13 @@ export class CodexProvider {
       state: this.state, detail: this.detail, specialized: { sam: 'Meta SAM is not connected.', computer: 'Disabled: inference only; companion export approvals remain separate.' } };
   }
   private update(state: ConnectionStatus['state'], detail: string) { this.state = state; this.detail = detail; this.options.onStatus?.(this.snapshot()); }
-  private async initialize(connection: CodexConnection) {
+  private async initialize(connection: CodexConnection,bindAccount=false) {
     await connection.request('initialize', { clientInfo: { name: 'window_companion', title: 'Window Companion temporary Codex adapter', version: '0.1.0' }, capabilities: { experimentalApi: true } });
     connection.notify('initialized');
     const account = await connection.request('account/read', { refreshToken: false });
-    // Retain only the authentication kind; account IDs, addresses and tokens never leave this boundary.
+    // Only a process-salted metadata fingerprint may leave this adapter; never raw account metadata.
     if (account.account?.type !== 'chatgpt') throw new CodexProviderError('UNCONFIGURED', 'An existing signed-in ChatGPT Codex connection is required. No login or key change was attempted.');
+    const accountScope=bindAccount?await this.accountFingerprint(account.account):undefined;
     let cursor: string | undefined;
     let model: any;
     for (let page = 0; page < 4 && !model; page++) {
@@ -188,6 +191,19 @@ export class CodexProvider {
     if (this.tier === 'default' && model.defaultServiceTier !== null && model.defaultServiceTier !== 'default') throw new CodexProviderError('TIER_UNAVAILABLE', 'This Luna catalog does not advertise the standard default. No tier fallback was made.');
     if (!model.supportedReasoningEfforts?.some((effort: any) => effort.reasoningEffort === CODEX_EFFORT)) throw new CodexProviderError('MODEL_UNAVAILABLE', 'The selected Luna reasoning setting is not supported.');
     this.configured = true;
+    return accountScope;
+  }
+  private async accountFingerprint(account:any):Promise<string|undefined>{
+    if(account?.type!=='chatgpt'||typeof account.email!=='string'||!account.email.trim())return undefined;
+    let instructions='disabled';
+    if(this.options.allowUserInstructionFile){try{const bytes=await readFile(CODEX_USER_INSTRUCTION_FILE);if(bytes.length>1_000_000)throw Error();instructions=createHash('sha256').update(bytes).digest('hex');}catch(error){if((error as NodeJS.ErrnoException)?.code==='ENOENT')instructions='absent';else throw new CodexProviderError('UNCONFIGURED','Current Codex user instructions could not be bound for recurring responses.');}}
+    return createHash('sha256').update(JSON.stringify([this.accountSalt,account.type,account.email,account.planType??null,account.workspaceName??null,instructions])).digest('hex');
+  }
+  async accountScope():Promise<string>{
+    if(this.options.enabled?.()===false)throw new CodexProviderError('UNCONFIGURED','Codex is disconnected in this app.');
+    let directory:string|undefined,connection:CodexConnection|undefined;
+    try{directory=await mkdtemp(join(tmpdir(),'window-companion-codex-scope-'));connection=await(this.options.connect??connectStdio)(this.cliPath,directory);const scope=await this.initialize(connection,true);if(!scope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.');return scope;}
+    finally{connection?.close();if(directory)await rm(directory,{recursive:true,force:true});}
   }
   async status(): Promise<ConnectionStatus> {
     if (this.options.enabled?.() === false) { this.configured = false; this.update('unconfigured', 'The temporary Codex route is disconnected in this app. Your global Codex sign-in is unchanged.'); return this.snapshot(); }
@@ -238,7 +254,8 @@ export class CodexProvider {
       deadline = setTimeout(() => controller.abort(new CodexProviderError('DEADLINE', 'Local Codex deadline reached. Remote completion and charges are unverified.')), this.options.deadlineMs ?? 120_000);
       directory = await mkdtemp(join(tmpdir(), 'window-companion-codex-'));
       connection = await (this.options.connect ?? connectStdio)(this.cliPath, directory); this.connection = connection;
-      await this.initialize(connection);
+      const accountScope=await this.initialize(connection,!!input.expectedAccountScope);
+      if(input.expectedAccountScope&&input.expectedAccountScope!==accountScope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in or instructions changed. Resume the schedule to authorize its current scope. Nothing was generated.');
       if (controller.signal.aborted) throw controller.signal.reason;
       this.update('streaming', `Sending explicitly selected references through temporary Codex GPT-6 Luna, ${this.tierLabel}, medium reasoning.`);
       const thread = await connection.request('thread/start', {
@@ -300,6 +317,8 @@ export class CodexProvider {
       await input.captureFence?.check();
       input.captureFence?.assertCurrent();
       if(controller.signal.aborted)throw controller.signal.reason;
+      if(input.expectedAccountScope){const current=await connection.request('account/read',{refreshToken:false});if(await this.accountFingerprint(current.account)!==input.expectedAccountScope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in or instructions changed before generation. Resume the schedule to authorize its current scope.');}
+      input.captureFence?.assertCurrent();if(controller.signal.aborted)throw controller.signal.reason;
       const turn = await connection.request('turn/start', { threadId: evidence.threadId, input: parts, model: CODEX_MODEL, effort: CODEX_EFFORT, serviceTierForTurn: this.tier, environments: [], sandboxPolicy: { type: 'readOnly', networkAccess: false }, approvalPolicy: 'on-request' });
       evidence.turnId = turn.turn?.id ?? evidence.turnId;
       if (controller.signal.aborted) interrupt();

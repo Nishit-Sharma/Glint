@@ -1,4 +1,5 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import {createHash,randomUUID} from 'node:crypto';
 import { APICallError, streamText, type ModelMessage, type UserContent } from 'ai';
 import type { SourceVersion } from '../core/types';
 import {TASK_HISTORY_LIMIT} from '../core/task-dialogue';
@@ -25,6 +26,8 @@ export type MetaProviderOptions = {
   stallMs?: number;
 };
 export type MetaRunInput = {
+  /** Host-only recurring grant binding; never included in model input. */
+  expectedAccountScope?:string;
   prompt: string;
   taskContext?: string;
   projectInstructions?: ProjectInstructions;
@@ -68,6 +71,7 @@ export class MetaProvider {
   private state: ConnectionStatus['state'] = 'unconfigured';
   private detail = 'Configure a Meta Model API key to use cloud explanation or generation.';
   private running = false;
+  private readonly accountSalt=randomUUID();
   constructor(private readonly options: MetaProviderOptions) {}
 
   private snapshot(configured: boolean): ConnectionStatus {
@@ -82,6 +86,8 @@ export class MetaProvider {
   async status(): Promise<ConnectionStatus> {
     return this.snapshot(Boolean(await this.options.getKey()));
   }
+  private accountFingerprint(key:string){return createHash('sha256').update(this.accountSalt).update(key).digest('hex');}
+  async accountScope():Promise<string>{const key=await this.options.getKey();if(!key)throw new MetaProviderError('UNCONFIGURED','Configure a Meta Model API key before authorizing recurring responses.');return this.accountFingerprint(key);}
 
   reset(): void {
     this.state = 'unconfigured';
@@ -103,6 +109,7 @@ export class MetaProvider {
       this.update('unconfigured', 'No Meta Model API key is configured. Browser sign-in and subscriptions do not establish API access.', false);
       throw new MetaProviderError('UNCONFIGURED', 'Configure a Meta Model API key before sending this request.');
     }
+    if(input.expectedAccountScope&&this.accountFingerprint(key)!==input.expectedAccountScope)throw new MetaProviderError('UNCONFIGURED','The configured Meta connection changed. Resume the schedule to authorize its current scope.');
     if (this.running) throw new MetaProviderError('BUSY', 'A Meta request is already running.');
     if (input.signal.aborted) throw new MetaProviderError('CANCELLED', 'Request cancelled before transmission.');
     this.running = true;

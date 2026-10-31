@@ -1,3 +1,4 @@
+import {recurringWorkPublicMessage} from './recurring-work';
 import {documentImportMessages} from './document-import';
 import {conceptMapPublicMessage} from './concept-map';
 import {RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT} from './response-preferences';
@@ -45,6 +46,7 @@ const glintCopy = new Map([
 /** Presentation only. Raw failures stay in the local task record for recovery. */
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
+ const recurring=recurringWorkPublicMessage(text);if(recurring)return recurring;
  const branded=glintCopy.get(text);if(branded)return branded;
  const mapMessage=conceptMapPublicMessage(text);if(mapMessage)return mapMessage;
  const browserRecovery=browserRecoveryMessage(text)??inspectionRecoveryMessages.get(text);

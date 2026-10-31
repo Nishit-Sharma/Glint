@@ -60,3 +60,8 @@ describe('Public error and status copy',()=>{
   expect(requestStatusLabel('cancelled')).toBe('Stopped');expect(sourceRoleLabel('fact')).toBe('Source material');
  });
 });
+
+
+it('preserves exact recurring authorization recovery copy without accepting appended private data',()=>{
+ for(const message of ['Recurring responses were not authorized. The schedule stays paused.','Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.','The account or instructions changed. Resume again to authorize the current scope.']){expect(publicErrorMessage(new Error(message))).toBe(message);expect(publicErrorMessage(message+' /Users/private/secret')).not.toContain('/Users/private');}
+});

@@ -156,3 +156,9 @@ describe('Meta final capture fence, no network',()=>{
   const pending=adapter.run({prompt:'Synthetic only',sources:[],signal:signal(),captureFence:{check:async()=>{if(!current)throw Error('Retired');},assertCurrent:()=>{if(!current)throw Error('Retired');}}});const rejected=expect(pending).rejects.toThrow();await started;current=false;release();await rejected;expect(transport).not.toHaveBeenCalled();
  });
 });
+
+
+it('binds recurring Meta scope to the existing configured key without putting the opaque fingerprint in model input',async()=>{
+ let key='synthetic-first-key';const fetch=vi.fn(async(_url:RequestInfo|URL,_init?:RequestInit)=>complete()),adapter=provider(fetch as typeof globalThis.fetch,{getKey:async()=>key}),scope=await adapter.accountScope();expect(scope).toMatch(/^[a-f0-9]{64}$/);
+ expect(await adapter.run({prompt:'Owned recurring question',sources:[],signal:signal(),expectedAccountScope:scope})).toBe('Synthetic fixture answer');expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain(scope);key='synthetic-second-key';await expect(adapter.run({prompt:'Owned recurring question',sources:[],signal:signal(),expectedAccountScope:scope})).rejects.toThrow('connection changed');expect(fetch).toHaveBeenCalledTimes(1);
+});

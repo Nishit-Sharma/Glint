@@ -1,3 +1,4 @@
+import type {RecurringWorkChange} from './recurring-work';
 import type {MemoryChange} from './user-memory';
 import type {DocumentImportOwner,DocumentImportAdd} from './document-import';
 import type {BrowserContinuationInput} from './browser-continuation';
@@ -26,6 +27,7 @@ import type {SavedDocumentSourceInput} from './saved-document-source';
 import type {ProjectCommand} from './projects';
 
 export type Command =
+  | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
   | ProjectCommand
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
@@ -154,6 +156,7 @@ export interface ContextActivation {activationId:string;tucked:boolean;target?:W
 export type ContextPending={kind:'none'}|{kind:'ready';activation:ContextActivation}|{kind:'busy'}
 export type ContextCapture = {activationId:string;tucked:boolean}&({state:'captured';task:Task;sourceId:string}|{state:'no-room';task?:Task})
 export type CompanionEvent =
+  | {type:'schedules.changed'}
   | {type:'source.drag';state:SourceDragState}
   | {type:'capture.retired'}
   | {type:'changed';taskId?:string}

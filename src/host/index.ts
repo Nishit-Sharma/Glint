@@ -1,3 +1,5 @@
+import {createRecurringWorkRunner} from './recurring-work-runner';
+import {readRecurringWorkChange} from '../shared/recurring-work';
 import {readBrowserWorkflowSave,readBrowserWorkflowRun} from '../shared/browser-workflow';
 import {readMemoryChange} from '../shared/user-memory';
 import {userMemoryContext} from './user-memory-context';
@@ -168,7 +170,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
-  const allowed=['memory.get','memory.change','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['schedules.get','schedules.change','memory.get','memory.change','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='browser.workflow.save'){const {type,...input}=c;return {type,...readBrowserWorkflowSave(input)};}
   if(c.type==='browser.workflow.run'){const {type,...input}=c;return {type,...readBrowserWorkflowRun(input)};}
   if(c.type==='browser.continue'||c.type==='browser.continue.prepare'||c.type==='browser.continue.release'){const {type,...input}=c;return {type:c.type,...readBrowserContinuationInput(input)};}
@@ -194,6 +196,8 @@ function validate(value:unknown):Command{
   if(c.type==='task-pins.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown task pin field.');return {type:c.type};}
   if(c.type==='tasks.archive'){const {type,...input}=c;return {type,...readTaskArchiveChange(input)};}
   if(c.type==='task-pins.set'){if(Object.keys(c).some(key=>!['type','taskId','pinned'].includes(key))||typeof c.pinned!=='boolean')throw Error('Invalid task pin change.');return {type:c.type,taskId:str(c.taskId,'task ID',200),pinned:c.pinned};}
+  if(c.type==='schedules.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown schedule field.');return {type:'schedules.get'};}
+  if(c.type==='schedules.change'){if(Object.keys(c).some(key=>!['type','change'].includes(key)))throw Error('Unknown schedule field.');return {type:'schedules.change',change:readRecurringWorkChange(c.change)};}
   if(c.type==='memory.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown memory field.');return {type:c.type};}
   if(c.type==='memory.change'){const {type,...input}=c;return {type,...readMemoryChange(input)};}
   if(c.type==='response-preferences.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown response preference field.');return {type:'response-preferences.get'};}
@@ -740,8 +744,68 @@ async function captureWindowSource(c:{taskId?:string;windowId:string;sourceId?:s
       if(!follow&&sourceBindingEpoch===documentSelectionEpoch&&(createdTask||currentViewTaskId===selectedTaskId&&requestedViewTaskId===selectedTaskId))documentFollow.bind({task:t,sourceId:source.id,target:capture.source,capture:liveCapture});
       captures.set(`${selectedTaskId}:${source.id}`,{capture,version:version.version,digest:version.digest});if(liveCapture)onCaptured?.(liveCapture);changed(selectedTaskId);return t
 }
+type RecurringGrant={id:string;scope:string;epoch:number;route:'meta'|'codex';preferences:string;accountScope?:string;controller:AbortController;active?:{taskId:string;requestId:string}};
+type RecurringInvocation={grant:RecurringGrant;taskId:string;requestId:string;prompt:string};
+const recurringGrants=new Map<string,RecurringGrant>();
+const recurringScope=(item:import('../shared/recurring-work').RecurringWork)=>JSON.stringify([item.id,item.title,item.instruction,item.intervalHours,item.mode,item.timeZone]);
+function assertRecurringGrant(grant:RecurringGrant){if(recurringGrants.get(grant.id)!==grant||grant.controller.signal.aborted||grant.epoch!==keyEpoch||grant.route!==selectedProvider)throw Error('Recurring response authorization changed. Review the schedule and Resume.');}
+async function checkRecurringGrant(grant:RecurringGrant){
+ assertRecurringGrant(grant);
+ const item=(await core.getRecurringWork()).find(item=>item.id===grant.id);
+ if(!item?.enabled||item.mode!=='response'||recurringScope(item)!==grant.scope)throw Error('The saved recurring scope changed. Review the schedule and Resume.');
+ const preferences=await responsePreferences.lease();await preferences.check();assertRecurringGrant(grant);
+ if(JSON.stringify(preferences.current)!==grant.preferences)throw Error('Response preferences changed. Review the schedule and Resume.');
+}
+async function retireRecurringGrant(id:string){
+ const grant=recurringGrants.get(id);if(!grant)return;
+ recurringGrants.delete(id);grant.controller.abort();
+ if(grant.active){try{await core.cancelRequest(grant.active.taskId,grant.active.requestId);}catch{}}
+}
+async function retireRecurringGrants(){for(const id of [...recurringGrants.keys()])await retireRecurringGrant(id);}
+async function authorizeRecurring(item:import('../shared/recurring-work').RecurringWork,lifecycle:number):Promise<RecurringGrant>{
+ const epoch=keyEpoch,route=selectedProvider,preferences=await responsePreferences.lease();await preferences.check();
+ const connection=await activeProvider().status();assertCurrentWork(lifecycle);
+ if(!connection.configured)throw Error('Check the provider connection before authorizing recurring responses.');
+ const accountScope=await activeProvider().accountScope();
+ assertCurrentWork(lifecycle);if(epoch!==keyEpoch||route!==selectedProvider)throw Error('Connection changed. Resume again to review its current scope.');
+ const unverified=item.history.filter(run=>run.status==='failed'||run.status==='interrupted'||run.status==='running').at(-1);
+ const choice=await dialog.showMessageBox(panel,{type:'question',message:'Authorize recurring responses for this app session?',detail:`Schedule: ${item.title}\nEvery ${item.intervalHours} elapsed hours. Next due: ${item.nextDueAt}${item.timeZone?' ('+item.timeZone+' display zone)':''}.\n\nDestination: ${connection.provider} · ${connection.model} · ${connection.tier??'selected tier'}\n\nExact saved question:\n${item.instruction}\n\nSources: none. Saved user memory: none. Each occurrence starts a separate task with no earlier task history.\n\n${preferences.consent}\n\n${unverified?`Previous occurrence (${unverified.scheduledFor}) has an unverified outcome. Its task is kept and that occurrence will not be retried. This authorization covers future due occurrences only; review the earlier task before continuing if duplication matters.\n\n`:''}${route==='codex'?'Uses the current Codex sign-in and its existing user instructions. Sign-in email/plan/workspace metadata and user instructions are checked before each generation. Account changes with identical metadata cannot be distinguished.':'Uses the selected Meta account through the key already configured in Glint.'}\n\nAuthorize one response per due occurrence while Glint is open, using your existing account allowance and any applicable charges. Results stay in local tasks. No browser, app, capture, export, external file write, or message-sending authority is granted.\n\nSleep/closure delays work; only the latest missed occurrence runs after you Resume. A failed or unverified response pauses the schedule and is never retried automatically. Restart, edits, connection or preference changes require a new Resume authorization.`,buttons:['Cancel','Authorize repeats this session'],defaultId:0,cancelId:0});
+ assertCurrentWork(lifecycle);await preferences.check();if(choice.response!==1)throw Error('Recurring responses were not authorized. The schedule stays paused.');
+ if(epoch!==keyEpoch||route!==selectedProvider)throw Error('Connection changed. Resume again to authorize its current scope.');
+ if(await activeProvider().accountScope()!==accountScope)throw Error('The account or instructions changed. Resume again to authorize the current scope.');
+ return {id:item.id,scope:recurringScope(item),epoch,route,preferences:JSON.stringify(preferences.current),...(accountScope?{accountScope}:{}),controller:new AbortController()};
+}
+const recurringWorkRunner=createRecurringWorkRunner({
+ prepare:async guard=>{
+  const lifecycle=quitEpoch;guard();assertCurrentWork(lifecycle);
+  const items=await core.getRecurringWork();guard();assertCurrentWork(lifecycle);
+  for(const item of items)if(item.enabled&&item.mode==='response'){
+   const grant=recurringGrants.get(item.id);
+   try{if(!grant)throw Error();await checkRecurringGrant(grant);}
+   catch{await retireRecurringGrant(item.id);await core.haltRecurringWork(item.id,'Recurring authorization is unavailable or its connection/preferences changed. Review history and Resume to authorize the current scope.');}
+  }
+  guard();assertCurrentWork(lifecycle);
+  if(!items.some(item=>item.enabled&&Date.parse(item.nextDueAt)<=Date.now()))return [];
+  const state=await botPreferences.read();guard();assertCurrentWork(lifecycle);
+  if(state.kind!=='available'||state.current.kind!=='ready')throw Error('Choose a companion before running scheduled work.');
+  const ids=await core.prepareRecurringWork(state.current.defaultBotId,()=>{guard();assertCurrentWork(lifecycle);},[...recurringGrants.keys()]);
+  if(ids.length){changed();emit({type:'schedules.changed'});}
+  const prepared=await core.getRecurringWork();
+  for(const item of prepared)for(const run of item.history)if(item.mode==='response'&&run.status==='running'&&run.requestId&&ids.includes(run.taskId)){
+   const grant=recurringGrants.get(item.id);
+   try{
+    guard();assertCurrentWork(lifecycle);if(!grant)throw Error('Recurring authorization was retired.');await checkRecurringGrant(grant);
+    grant.active={taskId:run.taskId,requestId:run.requestId};
+    await command({type:'model.run',taskId:run.taskId,requestId:run.requestId,kind:'explain',prompt:item.instruction,sourceIds:[],expectedSourceRefs:[]},{grant,taskId:run.taskId,requestId:run.requestId,prompt:item.instruction});
+   }catch{if(grant)await retireRecurringGrant(item.id);}
+   finally{if(grant)grant.active=undefined;await core.finishRecurringWork(item.id,run.taskId,run.requestId);emit({type:'schedules.changed'});changed(run.taskId);}
+  }
+  return ids;
+ },
+ changed:ids=>{emit({type:'schedules.changed'});if(ids.length)changed();},
+});
 function assertCurrentWork(lifecycle:number){if(quitting||lifecycle!==quitEpoch)throw Error('The app started closing. Start this action again.');}
-async function command(c:Command):Promise<unknown>{
+async function command(c:Command,recurring?:RecurringInvocation):Promise<unknown>{
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
   if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
@@ -756,6 +820,16 @@ async function command(c:Command):Promise<unknown>{
     case 'bots.get':return botPreferences.read()
     case 'bots.change':{const result=await botPreferences.command(c.change);if(c.change.type==='complete'&&result.kind==='saved'){await botPreferences.finishExample(core);changed();const state=await botPreferences.read();return state.kind==='available'?{kind:'saved',current:state.current}:state;}return result;}
     case 'bots.assign':{const state=await botPreferences.read();if(state.kind!=='available'||state.current.kind!=='ready'||!state.current.bots.some(bot=>bot.id===c.botId))throw Error('This companion is unavailable. Your task is kept.');return taskMutation(c.taskId,()=>core.assignBot(c.taskId,c.botId,c.expectedBotId));}
+    case 'schedules.get':return {items:await core.getRecurringWork(),runtime:recurringWorkRunner.read()}
+    case 'schedules.change':{
+      const current=(await core.getRecurringWork()).find(item=>item.id===c.change.id);
+      if((current?.revision??0)!==c.change.expectedRevision)throw Error('This schedule changed. Reload before saving again.');
+      await retireRecurringGrant(c.change.id);
+      const grant=c.change.kind==='resume'&&current?.mode==='response'?await authorizeRecurring(current,lifecycle):undefined;
+      const result=await core.changeRecurringWork(c.change,()=>assertCurrentWork(lifecycle));
+      if(grant)recurringGrants.set(grant.id,grant);
+      emit({type:'schedules.changed'});return {items:result,runtime:recurringWorkRunner.read()};
+    }
     case 'memory.get':return core.getUserMemory()
     case 'memory.change':{const {type,...input}=c;const result=await core.changeUserMemory(input,()=>assertCurrentWork(lifecycle));if(result.kind==='saved')changed();return result;}
     case 'response-preferences.get':return responsePreferences.read()
@@ -979,10 +1053,11 @@ async function command(c:Command):Promise<unknown>{
       const conceptGeneration=prepareConceptMapGeneration(before,c);
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)
       const ordinary=!plan&&!target&&['explain','create'].includes(kind);
-      const preferences=ordinary?await responsePreferences.lease():undefined,memory=ordinary?await core.leaseUserMemory(c.taskId,prompt):undefined;assertCurrentWork(lifecycle);
-      const request=conceptGeneration?.request??plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(memory?{memory:memory.receipt}:{}),...(preferences?.scope?{executionScope:preferences.scope}:{}),...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
+      const preferences=ordinary?await responsePreferences.lease():undefined,memory=ordinary&&!recurring?await core.leaseUserMemory(c.taskId,prompt):undefined;assertCurrentWork(lifecycle);
+      if(recurring){if(c.taskId!==recurring.taskId||c.requestId!==recurring.requestId||prompt!==recurring.prompt||kind!=='explain'||c.artifactId||c.submittedDraft||c.briefAction||JSON.stringify(c.sourceIds)!=='[]'||JSON.stringify(c.expectedSourceRefs)!=='[]'||before.sources.length||before.artifacts.length||before.requests.length||JSON.stringify(preferences?.current)!==recurring.grant.preferences)throw Error('The exact recurring response scope is unavailable.');await checkRecurringGrant(recurring.grant);}
+      const request=conceptGeneration?.request??plan?.request??{taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(memory?{memory:memory.receipt}:{}),...(recurring?{executionScope:'recurring-response:v1:'+recurring.grant.id+':'+c.requestId}:preferences?.scope?{executionScope:preferences.scope}:{}),...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}
       let captureRequest=false;let assertWindowPublication=()=>{};
-      const assertResultCurrent=()=>{memory?.assertCurrent();preferences?.assertCurrent();assertWindowPublication();assertCurrentWork(lifecycle);if(epoch!==keyEpoch)throw Error('Connection changed during request.');if(captureRequest&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'||privacySignal.aborted))throw Error('Capture privacy changed during the request.');};
+      const assertResultCurrent=()=>{if(recurring)assertRecurringGrant(recurring.grant);memory?.assertCurrent();preferences?.assertCurrent();assertWindowPublication();assertCurrentWork(lifecycle);if(epoch!==keyEpoch)throw Error('Connection changed during request.');if(captureRequest&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'||privacySignal.aborted))throw Error('Capture privacy changed during the request.');};
       const result=await core.runRequest(request,async ctx=>{
         const response=conceptGeneration?.bind(ctx)??plan?.bind(ctx),reviewResponse=response&&response.kind!=='ordinary'?response:undefined;
         captureRequest=ctx.task.sources.some(source=>source.versions.at(-1)?.kind==='window');
@@ -990,18 +1065,18 @@ async function command(c:Command):Promise<unknown>{
         const revisionTarget=targetRevision?readTaskArtifactText(ctx.task,target!.id,targetRevision.revision):undefined
         if(revisionTarget&&!revisionTarget.available)throw Error(revisionTarget.reason)
         const revisionTargetDigest=revisionTarget?.available?createHash('sha256').update(revisionTarget.text).digest('hex'):undefined
-        const styledContext=preferences?responsePreferencesContext(ctx.taskHistory,preferences.current):ctx.taskHistory;
+        const styledContext=preferences?responsePreferencesContext(recurring?undefined:ctx.taskHistory,preferences.current):recurring?undefined:ctx.taskHistory;
         const taskContext=memory?userMemoryContext(styledContext,memory):styledContext;
         await memory?.check();
         await preferences?.check();
         const connection=await provider.status();assertCurrentWork(lifecycle)
         if(!connection.configured)throw Error('Provider availability is unverified. Check the connection before authorizing a new request. Nothing was sent.')
-        {
+        if(recurring){await checkRecurringGrant(recurring.grant);}else{
           const consent=await dialog.showMessageBox(panel,{type:'question',message:`Send this request to ${connection.provider==='Meta'?'Meta':'OpenAI'}?`,detail:`${connection.provider==='Meta'?'Destination: Meta (api.meta.ai)':'Destination: OpenAI through your Codex account'}\n\nSources:\n${ctx.task.sources.map(s=>{const v=s.versions.at(-1)!;return `${v.label} · ${v.kind==='window'?'window snapshot':v.kind} · ${v.role} reference · version ${v.version}`}).join('\n')||'No sources selected'}\n\n${ctx.taskHistory?`${taskHistoryReview(ctx.taskHistory)}\n\n`:''}${targetRevision?`Revising “${targetRevision.title}” (version ${targetRevision.revision}).\n\n`:''}${plan?`Using “${plan.review.basisTitle}” (version ${plan.review.basisRevision}). ${plan.review.purpose}\n\n`:''}Request: ${prompt}\n\n${memory?memory.consent+'\n\n':''}${ctx.projectInstructions?.text?`Project: ${ctx.projectInstructions.name} · saved instructions revision ${ctx.projectInstructions.revision}\n${ctx.projectInstructions.text}\nEnd of project instructions.\n\n`:''}${preferences?preferences.consent+'\n\n':''}${reviewResponse?.kind==='concept-map'?'This prepares an inspectable concept map from the listed text sources. Relationships are proposed interpretations with source excerpts and uncertainty, not verified facts.\n\n':reviewResponse?.kind==='window-workflow-proposal'?'This prepares proposed image transcription and inferred finite state transitions for your review. It does not simulate HDL.\n\n':reviewResponse?'This prepares table transcription for your review. It does not run a database query.\n\n':''}${connection.provider==='Meta'?'Uses your selected Meta account.':'Uses your Codex account and its existing instructions.'} This requests a response; it does not allow changes to your apps or files. Stopping disconnects this app, but the service may already be processing the request.`,buttons:['Cancel',`Send to ${connection.provider==='Meta'?'Meta':'OpenAI'}`],defaultId:0,cancelId:0})
           assertCurrentWork(lifecycle);await memory?.check();await preferences?.check();if(consent.response!==1)throw Error('Model request was not authorized. Nothing was sent.')
         }
         assertCurrentWork(lifecycle);if(ctx.signal.aborted||epoch!==keyEpoch)throw Error('Request stopped or connection changed before transmission.')
-        const sources=ctx.task.sources.map(s=>({...s.versions.at(-1)!}))
+        const sources=recurring?[]:ctx.task.sources.map(s=>({...s.versions.at(-1)!}))
         const windowSources=sources.filter(source=>source.kind==='window').map(source=>({source,binding:{...source},capture:boundCapture(c.taskId,source)}))
         for(const {source,capture} of windowSources){
           if(!capture)throw Error('Refresh the selected window. Captures are frozen, expire after five minutes and are not stored in task history.')
@@ -1022,6 +1097,7 @@ async function command(c:Command):Promise<unknown>{
           source.content=capture.dataUrl
         }
         const assertWindowUse=()=>{
+          if(recurring)assertRecurringGrant(recurring.grant);
           assertCurrentWork(lifecycle);if(ctx.signal.aborted||epoch!==keyEpoch)throw Error('Request stopped or connection changed before transmission.');
           if(windowSources.length&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'))throw Error('Capture privacy changed before transmission.');
           for(const {binding,capture} of windowSources)if(!capture||boundCapture(c.taskId,binding)!==capture)throw Error('Source changed or expired; select and refresh it.');
@@ -1037,7 +1113,7 @@ async function command(c:Command):Promise<unknown>{
         let streamed=''
         const structured=kind==='experiment'||kind==='procedure'?kind:undefined
         if(reviewResponse)emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:reviewResponse.progress})
-        const content=await provider.run({...(ctx.projectInstructions?{projectInstructions:ctx.projectInstructions}:{}),...(['explain','create','revise'].includes(kind)?{taskContext}:{}),captureFence,prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,signal:AbortSignal.any([ctx.signal,...(windowSources.length?[privacySignal]:[]),...(preferences?[preferences.signal]:[]),...(memory?[memory.signal]:[])]),onChunk:delta=>{memory?.assertCurrent();preferences?.assertCurrent();if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}})
+        const content=await provider.run({...(recurring?.grant.accountScope?{expectedAccountScope:recurring.grant.accountScope}:{}),...(!recurring&&ctx.projectInstructions?{projectInstructions:ctx.projectInstructions}:{}),...(['explain','create','revise'].includes(kind)?{taskContext}:{}),captureFence,prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,signal:AbortSignal.any([ctx.signal,...(recurring?[recurring.grant.controller.signal]:[]),...(windowSources.length?[privacySignal]:[]),...(preferences?[preferences.signal]:[]),...(memory?[memory.signal]:[])]),onChunk:delta=>{memory?.assertCurrent();preferences?.assertCurrent();if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}})
         await memory?.check();await preferences?.check();
         if(windowSources.length&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'))throw Error('Capture privacy changed during the request.');
         if(epoch!==keyEpoch)throw Error('Connection changed during request.')
@@ -1052,13 +1128,13 @@ async function command(c:Command):Promise<unknown>{
     case 'connection.configure':return selectedProvider==='meta'?configureConnection():{connection:await codexProvider.status(),host:await hostStatus()}
     case 'connection.select':{
       if(c.provider!=='meta'&&c.provider!=='codex')throw Error('Select an installed provider route.')
-      keyEpoch++;for(const t of await core.listTasks())for(const r of t.requests)if(r.status==='running')await core.cancelRequest(t.id,r.id)
+      keyEpoch++;await retireRecurringGrants();for(const t of await core.listTasks())for(const r of t.requests)if(r.status==='running')await core.cancelRequest(t.id,r.id)
       metaProvider.reset();codexProvider.reset();browserCodexProvider.reset();selectedProvider=c.provider;connectionDisabled=false
       await writeFile(join(dataDir,'provider.json'),JSON.stringify({provider:selectedProvider}),{mode:0o600});await rm(join(dataDir,'connection-disabled'),{force:true});changed()
       return {connection:await activeProvider().status(),host:await hostStatus()}
     }
     case 'connection.disconnect':{
-      keyEpoch++;connectionDisabled=true;for(const t of await core.listTasks())for(const r of t.requests)if(r.status==='running')await core.cancelRequest(t.id,r.id)
+      keyEpoch++;await retireRecurringGrants();connectionDisabled=true;for(const t of await core.listTasks())for(const r of t.requests)if(r.status==='running')await core.cancelRequest(t.id,r.id)
       await writeFile(join(dataDir,'connection-disabled'),'disabled',{mode:0o600});await rm(credentialPath,{force:true});metaProvider.reset();codexProvider.reset();browserCodexProvider.reset();changed();return {connection:await activeProvider().status(),host:await hostStatus()}
     }
     case 'presentation.capture':return captureForCurrentExit(c.exitId)
@@ -1122,7 +1198,7 @@ app.whenReady().then(async()=>{
   ipcMain.handle('companion:command',async(event,value)=>{
     try{
       if(event.sender!==panel.webContents||event.senderFrame!==panel.webContents.mainFrame)throw Error('Untrusted companion caller.')
-      const c=validate(value);const key=c.type==='windows.capture'?'capture:window':c.type==='export.approve'?`export:${c.actionId}`:c.type==='model.run'||c.type==='browser.run'||c.type==='browser.workflow.run'||c.type==='browser.continue'?`model:${c.taskId}`:c.type==='browser.inspect'?`inspect:${c.taskId}:${c.operationId}`:undefined
+      const c=validate(value);const key=c.type==='schedules.change'?`schedule:${c.change.id}`:c.type==='windows.capture'?'capture:window':c.type==='export.approve'?`export:${c.actionId}`:c.type==='model.run'||c.type==='browser.run'||c.type==='browser.workflow.run'||c.type==='browser.continue'?`model:${c.taskId}`:c.type==='browser.inspect'?`inspect:${c.taskId}:${c.operationId}`:undefined
       if(key&&pendingEffects.has(key))throw Error('This effect is already awaiting a result.')
       if(key)pendingEffects.add(key)
       try{return await command(c)}finally{if(key)pendingEffects.delete(key)}
@@ -1132,7 +1208,7 @@ app.whenReady().then(async()=>{
     try{
       if(!credentialWindow||event.sender!==credentialWindow.webContents||event.senderFrame!==credentialWindow.webContents.mainFrame)throw Error('Untrusted credential entry.')
       const v=object(value);if(v.acknowledged!==true)throw Error('Authorize this destination before connecting.');const key=str(v.key,'API key',512);if(!safeStorage.isEncryptionAvailable())throw Error('OS secure storage unavailable; connection was not saved.')
-      await writeFile(credentialPath,safeStorage.encryptString(key),{mode:0o600});selectedProvider='meta';await writeFile(join(dataDir,'provider.json'),JSON.stringify({provider:selectedProvider}),{mode:0o600});connectionDisabled=false;await rm(join(dataDir,'connection-disabled'),{force:true});keyEpoch++;metaProvider.reset();codexProvider.reset();browserCodexProvider.reset();credentialWindow.close();credentialWindow=undefined;changed();return true
+      await writeFile(credentialPath,safeStorage.encryptString(key),{mode:0o600});selectedProvider='meta';await writeFile(join(dataDir,'provider.json'),JSON.stringify({provider:selectedProvider}),{mode:0o600});connectionDisabled=false;await rm(join(dataDir,'connection-disabled'),{force:true});keyEpoch++;await retireRecurringGrants();metaProvider.reset();codexProvider.reset();browserCodexProvider.reset();credentialWindow.close();credentialWindow=undefined;changed();return true
     }catch(error){throw Error(publicErrorMessage(error))}
   })
   if(process.env.ELECTRON_RENDERER_URL)await panel.loadURL(process.env.ELECTRON_RENDERER_URL);else await panel.loadFile(join(here,'../renderer/index.html'))
@@ -1143,6 +1219,7 @@ app.whenReady().then(async()=>{
   const trayImage=nativeImage.createFromDataURL(trayImageDataUrl).resize({width:18,height:18});if(process.platform==='darwin')trayImage.setTemplateImage(true)
   if(!testNoGlobalInput){tray=new Tray(trayImage);tray.setToolTip('Glint');tray.setContextMenu(Menu.buildFromTemplate([{label:'Use screen context',click:()=>void activateContext()},{label:'Open Glint',click:()=>void expand()},{type:'separator'},{label:'Follow selected window this session…',click:()=>void command({type:'source.follow.enable'}).catch(error=>dialog.showMessageBox(panel,{type:'info',message:'Document following is paused',detail:publicErrorMessage(error)}))},{label:'Stop document following',click:()=>{retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');}},{label:'Document follow status…',click:()=>{const state=documentFollow.read();void dialog.showMessageBox(panel,{type:'info',message:state.kind==='off'?'Document following is off':state.automaticSnapshots==='on'?'Selected-window snapshots are on':state.automaticSnapshots==='paused'?'Selected-window snapshots are paused':'Document metadata only',detail:state.reason});}},{type:'separator'},{label:'Quit Glint',click:()=>app.quit()}]));tray.on('click',()=>void expand())}
   monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000)
+  recurringWorkRunner.start()
 }).catch(error=>{if(quitting||quitApproved)return;console.error('Companion startup failed:',error.message);dialog.showErrorBox('Glint could not open',publicErrorMessage(error));app.quit()})
 let quitEpoch=0,quitting=false,quitApproved=false,quitInProgress=false,finalizingQuit=false,exitPending:{id:string;captureStarted:boolean}|undefined,exitTimeout:ReturnType<typeof setTimeout>|undefined
 const quitDrafts=createQuitDraftBarrier({
@@ -1152,6 +1229,8 @@ const quitDrafts=createQuitDraftBarrier({
 async function stopForQuit(){
  sourceDrag?.cancel();sourceDragPreview?.clear();sourceContextEpoch++
  retireDocumentFollow('App closing. A new user gesture is required after restart.');quitting=true;quitEpoch++;keyEpoch++;contextIntake=undefined;modifierShortcut.stop();globalShortcut.unregisterAll();shortcutRegistered=false;if(monitor){clearInterval(monitor);monitor=undefined;}
+ await retireRecurringGrants();
+ await recurringWorkRunner.stop();
  capturePrivacyAbort.abort();captures.clear();metaProvider.reset();codexProvider.close();browserCodexProvider.close();browserInspectionAttempts.close();browserService?.close();browserService=undefined;
  try{await viewSelectionQueue;if(core)for(const task of await core.listTasks())for(const request of task.requests)if(request.status==='running')await core.cancelRequest(task.id,request.id);}catch{return 'The local task store could not confirm pending message saves.';}
 }
@@ -1178,7 +1257,7 @@ async function beginQuit(){
    capturePrivacyAbort=new AbortController();browserInspectionAttempts.resume();
    quitting=false;quitInProgress=false;emit({type:'draft.resume',quitId:decision.id});
    if(!testNoGlobalInput){shortcutRegistered=globalShortcut.register(shortcut,()=>void activateShortcut());await modifierShortcut.start();}
-   monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000);return;
+   monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000);recurringWorkRunner.start();return;
   }
  }
  drawQuit();
@@ -1186,6 +1265,6 @@ async function beginQuit(){
 app.on('before-quit',event=>{
  if(quitApproved)return;
  event.preventDefault();if(quitInProgress)return;quitInProgress=true;quitting=true;
- void beginQuit().catch(()=>{quitInProgress=false;quitting=false;dialog.showErrorBox('Messages could not be saved','The app stayed open. Keep a copy of your message before trying again.');});
+ void beginQuit().catch(()=>{quitInProgress=false;quitting=false;recurringWorkRunner.start();dialog.showErrorBox('Messages could not be saved','The app stayed open. Keep a copy of your message before trying again.');});
 })
 app.on('window-all-closed',()=>app.quit())

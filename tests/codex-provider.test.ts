@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { buildCodexInput, CODEX_ARGS, CODEX_USER_INSTRUCTION_FILE, CodexProvider, type CodexConnection, type CodexProviderOptions } from '../src/host/codex-provider';
 
 // Protocol fixtures; these contain no real account, authentication, model response, or user data.
-function fixture(options: { auth?: boolean; model?: boolean; fast?: boolean; instructionSources?: string[]; mode?: 'complete' | 'partial' | 'tool' | 'reroute' | 'empty' | 'interrupted' | 'hang' } = {}) {
+function fixture(options: { auth?: boolean; accountEmail?:string|null; model?: boolean; fast?: boolean; instructionSources?: string[]; mode?: 'complete' | 'partial' | 'tool' | 'reroute' | 'empty' | 'interrupted' | 'hang' } = {}) {
   const listeners = new Set<(event: { method: string; params: Record<string, any> }) => void>();
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const emit = (method: string, params: Record<string, unknown>) => { for (const listener of listeners) listener({ method, params: { threadId: 'fixture-thread', ...params } }); };
@@ -10,7 +10,7 @@ function fixture(options: { auth?: boolean; model?: boolean; fast?: boolean; ins
     request: vi.fn(async (method, params) => {
       calls.push({ method, params });
       if (method === 'initialize') return {};
-      if (method === 'account/read') return { account: options.auth === false ? null : { type: 'chatgpt', email: 'private-fixture@example.invalid' } };
+      if (method === 'account/read') return { account: options.auth === false ? null : { type: 'chatgpt', email: options.accountEmail===undefined?'private-fixture@example.invalid':options.accountEmail } };
       if (method === 'model/list') return { data: options.model === false ? [] : [{ model: 'gpt-6-luna', serviceTiers: options.fast === false ? [] : [{ id: 'priority', name: 'Fast' }], supportedReasoningEfforts: [{ reasoningEffort: 'medium' }] }] };
       if (method === 'thread/start') return { model: 'gpt-6-luna', serviceTier: 'priority', reasoningEffort: 'medium', sandbox: { type: 'readOnly' }, thread: { id: 'fixture-thread' }, instructionSources: options.instructionSources ?? [] };
       if (method === 'turn/start') {
@@ -142,5 +142,19 @@ describe('Codex final capture fence, no CLI or network',()=>{
   f.connection.request=async(method,params)=>{const result=await original(method,params);if(method==='thread/start')current=false;return result;};
   await expect(f.create().run({prompt:'Synthetic only',sources:[],signal:new AbortController().signal,captureFence:{check:async()=>{if(!current)throw Error('Retired');},assertCurrent:()=>{if(!current)throw Error('Retired');}}})).rejects.toThrow();
   expect(f.calls.some(call=>call.method==='thread/start')).toBe(true);expect(f.calls.some(call=>call.method==='turn/start')).toBe(false);
+ });
+});
+
+
+describe('recurring Codex account scope',()=>{
+ it('keeps process-salted scope opaque, rejects absent metadata, and checks changed sign-in before thread start',async()=>{
+  const options={accountEmail:'first@example.invalid'},f=fixture(options),provider=f.create(),scope=await provider.accountScope();expect(scope).toMatch(/^[a-f0-9]{64}$/);expect(scope).not.toContain(options.accountEmail);expect(await f.create().accountScope()).not.toBe(scope);
+  options.accountEmail='second@example.invalid';const start=f.calls.length;await expect(provider.run({prompt:'Owned scheduled question',sources:[],signal:new AbortController().signal,expectedAccountScope:scope})).rejects.toThrow('sign-in or instructions changed');expect(f.calls.slice(start).some(call=>call.method==='thread/start'||call.method==='turn/start')).toBe(false);
+  const absent=fixture({accountEmail:null});await expect(absent.create().accountScope()).rejects.toThrow('metadata is unavailable');expect(absent.calls.some(call=>call.method==='thread/start')).toBe(false);
+ });
+ it('rechecks account metadata before turn start and never sends metadata or its fingerprint as model input',async()=>{
+  const options={accountEmail:'first@example.invalid'},f=fixture(options),provider=f.create(),scope=await provider.accountScope(),request=f.connection.request.bind(f.connection);
+  f.connection.request=async(method,params)=>{const answer=await request(method,params);if(method==='thread/start')options.accountEmail='changed@example.invalid';return answer;};
+  await expect(provider.run({prompt:'Owned scheduled question',sources:[],signal:new AbortController().signal,expectedAccountScope:scope})).rejects.toThrow('changed before generation');expect(f.calls.some(call=>call.method==='turn/start')).toBe(false);expect(JSON.stringify(f.calls)).not.toContain(scope);expect(JSON.stringify(f.calls)).not.toContain('first@example.invalid');
  });
 });

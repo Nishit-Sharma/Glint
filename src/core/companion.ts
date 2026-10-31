@@ -1,3 +1,4 @@
+import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
 import {emptyUserMemory,readMemoryChange,readMemoryUse,selectUserMemory,memoryConsent,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
@@ -122,6 +123,14 @@ export class Companion {
     try {
       const state = await Effect.runPromise(readState(options.dataDir));
       const time = nowIso(options.now ?? (() => new Date()));
+      for(const schedule of state.recurringWork??[]){
+        if(schedule.mode==='response'&&schedule.enabled){schedule.enabled=false;schedule.revision++;schedule.updatedAt=time;schedule.blockedReason='Restart retired recurring response authorization. Review history and Resume to authorize future occurrences in this app session.';}
+        for(const run of schedule.history)if(run.status==='running'){
+          const request=state.tasks.find(task=>task.id===run.taskId)?.requests.find(request=>request.id===run.requestId);
+          if(request?.status==='completed'&&request.artifactId){run.status='completed';run.artifactId=request.artifactId;}
+          else{run.status='interrupted';run.error='The previous response outcome is unverified. It will not be retried. Review the task before authorizing future occurrences.';}
+        }
+      }
       for (const task of state.tasks) {
         if (task.session) task.session = recoverTaskSession(task.session);
         for (const request of task.requests) if (request.status === 'running') {
@@ -164,6 +173,61 @@ export class Companion {
     this.state = draft;
     return clone(result);
   }
+  getRecurringWork():Promise<RecurringWork[]>{return this.exclusive(()=>clone(this.state.recurringWork??[]));}
+  changeRecurringWork(input:unknown,assertCurrent:()=>void=()=>{}):Promise<RecurringWork[]>{
+    const change=clone(readRecurringWorkChange(input));
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();const items=state.recurringWork??=[],current=items.find(item=>item.id===change.id);
+      if((current?.revision??0)!==change.expectedRevision)reject('conflict','This schedule changed. Reload schedules before saving again. Your edits are kept.');
+      if(current?.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Schedule revision limit reached. Saved work was preserved.');
+      if(change.kind==='save'){
+        if(!current&&items.length>=RECURRING_WORK_LIMIT)reject('invalid',`Keep at most ${RECURRING_WORK_LIMIT} schedules. Delete one before adding another.`);
+        const time=this.time(),next:RecurringWork={id:change.id,revision:(current?.revision??0)+1,title:change.title.trim(),instruction:change.instruction,intervalHours:change.intervalHours,nextDueAt:change.nextDueAt,...(change.mode?{mode:change.mode}:{}),...(change.timeZone?{timeZone:change.timeZone}:{}),enabled:change.mode==='response'?false:current?.enabled??true,createdAt:current?.createdAt??time,updatedAt:time,history:current?.history??[]};
+        if(current)items[items.indexOf(current)]=next;else items.push(next);
+      }else{
+        if(!current)reject('not-found','This schedule is no longer available.');
+        if(change.kind==='delete')items.splice(items.indexOf(current!),1);
+        else{if(change.kind==='resume'&&current!.history.some(run=>run.status==='running'))reject('conflict','Wait for the scheduled response to finish before resuming.');current!.enabled=change.kind==='resume';delete current!.blockedReason;current!.revision++;current!.updatedAt=this.time();}
+      }
+      state.recurringWork=items;return items;
+    }));
+  }
+  /** Atomically prepare one unsent local task per due schedule; no provider or effect authority. */
+  prepareRecurringWork(assignedBotId:string,assertCurrent:()=>void=()=>{},authorizedResponseIds:readonly string[]=[]):Promise<string[]>{
+    text(assignedBotId,'Companion ID',200);
+    return this.exclusive(()=>{
+      assertCurrent();const time=this.time(),now=Date.parse(time),due=(this.state.recurringWork??[]).filter(item=>item.enabled&&Date.parse(item.nextDueAt)<=now&&(item.mode!=='response'||authorizedResponseIds.includes(item.id))&&!item.history.some(run=>run.status==='running'));
+      if(!due.length)return [];
+      return this.commit(state=>{
+        assertCurrent();const ids:string[]=[];
+        for(const id of due.map(item=>item.id)){
+          const item=state.recurringWork!.find(item=>item.id===id)!;
+          if(item.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Schedule revision limit reached. Saved work was preserved.');
+          const interval=item.intervalHours*3_600_000,start=Date.parse(item.nextDueAt),skipped=Math.floor((now-start)/interval),scheduledFor=new Date(start+skipped*interval).toISOString();
+          const nextDueAt=new Date(start+(skipped+1)*interval).toISOString();
+          const task:Task={id:randomUUID(),title:item.title,goal:item.instruction,assignedBotId,status:'active',createdAt:time,updatedAt:time,sources:[],artifacts:[],requests:[],procedures:[],checkpoints:[],actions:[],memory:{enabled:false},session:{...emptyTaskSession(),draft:item.instruction,draftKind:'explain',draftRevision:1}};
+          if(item.mode==='response')task.session=emptyTaskSession();
+          state.tasks.push(task);ids.push(task.id);item.history.push({taskId:task.id,scheduledFor,preparedAt:time,skipped,...(item.mode==='response'?{status:'running' as const,requestId:randomUUID()}:{} )});item.history=item.history.slice(-RECURRING_HISTORY_LIMIT);item.nextDueAt=nextDueAt;item.revision++;item.updatedAt=time;
+        }
+        return ids;
+      });
+    });
+  }
+  finishRecurringWork(scheduleId:string,taskId:string,requestId:string):Promise<void>{
+    return this.exclusive(()=>this.commit(state=>{
+      const schedule=state.recurringWork?.find(item=>item.id===scheduleId),run=schedule?.history.find(item=>item.taskId===taskId&&item.requestId===requestId);
+      if(!schedule||!run||run.status!=='running')return;
+      const request=state.tasks.find(task=>task.id===taskId)?.requests.find(item=>item.id===requestId);
+      if(request?.status==='completed'&&request.artifactId){run.status='completed';run.artifactId=request.artifactId;}
+      else{run.status=request?.status==='interrupted'?'interrupted':'failed';run.error='The scheduled response was not confirmed. It may already have reached the service. Review the task; this occurrence will not be retried.';schedule.enabled=false;schedule.revision++;}
+      schedule.updatedAt=this.time();
+    }));
+  }
+  haltRecurringWork(id:string,reason:string):Promise<void>{
+    text(reason,'Schedule pause reason',500);
+    return this.exclusive(()=>this.commit(state=>{const item=state.recurringWork?.find(item=>item.id===id);if(!item||item.mode!=='response')return;item.enabled=false;item.blockedReason=reason;item.revision++;item.updatedAt=this.time();}));
+  }
+
   getUserMemory():Promise<UserMemory>{return this.exclusive(()=>clone(this.state.userMemory??emptyUserMemory()));}
 
   changeUserMemory(input:unknown,assertCurrent:()=>void=()=>{}):Promise<MemoryCommit>{
@@ -836,7 +900,7 @@ export class Companion {
         const expected=selectUserMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt:input.prompt}).receipt;
         if(JSON.stringify(expected)!==JSON.stringify(input.memory))reject('conflict',MEMORY_CHANGED);
       }
-      const projectInstructions=input.kind==='browser'?undefined:this.projectGuidance(this.state,task);
+      const projectInstructions=input.kind==='browser'||input.executionScope?.startsWith('recurring-response:v1:')?undefined:this.projectGuidance(this.state,task);
       const digest = hash(JSON.stringify({ ...input, sourceIds: input.sourceIds === undefined ? undefined : sourceRefs.map(ref => ref.sourceId), sourceRefs,...(projectInstructions?{projectInstructions}:{}) }));
       const existing = task.requests.find(request => request.id === input.requestId);
       if (existing) {

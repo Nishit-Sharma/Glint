@@ -1,3 +1,4 @@
+import {createRecurringWorkRunner} from '../src/host/recurring-work-runner';
 import {prepareConceptMapGeneration} from '../src/host/concept-map-generation';
 import {ResponsePreferences} from '../src/host/response-preferences';
 import {LearningDraftStore} from '../src/host/learning-drafts';
@@ -25,6 +26,14 @@ type ModelControl = { command: ModelCommand; resolve: (value: { title: string; c
 /** Browser-only host fixture. Durable task behavior uses the real core and a disposable directory.
  * Native capabilities and provider transport are explicit substitutes; this proves neither route. */
 export class BrowserFixture {
+  recurringWorkRunner?:ReturnType<typeof createRecurringWorkRunner>;
+  readonly recurringAuthorizations=new Set<string>();
+  startRecurringWork(){this.recurringWorkRunner=createRecurringWorkRunner({prepare:async guard=>{
+    const ids=await this.core.prepareRecurringWork('fixture-bot',guard,[...this.recurringAuthorizations]);
+    for(const item of await this.core.getRecurringWork())for(const run of item.history)if(item.mode==='response'&&run.status==='running'&&run.requestId&&ids.includes(run.taskId)){
+      guard();await this.core.runRequest({taskId:run.taskId,requestId:run.requestId,kind:'explain',prompt:item.instruction,sourceIds:[],expectedSourceRefs:[],executionScope:'synthetic-browser-recurring'},async()=>({title:'Synthetic scheduled response',content:'SYNTHETIC RECURRING PASS',mimeType:'text/markdown'}),guard);await this.core.finishRecurringWork(item.id,run.taskId,run.requestId);
+    }return ids;
+  },changed:ids=>{void this.emit({type:'schedules.changed'});if(ids.length)void this.changed();}});this.recurringWorkRunner.start();}
   viewPreferences!:TaskViewPreferences;
   learningDrafts!:LearningDraftStore;
   preferences!:CharacterPreferences;
@@ -100,7 +109,7 @@ export class BrowserFixture {
 
   emit(event: CompanionEvent) { if(event.type==='surface'){if(event.mode!=='panel')this.surface=event.mode;if(event.mode==='workspace'||event.mode==='companion')this.lastSurface=event.mode;}return this.page.evaluate(event => window.__browserFixtureEvent(event), event); }
   async changed(taskId?: string) { await this.emit({ type: 'changed', taskId }); }
-  async restartCore(){await this.core.close();this.core=await createCompanion({dataDir:join(this.directory,'store')});await this.changed();}
+  async restartCore(){await this.recurringWorkRunner?.stop();this.recurringAuthorizations.clear();await this.core.close();this.core=await createCompanion({dataDir:join(this.directory,'store')});this.recurringWorkRunner?.start();await this.changed();}
   async enter(mode:'workspace'|'companion',compactFit?:CompactFit){this.entranceId=crypto.randomUUID();await this.emit({type:'presentation.enter',entranceId:this.entranceId,mode});await this.emit({type:'surface',mode,...(compactFit?{compactFit}:{})});return this.entranceId;}
   async prepareExit(exitId:string,dataUrl?:string,purpose:'quit'|'collapse'='quit'){if(!this.exitCapture)this.exitCapture={id:exitId,purpose,started:false,dataUrl};await this.emit({type:'presentation.prepare',exitId,purpose});}
   async stream(text: string, requestId = [...this.pending.keys()].at(-1)) {
@@ -120,7 +129,7 @@ export class BrowserFixture {
   }
   async close() {
     for (const control of this.pending.values()) control.reject(new Error('Browser fixture closed.'));
-    await this.core.close(); await rm(this.directory, { recursive: true, force: true });
+    await this.recurringWorkRunner?.stop();await this.core.close(); await rm(this.directory, { recursive: true, force: true });
   }
   private async mutation(taskId: string, action: () => Promise<unknown>) {
     await action(); await this.changed(taskId); return this.core.getTask(taskId);
@@ -149,6 +158,8 @@ export class BrowserFixture {
   private async invoke(command: Command): Promise<unknown> {
     this.commands.push(structuredClone(command));
     switch (command.type) {
+      case 'schedules.get':return {items:await this.core.getRecurringWork(),runtime:this.recurringWorkRunner?.read()??{state:'stopped',message:'Automatic draft preparation is stopped.'}};
+      case 'schedules.change':{this.recurringAuthorizations.delete(command.change.id);const items=await this.core.changeRecurringWork(command.change);if(command.change.kind==='resume')this.recurringAuthorizations.add(command.change.id);await this.emit({type:'schedules.changed'});return {items,runtime:this.recurringWorkRunner?.read()??{state:'stopped',message:'Automatic draft preparation is stopped.'}};}
       case 'bots.get':return undefined;
       case 'response-preferences.get':return this.responsePreferences.read();
       case 'response-preferences.update':return this.responsePreferences.update({expectedRevision:command.expectedRevision,enabled:command.enabled,text:command.text});
