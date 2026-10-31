@@ -1,3 +1,4 @@
+import type {CliPreferencesUpdate} from './cli-preferences';
 import type {LocalContactsChange} from './local-contacts';
 import type {PublicGithubCommand} from './public-github';
 import type {ContentBackupCommand} from './content-backup';
@@ -37,6 +38,9 @@ import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
 import type {TaskAttentionCommand} from './task-attention';
 
 export type Command =
+  | {type:'cli.preferences.get'}
+  | ({type:'cli.preferences.update'} & CliPreferencesUpdate)
+  | {type:'cli.preview';taskId:string}
   | PublicGithubCommand
   | ContentBackupCommand
   | SpeechCommand

@@ -10,6 +10,7 @@ import {createRecurringWorkRunner} from './recurring-work-runner';
 import {readRecurringWorkChange} from '../shared/recurring-work';
 import {readBrowserWorkflowSave,readBrowserWorkflowRun} from '../shared/browser-workflow';
 import {readMemoryChange} from '../shared/user-memory';
+import {CliPreviewHost,readCliCommand} from './cli-preview';
 import {readLocalContactsCommand} from '../shared/local-contacts';
 import {readPublicGithubCommand} from '../shared/public-github';
 import {PublicGithubReader} from './public-github';
@@ -101,6 +102,8 @@ import {publicErrorMessage} from '../shared/public-messages'
 import type {ExportReply} from '../shared/export-contract'
 
 const here=fileURLToPath(new URL('.',import.meta.url))
+const cliRoot=app.isPackaged?join(process.resourcesPath,'app.asar.unpacked','out'):join(here,'..');
+const cliPreview=new CliPreviewHost({executable:process.execPath,script:join(cliRoot,'main','cli.js'),launcher:join(cliRoot,'native','glint')});
 const dataDir=resolve(process.env.WINDOW_COMPANION_DATA_DIR || (app.isPackaged?join(app.getPath('userData'),'tasks'):join(here,'../../.runtime')))
 mkdirSync(join(dataDir,'profile'),{recursive:true,mode:0o700})
 app.setPath('userData',join(dataDir,'profile'))
@@ -195,6 +198,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
+  if(String(c.type).startsWith('cli.'))return readCliCommand(c);
   if(String(c.type).startsWith('github.'))return readPublicGithubCommand(c);
   if(String(c.type).startsWith('content-backup.'))return readContentBackupCommand(c);
   if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
@@ -923,6 +927,9 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       if(grant)recurringGrants.set(grant.id,grant);
       emit({type:'schedules.changed'});return {items:result,runtime:recurringWorkRunner.read()};
     }
+    case 'cli.preferences.get':return core.getCliPreferences()
+    case 'cli.preferences.update':{const {type,...input}=c;return core.changeCliPreferences(input,()=>assertCurrentWork(lifecycle));}
+    case 'cli.preview':await core.getTask(c.taskId);return cliPreview.preview(c.taskId,dataDir)
     case 'contacts.get':return core.getLocalContacts()
     case 'contacts.change':{const {type,...input}=c;const result=await core.changeLocalContacts(input,()=>assertCurrentWork(lifecycle));if(result.kind==='saved')changed();return result;}
     case 'memory.get':return core.getUserMemory()
@@ -1402,6 +1409,7 @@ function createContentBackups(){return new ContentBackups({
 })}
 
 app.on('before-quit',event=>{
+ cliPreview.close();
  if(quitApproved)return;
  if(contentBackupGate.busy){event.preventDefault();return;}
  event.preventDefault();if(quitInProgress)return;quitInProgress=true;quitting=true;

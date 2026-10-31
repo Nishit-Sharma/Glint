@@ -1,3 +1,4 @@
+import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
 import {changeLocalContacts} from './local-contacts';
 import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
@@ -233,6 +234,17 @@ export class Companion {
   haltRecurringWork(id:string,reason:string):Promise<void>{
     text(reason,'Schedule pause reason',500);
     return this.exclusive(()=>this.commit(state=>{const item=state.recurringWork?.find(item=>item.id===id);if(!item||item.mode!=='response')return;item.enabled=false;item.blockedReason=reason;item.revision++;item.updatedAt=this.time();}));
+  }
+
+  getCliPreferences():Promise<CliPreferences>{return this.exclusive(()=>clone(this.state.cliPreferences??defaultCliPreferences()));}
+  changeCliPreferences(input:unknown,assertCurrent:()=>void=()=>{}):Promise<CliPreferencesCommit>{
+    const value=readCliPreferencesUpdate(input);
+    return this.exclusive<CliPreferencesCommit>(()=>{
+      const current=this.state.cliPreferences??defaultCliPreferences();
+      if(value.expectedRevision!==current.revision)return {kind:'conflict',current:clone(current)};
+      if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','CLI preference revision limit reached. Saved work was preserved.');
+      return this.commit(state=>{assertCurrent();const next:CliPreferences={revision:current.revision+1,format:value.format,includeSourceLabels:value.includeSourceLabels,excerptChars:value.excerptChars};state.cliPreferences=next;return {kind:'saved' as const,current:next};});
+    });
   }
 
   getLocalContacts():Promise<LocalContacts>{return this.exclusive(()=>clone(this.state.localContacts??emptyLocalContacts()));}

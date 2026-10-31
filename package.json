@@ -7,7 +7,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "node scripts/build-document-source.mjs && tsc --noEmit && electron-vite build",
+    "build": "node scripts/build-cli-launcher.mjs && node scripts/build-document-source.mjs && tsc --noEmit && electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -64,7 +64,8 @@
       "out/native/document-source",
       "out/native/pdf-text",
       "out/native/mac-window-at-point",
-      "package.json"
+      "package.json",
+      "out/native/glint"
     ],
     "mac": {
       "target": "dir",
@@ -81,7 +82,9 @@
       "**/*.node",
       "out/native/document-source",
       "out/native/pdf-text",
-      "out/native/mac-window-at-point"
+      "out/native/mac-window-at-point",
+      "out/native/glint",
+      "out/main/**/*"
     ]
   },
   "overrides": {
