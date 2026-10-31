@@ -69,7 +69,7 @@ function MemoryForm({initial}:{initial:UserMemory}){
  </section>;
 }
 
-export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{task?:{id?:string;title:string;goal:string;projectId?:string};project?:{id:string;useAccountMemory?:boolean};prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
+export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{task?:{id?:string;title:string;goal:string;projectId?:string};project?:{id:string;useAccountMemory?:boolean;name?:string;instructions?:string;revision?:number};prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
  const supported=!browser&&['explain','create'].includes(kind),key=JSON.stringify([task?.id,task?.projectId,task?.title,task?.goal,project?.id,project?.useAccountMemory,prompt,kind,browser]);
  const generation=useRef(0),[preview,setPreview]=useState<{key:string;generation:number;selected?:TaskMemorySelection;error?:boolean}>();
  useEffect(()=>{
@@ -78,16 +78,19 @@ export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{
   void load();const unsubscribe=window.companion.subscribe(event=>{if(event.type==='changed')void load();});
   return()=>{alive=false;generation.current++;unsubscribe();};
  },[key,supported]);
- if(!supported)return null;
  const current=preview?.key===key&&preview.generation===generation.current?preview:undefined,selected=current?.selected;
  const scoped=selected&&(!task?.id||(selected.receipt.project?.projectId??null)===(task.projectId??null))?selected:undefined,total=scoped?scoped.facts.length+scoped.projectFacts.length:0;
- return <div className="memory-question-context" aria-label="Memory for this question">
+ return <>{supported&&<div className="memory-question-context" aria-label="Memory for this question">
   {current?.error?<span role="status">Memory preview unavailable</span>:!scoped?<span role="status">Checking memory…</span>:!scoped.globalEnabled?<span>Memory off</span>:<>
    {scoped.project?.useAccountMemory===false&&<span>Account memory off for this project</span>}
    {total?<details><summary>Memory · {total} {total===1?'fact':'facts'} for this question</summary>{scoped.projectFacts.length>0&&<><p>Project memory: {scoped.project?.name}</p><ul>{scoped.projectFacts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul></>}{scoped.facts.length>0&&<><p>Account memory</p><ul>{scoped.facts.map(fact=><li key={fact.id}>{fact.text}</li>)}</ul></>}{scoped.receipt.omitted>0&&<p>{scoped.receipt.omitted} matching account facts omitted by the shared memory limit.</p>}{(scoped.receipt.project?.omitted??0)>0&&<p>{scoped.receipt.project!.omitted} matching project facts omitted by the shared memory limit.</p>}<p>Shared as guidance only if you send this question.</p></details>:<span>{scoped.project&&!scoped.project.enabled?'Project memory off':'Memory on · no matching facts'}</span>}
   </>}
   <button type="button" className="text" onClick={onManage}>{scoped?.project?'Manage account memory':'Manage memory'}</button>
- </div>;
+ </div>}
+ {task?.projectId&&<div className="memory-question-context" aria-label="Project instructions for this message">
+  {project?.id!==task.projectId||project.name===undefined||project.instructions===undefined||project.revision===undefined?<span role="status">Project instructions unavailable</span>:browser&&['explain','create'].includes(kind)?<span>Project instructions are not used for browser work.</span>:!project.instructions?<span>No saved project instructions</span>:<details key={task.id+':'+project.id+':'+project.revision}><summary>Project instructions · <span className="break">{project.name}</span></summary><p>Saved version {project.revision}</p><ul><li>{project.instructions}</li></ul><p>Shared as guidance only if you send this message. Instructions do not authorize actions.</p></details>}
+ </div>}
+ </>;
 }
 
 function AccountMemoryReceipt({receipt,status,memory}:{receipt?:MemoryUse;status:string;memory?:UserMemory}){
