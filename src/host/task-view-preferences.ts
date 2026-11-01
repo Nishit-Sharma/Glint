@@ -6,7 +6,9 @@ import {Schema} from 'effect';
 import type {TaskViewState,TaskPinsState} from '../shared/task-view';
 import type {Task} from '../core/types';
 import type {TaskAttentionChange} from '../shared/task-attention';
-import {readTaskAttention,changeTaskAttention} from './task-attention-preferences';
+import {readTaskAttention,changeTaskAttention,writeTaskAttention} from './task-attention-preferences';
+
+import {freshNotifications,localDate,readNotificationSaved,readNotificationChange,type NotificationSaved,type NotificationState,type NotificationChange} from '../shared/task-notifications';
 
 const Pins=Schema.Struct({schemaVersion:Schema.Literal(1),taskIds:Schema.Array(Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200),Schema.pattern(/^[^\0]+$/))).pipe(Schema.maxItems(100))});
 
@@ -15,6 +17,13 @@ export class TaskViewPreferences{
  constructor(private readonly directory:string,private readonly exists:(taskId:string)=>Promise<boolean>,private readonly getTask?:(taskId:string)=>Promise<Task>){}
  readAttention(){return this.serialize(()=>readTaskAttention(this.directory,this.exists));}
  changeAttention(change:TaskAttentionChange){return this.serialize(()=>changeTaskAttention(this.directory,this.exists,this.getTask,change));}
+ readNotifications():Promise<NotificationState>{return this.serialize(async()=>{const current=await readTaskAttention(this.directory,this.exists);return current.kind==='unavailable'?current:{kind:'available',current:current.notifications??freshNotifications()};});}
+ mutateNotifications(update:(current:NotificationSaved)=>NotificationSaved):Promise<NotificationState>{return this.serialize(async()=>{const document=await readTaskAttention(this.directory,this.exists);if(document.kind==='unavailable')return document;const before=document.notifications??freshNotifications(),saved=readNotificationSaved(update(before));if(JSON.stringify(saved)!==JSON.stringify(before)){if(document.revision===Number.MAX_SAFE_INTEGER)throw Error('Notification preferences could not be saved.');await writeTaskAttention(this.directory,{schemaVersion:1,revision:document.revision+1,filter:document.filter,entries:document.entries,notifications:saved});}return {kind:'available',current:saved};});}
+ changeNotifications(input:NotificationChange,now=Date.now()):Promise<NotificationState>{const change=readNotificationChange(input);return this.mutateNotifications(current=>{
+  if(change.kind==='settings'){if(change.expectedRevision!==current.revision)throw Error('Notification preferences changed. Reload before saving.');return {...current,revision:current.revision+1,preferences:change.preferences};}
+  if(change.kind==='snooze')return {...current,notices:current.notices.map(notice=>notice.kind==='break'?{...notice,dismissed:true}:notice),usage:{...current.usage,snoozeUntil:now+change.minutes*60_000}};
+  const notice=current.notices.find(notice=>notice.id===change.noticeId);if(!notice)throw Error('This notice is no longer available.');return {...current,notices:current.notices.map(item=>item.id===notice.id?{...item,dismissed:true}:item),usage:notice.kind==='break'&&localDate(notice.createdAt)===current.usage.date?{...current.usage,breakDismissed:true}:current.usage};
+ });}
  private serialize<T>(action:()=>Promise<T>):Promise<T>{const result=this.queue.then(action);this.queue=result.catch(()=>{});return result;}
  private async load():Promise<TaskViewState>{
   try{

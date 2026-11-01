@@ -7,7 +7,7 @@ export const ONBOARDING_SHAPES=CHARACTER_PICKER_SHAPES.slice(0,5);
 const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_INTEGER));
 const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));
 const displayText=(maximum:number)=>Schema.String.pipe(Schema.maxLength(maximum),Schema.filter(value=>!/[\p{Cc}\p{Cf}]/u.test(value)));
-export const BotSchema=Schema.Struct({id,revision,profile:CharacterProfileSchema,title:Schema.optional(displayText(80)),tagline:Schema.optional(displayText(160)),hidden:Schema.optional(Schema.Boolean),pinned:Schema.optional(Schema.Boolean)});
+export const BotSchema=Schema.Struct({id,revision,profile:CharacterProfileSchema,title:Schema.optional(displayText(80)),tagline:Schema.optional(displayText(160)),hidden:Schema.optional(Schema.Boolean),pinned:Schema.optional(Schema.Boolean),notificationsEnabled:Schema.optional(Schema.Boolean)});
 const ChooseSchema=Schema.Struct({kind:Schema.Literal('choose'),revision,draft:CharacterProfileSchema});
 const StartupSchema=Schema.Struct({botId:id,taskId:id});
 export const FloatingBoundsSchema=Schema.Struct({x:Schema.Number.pipe(Schema.int(),Schema.between(-100000,100000)),y:Schema.Number.pipe(Schema.int(),Schema.between(-100000,100000)),width:Schema.Number.pipe(Schema.int(),Schema.between(320,16000)),height:Schema.Number.pipe(Schema.int(),Schema.between(220,16000))});
@@ -28,6 +28,7 @@ export const BotCommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('duplicate'),expectedRevision:revision,botId:id}),
  Schema.Struct({type:Schema.Literal('details'),expectedRevision:revision,botId:id,title:displayText(80),tagline:displayText(160)}),
  Schema.Struct({type:Schema.Literal('visibility'),expectedRevision:revision,botId:id,hidden:Schema.Boolean}),
+ Schema.Struct({type:Schema.Literal('notifications'),expectedRevision:revision,botId:id,enabled:Schema.Boolean}),
  Schema.Struct({type:Schema.Literal('pin'),expectedRevision:revision,botId:id,pinned:Schema.Boolean}),
  Schema.Struct({type:Schema.Literal('floating-selection'),expectedRevision:revision,botId:id}),
  Schema.Struct({type:Schema.Literal('startup'),expectedRevision:revision,selection:Schema.NullOr(StartupSchema)}),

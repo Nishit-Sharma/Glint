@@ -41,6 +41,8 @@ import type {SavedDocumentSourceInput} from './saved-document-source';
 import type {ProjectCommand} from './projects';
 import type {ConversationExportCommand} from './conversation-export';
 import type {CanvasSave,CanvasSvg,CanvasSketchContext} from './design-canvas';
+import type {NotificationToastAction} from './task-notifications';
+import type {NotificationCommand} from './task-notifications';
 import type {TaskAttentionCommand} from './task-attention';
 
 import type {CodeBlockCopyCommand} from './code-block-copy';
@@ -63,6 +65,7 @@ export type Command =
   | StudyCommand
   | InstructionSkillCommand
   | TaskAttentionCommand
+  | NotificationCommand
   | ConversationExportCommand
   | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}
   | {type:'contacts.get'}
@@ -202,6 +205,8 @@ export type CompanionEvent =
   | {type:'source.drag';state:SourceDragState}
   | {type:'capture.retired'}
   | {type:'changed';taskId?:string}
+  | {type:'notifications.changed'}
+  | {type:'notifications.activate';action:NotificationToastAction}
   | {type:'stream';taskId:string;requestId:string;text:string}
   | {type:'connection';connection:ConnectionStatus}
   | {type:'surface';mode:'panel'|'anchor'|'companion'|'workspace';placement?:string;attachedWindow?:AttachedWindow;compactFit?:CompactFit}

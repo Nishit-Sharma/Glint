@@ -67,7 +67,7 @@ export class BotPreferences{
       next={...current,revision:current.revision+1,bots:[...current.bots,{...bot,id:randomUUID(),revision:0,hidden:false,pinned:false}]};
      }else if(command.type==='floating-selection'){if(bot.hidden)throw Error('Restore this companion before showing it.');next={...current,revision:current.revision+1,floatingBotId:bot.id};}else if(command.type==='default'){if(bot.hidden)throw Error('Restore this companion before making it the default.');next={...current,revision:current.revision+1,defaultBotId:bot.id};}
      else{
-      const changed=command.type==='update'?{profile:newCharacterProfile(command.profile,bot.profile)}:command.type==='details'?{title:command.title.normalize('NFC').trim(),tagline:command.tagline.normalize('NFC').trim()}:command.type==='visibility'?{hidden:command.hidden}:{pinned:command.pinned};
+      const changed=command.type==='update'?{profile:newCharacterProfile(command.profile,bot.profile)}:command.type==='details'?{title:command.title.normalize('NFC').trim(),tagline:command.tagline.normalize('NFC').trim()}:command.type==='visibility'?{hidden:command.hidden}:command.type==='notifications'?{notificationsEnabled:command.enabled}:{pinned:command.pinned};
       next={...current,revision:current.revision+1,...((command.type==='visibility'&&command.hidden)&&current.startup?.botId===bot.id?{startup:null}:{}),...(command.type==='visibility'&&command.hidden&&(current.floatingBotId??current.defaultBotId)===bot.id?{floatingVisible:false}:{}),bots:current.bots.map(item=>item.id===bot.id?{...bot,...changed,revision:bot.revision+1}:item)};
      }
     }

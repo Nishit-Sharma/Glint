@@ -1,11 +1,12 @@
 import {Schema} from 'effect';
+import {NotificationSavedSchema} from './task-notifications';
 import type {Task} from '../core/types';
 
 export const TaskAttentionFilterSchema=Schema.Literal('all','unread','needs-attention','needs-review');
 export type TaskAttentionFilter=typeof TaskAttentionFilterSchema.Type;
 const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200),Schema.pattern(/^[^\0]+$/));
 const basis=Schema.String.pipe(Schema.maxLength(1_000_000));
-export const TaskAttentionSavedSchema=Schema.Struct({schemaVersion:Schema.Literal(1),revision:Schema.Int.pipe(Schema.between(0,Number.MAX_SAFE_INTEGER)),filter:TaskAttentionFilterSchema,entries:Schema.Array(Schema.Struct({taskId:id,basis:Schema.NullOr(basis)})).pipe(Schema.maxItems(10_000))});
+export const TaskAttentionSavedSchema=Schema.Struct({schemaVersion:Schema.Literal(1),revision:Schema.Int.pipe(Schema.between(0,Number.MAX_SAFE_INTEGER)),filter:TaskAttentionFilterSchema,notifications:Schema.optional(NotificationSavedSchema),entries:Schema.Array(Schema.Struct({taskId:id,basis:Schema.NullOr(basis)})).pipe(Schema.maxItems(10_000))});
 export type TaskAttentionSaved=typeof TaskAttentionSavedSchema.Type;
 export type TaskAttentionState=({kind:'available'}&Omit<TaskAttentionSaved,'schemaVersion'>)|{kind:'unavailable';message:string};
 const change=Schema.Union(Schema.Struct({kind:Schema.Literal('filter'),filter:TaskAttentionFilterSchema}),Schema.Struct({kind:Schema.Literal('unread'),taskId:id}),Schema.Struct({kind:Schema.Literal('read'),taskId:id,basis}));

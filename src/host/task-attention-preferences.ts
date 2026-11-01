@@ -11,7 +11,7 @@ export async function readTaskAttention(directory:string,exists:(id:string)=>Pro
   const saved=Schema.decodeUnknownSync(TaskAttentionSavedSchema,{onExcessProperty:'error'})(JSON.parse(await readFile(join(directory,'task-attention.json'),'utf8')));
   if(new Set(saved.entries.map(entry=>entry.taskId)).size!==saved.entries.length)throw Error('Duplicate task cursor.');
   const present=await Promise.all(saved.entries.map(entry=>exists(entry.taskId)));
-  return {kind:'available',revision:saved.revision,filter:saved.filter,entries:saved.entries.filter((_,index)=>present[index])};
+  return {kind:'available',revision:saved.revision,filter:saved.filter,entries:saved.entries.filter((_,index)=>present[index]),...(saved.notifications?{notifications:saved.notifications}:{})};
  }catch(error){if(isCode(error,'ENOENT'))return {kind:'available',revision:0,filter:'all',entries:[]};return {kind:'unavailable',message:'Task read state could not be read. Its saved preferences have been kept.'};}
 }
 
@@ -28,8 +28,12 @@ export async function changeTaskAttention(directory:string,exists:(id:string)=>P
  }
  if(filter===current.filter&&JSON.stringify(entries)===JSON.stringify(current.entries))return current;
  if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('Task read state could not be saved.');
- const saved:TaskAttentionSaved=Schema.decodeUnknownSync(TaskAttentionSavedSchema)({schemaVersion:1,revision:current.revision+1,filter,entries});
+ const saved:TaskAttentionSaved=Schema.decodeUnknownSync(TaskAttentionSavedSchema)({schemaVersion:1,revision:current.revision+1,filter,entries,...(current.notifications?{notifications:current.notifications}:{})});
+ await writeTaskAttention(directory,saved);return {kind:'available',revision:saved.revision,filter:saved.filter,entries:saved.entries,...(saved.notifications?{notifications:saved.notifications}:{})};
+}
+export async function writeTaskAttention(directory:string,saved:TaskAttentionSaved){
+ Schema.decodeUnknownSync(TaskAttentionSavedSchema,{onExcessProperty:'error'})(saved);
  await mkdir(directory,{recursive:true,mode:0o700});const temporary=join(directory,`.task-attention-${randomUUID()}.tmp`);
- try{const file=await open(temporary,'wx',0o600);try{await file.writeFile(JSON.stringify(saved));await file.sync();}finally{await file.close();}await rename(temporary,join(directory,'task-attention.json'));const folder=await open(directory,'r');try{await folder.sync();}finally{await folder.close();}return {kind:'available',revision:saved.revision,filter:saved.filter,entries:saved.entries};}
+ try{const file=await open(temporary,'wx',0o600);try{await file.writeFile(JSON.stringify(saved));await file.sync();}finally{await file.close();}await rename(temporary,join(directory,'task-attention.json'));const folder=await open(directory,'r');try{await folder.sync();}finally{await folder.close();}}
  finally{await rm(temporary,{force:true});}
 }

@@ -1,4 +1,7 @@
 import {fitFloatingBounds,type FloatingBounds} from '../shared/bot-catalog';
+import {NotificationToast} from './notification-toast';
+import {TaskNotifications} from './task-notifications';
+import {notificationMuteScope,readNotificationCommand} from '../shared/task-notifications';
 import {PdfPageImports} from './pdf-page-import';
 import {inspectPdfRequest} from './pdf-request-inspection';
 import {isPdfPageCommand,readPdfPageCommand} from '../shared/pdf-page-import';
@@ -174,11 +177,13 @@ const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSourc
 const pdfPageImports=new PdfPageImports({getTask:id=>core.getTask(id),addPdfPageSources:(...args)=>core.addPdfPageSources(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import visual PDF pages',properties:['openFile'],filters:[{name:'PDF document',extensions:['pdf']}]});return choice.canceled?undefined:choice.filePaths[0];});
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))
+const taskNotifications=new TaskNotifications({readNotifications:()=>taskViewPreferences.readNotifications(),mutateNotifications:update=>contentBackupGate.run('notifications.poll',()=>taskViewPreferences.mutateNotifications(update))},()=>core.listTasks(),async()=>({focused:!!panel&&!panel.isDestroyed()&&panel.isVisible()&&panel.isFocused(),mutedBotIds:notificationMuteScope(await botPreferences.read())}),()=>emit({type:'notifications.changed'}),Date.now,(notice,event)=>notificationToast.show(notice.id,event?.kind==='needs-input'?'Your study input is needed':event?.kind==='completed'?'Study attempt complete':notice.kind==='break'?'Time for a break?':'Your quiet hours',event?.summary??(notice.kind==='break'?'Your daily active-use reminder threshold was reached. You can continue whenever you choose.':'You asked for a reminder on opening Glint during this time. You can continue.')))
 const documentSpeech=new DocumentSpeech({directory:dataDir,core:{getTask:id=>core.getTask(id),replaceSession:(...args)=>core.replaceSession(...args)}})
 const codeWorkspaces=new CodeWorkspaces({directory:dataDir,core:{getTask:id=>core.getTask(id),saveArtifact:(...args)=>core.saveArtifact(...args)},choose:async()=>{const selected=await dialog.showOpenDialog(panel,{title:'Choose local code folder',message:'Browse supported text and code files locally. Each file write needs its own review.',properties:['openDirectory','dontAddToRecent']});return selected.canceled?undefined:selected.filePaths[0];}})
 const learningDrafts=new LearningDraftStore({directory:dataDir,lookupTask:async id=>(await core.listTasks()).find(task=>task.id===id)})
 const browserWindowOwners=new Map<number,number>()
 function ownBrowserWindow(processId:number){browserWindowOwners.set(processId,(browserWindowOwners.get(processId)??0)+1);let released=false;return()=>{if(released)return;released=true;const count=browserWindowOwners.get(processId)??0;if(count<=1)browserWindowOwners.delete(processId);else browserWindowOwners.set(processId,count-1)}}
+const notificationToast=new NotificationToast(action=>{if(quitting||quitApproved)return;if(action.kind==='open')void expand('workspace').then(()=>emit({type:'notifications.activate',action})).catch(()=>{});else emit({type:'notifications.activate',action});},ownBrowserWindow)
 const ownApplication=()=>({processId:process.pid,bundleId:'local.nishit.windowcompanion',executablePath:app.isPackaged?process.execPath:'',ownedProcessIds:new Set(browserWindowOwners.keys())})
 type BoundCapture={capture:NativeCapture;version:number;digest:string}
 const captures=new Map<string,BoundCapture>()
@@ -227,7 +232,7 @@ function validate(value:unknown):Command{
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
-  const allowed=['inference.catalog','inference.preview','inference.select','canvas.create','canvas.save','canvas.svg','task-attention.get','task-attention.change','queue.submit','queue.edit','queue.cancel','queue.hold','schedules.get','schedules.change','memory.get','memory.change','memory.preview','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.floating','surface.hide','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['notifications.get','notifications.change','notifications.context','notifications.opened','notifications.copy','inference.catalog','inference.preview','inference.select','canvas.create','canvas.save','canvas.svg','task-attention.get','task-attention.change','queue.submit','queue.edit','queue.cancel','queue.hold','schedules.get','schedules.change','memory.get','memory.change','memory.preview','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.floating','surface.hide','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='browser.workflow.save'){const {type,...input}=c;return {type,...readBrowserWorkflowSave(input)};}
   if(c.type==='browser.workflow.run'){const {type,...input}=c;return {type,...readBrowserWorkflowRun(input)};}
   if(c.type==='browser.continue'||c.type==='browser.continue.prepare'||c.type==='browser.continue.release'){const {type,...input}=c;return {type:c.type,...readBrowserContinuationInput(input)};}
@@ -251,6 +256,7 @@ function validate(value:unknown):Command{
     if(Object.keys(c).some(key=>!keys.includes(key)))throw Error('Unknown capture request field.');
   }
   if(c.type==='inference.catalog'||c.type==='inference.preview'||c.type==='inference.select')return readRequestInferenceCommand(c);
+  if(typeof c.type==='string'&&c.type.startsWith('notifications.'))return readNotificationCommand(c);
   if(c.type==='task-attention.get'||c.type==='task-attention.change')return readTaskAttentionCommand(c);
   if(c.type==='task-pins.get'){if(Object.keys(c).some(key=>key!=='type'))throw Error('Unknown task pin field.');return {type:c.type};}
   if(c.type==='tasks.archive'){const {type,...input}=c;return {type,...readTaskArchiveChange(input)};}
@@ -667,7 +673,7 @@ function installNativeWindowMove(){
 function installNativeSourceDrag(){
  sourceDragPreview=createSourceDragPreview(()=>panel.getBounds());
  const context=()=>({anchor:!quitting&&captureSettingsHealth==='ready'&&!captureSetupReviewOpen&&!contextIntake?.capturing&&currentViewTaskId===requestedViewTaskId&&panel.getSize()[0]<=100&&!collapsePresentation&&!entrancePresentation&&(!credentialWindow||credentialWindow.isDestroyed()),key:JSON.stringify([sourceScopeKey(),documentSelectionEpoch,surfaceEpoch,collapsePresentation?.id,entrancePresentation?.id])});
- const ignoredWindowIds=()=>{const match=/^window:([1-9]\d*):[01]$/.exec(panel.getMediaSourceId());if(!match||!Number.isSafeInteger(Number(match[1])))throw Error('Native anchor identity is unavailable.');return [`window:${match[1]}`,...sourceDragPreview!.ids()];};
+ const ignoredWindowIds=()=>{const match=/^window:([1-9]\d*):[01]$/.exec(panel.getMediaSourceId());if(!match||!Number.isSafeInteger(Number(match[1])))throw Error('Native anchor identity is unavailable.');return [`window:${match[1]}`,...sourceDragPreview!.ids(),...notificationToast.ids()];};
  sourceDrag=createNativeSourceDrag({native,own:ownApplication,context,cursor:()=>screen.getCursorScreenPoint(),bounds:()=>panel.getBounds(),ignoredWindowIds,
   move:bounds=>{const work=screen.getDisplayMatching(bounds).workArea;panel.setBounds({...bounds,x:Math.max(work.x,Math.min(bounds.x,work.x+work.width-bounds.width)),y:Math.max(work.y,Math.min(bounds.y,work.y+work.height-bounds.height))});},
   checkTarget:async(target,assertCurrent)=>{const guard=()=>{assertCurrent();if(captureSettingsHealth!=='ready')throw Error('Capture privacy changed. Snapshots are paused until you review Screen & shortcut settings.');};guard();await checkCaptureTarget(target,undefined,guard);guard();},
@@ -1179,6 +1185,11 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const task=await core.getTask(owner);guard();const saved=requestInferenceSaved(task.session),prompt=c.prompt??task.session?.draft??'',kind=c.kind??(task.session?.draftKind==='create'?'create':'explain'),resolved=await resolveTaskRequestInference(task,prompt,kind,undefined,catalog);guard();const selection=resolved.selection!;codexProvider.validateInference(selection);
       return {taskId:owner,revision:saved.revision,prompt,kind,selection,decision:resolved.decision,wire:buildCodexInferenceWire(selection)};
     }
+    case 'notifications.get':return taskNotifications.view()
+    case 'notifications.context':if(c.taskId!==null)await core.getTask(c.taskId);await taskNotifications.context(c.taskId);return null
+    case 'notifications.opened':await taskNotifications.poll(true);return taskNotifications.view()
+    case 'notifications.change':{const state=await taskViewPreferences.changeNotifications(c.change);emit({type:'notifications.changed'});return state;}
+    case 'notifications.copy':{const state=await taskViewPreferences.readNotifications();if(state.kind!=='available')throw Error(state.message);const notice=state.current.notices.find(notice=>notice.id===c.noticeId);if(!notice||!('attemptId' in notice))throw Error('This notice has no study request identifier.');clipboard.writeText(notice.attemptId);return {identifier:notice.attemptId,kind:'local-study-attempt'};}
     case 'task-attention.get':return taskViewPreferences.readAttention()
     case 'task-attention.change':return taskViewPreferences.changeAttention(c.change)
     case 'task-view.get':return taskViewPreferences.read()
@@ -1465,6 +1476,7 @@ app.whenReady().then(async()=>{
   const trayImage=nativeImage.createFromDataURL(trayImageDataUrl).resize({width:18,height:18});if(process.platform==='darwin')trayImage.setTemplateImage(true)
   if(!testNoGlobalInput){tray=new Tray(trayImage);tray.setToolTip('Glint');tray.setContextMenu(Menu.buildFromTemplate([{label:'Use screen context',click:()=>void activateContext()},{label:'Open Glint',click:()=>void expand('workspace')},{label:'Show floating companion',click:()=>void openFloatingCompanion().catch(error=>dialog.showMessageBox(panel,{type:'info',message:publicErrorMessage(error)}))},{label:'Hide floating companion',click:()=>void hideFloatingCompanion().catch(()=>{})},{type:'separator'},{label:'Follow selected window this session…',click:()=>void command({type:'source.follow.enable'}).catch(error=>dialog.showMessageBox(panel,{type:'info',message:'Document following is paused',detail:publicErrorMessage(error)}))},{label:'Stop document following',click:()=>{retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');}},{label:'Document follow status…',click:()=>{const state=documentFollow.read();void dialog.showMessageBox(panel,{type:'info',message:state.kind==='off'?'Document following is off':state.automaticSnapshots==='on'?'Selected-window snapshots are on':state.automaticSnapshots==='paused'?'Selected-window snapshots are paused':'Document metadata only',detail:state.reason});}},{type:'separator'},{label:'Quit Glint',click:()=>app.quit()}]));tray.on('click',()=>void expand())}
   monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000)
+  taskNotifications.start()
   recurringWorkRunner.start()
 }).catch(error=>{if(quitting||quitApproved)return;console.error('Companion startup failed:',error.message);dialog.showErrorBox('Glint could not open',publicErrorMessage(error));app.quit()})
 let quitEpoch=0,quitting=false,quitApproved=false,quitInProgress=false,finalizingQuit=false,exitPending:{id:string;captureStarted:boolean}|undefined,exitTimeout:ReturnType<typeof setTimeout>|undefined
@@ -1474,6 +1486,7 @@ const quitDrafts=createQuitDraftBarrier({
 })
 async function stopForQuit(){
  await floatingSave;
+ await taskNotifications.close();await notificationToast.close();
  await pdfPageImports.close();
  publicGithub.cancel();
  await documentSpeech.close();
@@ -1505,7 +1518,7 @@ async function beginQuit(){
   if(!decision.allowQuit){
    // Retired work keeps its old signal and quit epoch; later gestures get a fresh cancellation scope.
    capturePrivacyAbort=new AbortController();browserInspectionAttempts.resume();
-   quitting=false;quitInProgress=false;emit({type:'draft.resume',quitId:decision.id});
+   quitting=false;quitInProgress=false;notificationToast.resume();taskNotifications.resume();emit({type:'draft.resume',quitId:decision.id});
    if(!testNoGlobalInput){shortcutRegistered=globalShortcut.register(shortcut,()=>void activateShortcut());await modifierShortcut.start();}
    monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000);recurringWorkRunner.start();return;
   }
@@ -1539,6 +1552,6 @@ app.on('before-quit',event=>{
  if(quitApproved)return;
  if(contentBackupGate.busy){event.preventDefault();return;}
  event.preventDefault();if(quitInProgress)return;quitInProgress=true;quitting=true;
- void beginQuit().catch(()=>{quitInProgress=false;quitting=false;recurringWorkRunner.start();dialog.showErrorBox('Messages could not be saved','The app stayed open. Keep a copy of your message before trying again.');});
+ void beginQuit().catch(()=>{quitInProgress=false;quitting=false;notificationToast.resume();taskNotifications.resume();recurringWorkRunner.start();dialog.showErrorBox('Messages could not be saved','The app stayed open. Keep a copy of your message before trying again.');});
 })
 app.on('window-all-closed',()=>app.quit())
