@@ -1,0 +1,10 @@
+import {Schema} from 'effect';
+const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200),Schema.filter(value=>!value.includes('\0')));
+const digest=Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/));
+const reference={taskId:id,artifactId:id,revision:Schema.Int.pipe(Schema.between(1,Number.MAX_SAFE_INTEGER)),digest};
+const command=Schema.Struct({type:Schema.Literal('image.copy'),...reference});
+export type ImageCopyCommand=typeof command.Type;
+export const readImageCopyCommand=Schema.decodeUnknownSync(command,{onExcessProperty:'error'});
+const result=Schema.Struct({kind:Schema.Literal('copied'),...reference,width:Schema.Int.pipe(Schema.positive()),height:Schema.Int.pipe(Schema.positive()),bitmapDigest:digest});
+export type ImageCopyResult=typeof result.Type;
+export const readImageCopyResult=Schema.decodeUnknownSync(result,{onExcessProperty:'error'});

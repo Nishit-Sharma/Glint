@@ -1,3 +1,4 @@
+import type {ImageCopyCommand} from './image-copy';
 import type {TaskMemoryPolicyCommand} from './task-memory-policy';
 import type {MemoryExportCommand} from './memory-export';
 import type {SystemSettingsCommand,HardwareAccelerationRuntime} from './system-settings';
@@ -54,6 +55,7 @@ import type {CodeBlockCopyCommand} from './code-block-copy';
 export type Command =
   | MemoryExportCommand
   | SystemSettingsCommand
+  | ImageCopyCommand
   | CodeBlockCopyCommand
   | {type:'cli.preferences.get'}
   | ({type:'cli.preferences.update'} & CliPreferencesUpdate)

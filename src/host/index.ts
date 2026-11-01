@@ -1,3 +1,5 @@
+import {readImageCopyCommand} from '../shared/image-copy';
+import {copySavedImage,IMAGE_COPY_BYTE_LIMIT} from './image-copy';
 import {MemoryExports} from './memory-export';
 import {readMemoryExportCommand} from '../shared/memory-export';
 import {fitFloatingBounds,type FloatingBounds} from '../shared/bot-catalog';
@@ -78,7 +80,7 @@ import {documentStampChange,persistedDocumentStamp,type DocumentBinding,type Run
 import {taskHistoryReview} from './request-review'
 import {BotPreferences} from './bot-preferences'
 import {readBotCommand} from '../shared/bot-catalog'
-import {app,BrowserWindow,clipboard,Menu,Tray,dialog,globalShortcut,ipcMain,nativeImage,safeStorage,screen,session,systemPreferences} from 'electron'
+import {app,BrowserWindow,clipboard,ClipboardItem,Menu,Tray,dialog,globalShortcut,ipcMain,nativeImage,safeStorage,screen,session,systemPreferences} from 'electron'
 import {readFile,writeFile,mkdir,rm,realpath} from 'node:fs/promises'
 import {mkdirSync} from 'node:fs'
 import {join,resolve,basename} from 'node:path'
@@ -231,6 +233,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(c.type==='image.copy')return readImageCopyCommand(c);
   if(c.type==='code-block.copy')return readCodeBlockCopy(c);
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
   if(String(c.type).startsWith('cli.'))return readCliCommand(c);
@@ -1021,6 +1024,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(isSpeechCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Listening selection changed.');};const result=await documentSpeech.command(c,guard);if(c.type==='speech.select'||c.type==='speech.generate')changed(c.taskId);return result;}
   if(isCodeCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error(CODE_WORKSPACE_ERROR);};const result=await codeWorkspaces.command(c,guard);if(['code.instructions.use','code.instructions.disable','code.folder.disconnect'].includes(c.type)){await core.markResponseContextChanged(c.taskId,guard);sourceContextEpoch++;changed(c.taskId);}else if(['code.file.open','code.file.reload','code.file.save'].includes(c.type))changed(c.taskId);return result;}
   switch(c.type){
+    case 'image.copy':return copySavedImage(c,id=>core.getTask(id),{createFromBuffer:bytes=>nativeImage.createFromBuffer(bytes),writePng:bytes=>clipboard.write([new ClipboardItem({'image/png':new Blob([new Uint8Array(bytes)])})]),readPng:async()=>{const item=(await clipboard.read()).find(item=>item.types.includes('image/png'));if(!item)throw Error('The new clipboard image is unavailable.');const data=await item.getType('image/png');if(data.size>IMAGE_COPY_BYTE_LIMIT)throw Error('The new clipboard image exceeds the copy limit.');return Buffer.from(await data.arrayBuffer());}},()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId)throw Error('Return to the owning image before copying it.');})
     case 'code-block.copy':return writeCodeBlockCopy(c,text=>clipboard.writeText(text))
     case 'conversation.export.preview':return conversationExports.preview(c)
     case 'conversation.export.save':return conversationExports.save(c,async snapshot=>{
