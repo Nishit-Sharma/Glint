@@ -1,0 +1,21 @@
+import {expect,test} from 'vitest';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID,createHash} from 'node:crypto';
+import {transformSync} from 'esbuild';
+import {createCompanion} from '../src/core/companion';
+import {pasteImageSource} from '../src/host/image-paste';
+import {readImagePasteCommand,selectedWithPastedImage} from '../src/shared/image-paste';
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=','base64');
+
+test('actual strict paste admission/dispatch adds one validated new image idempotently while preserving old sources/draft and rejection boundaries',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-image-paste-')),core=await createCompanion({dataDir:join(directory,'store')});
+ try{
+  const created=await core.createTask({title:'Owned pasted image'});await core.putSource(created.id,{kind:'text',label:'Keep context',content:'Synthetic old context',role:'fact'});await core.saveComposerDraft(created.id,0,{text:'Keep unsent message',kind:'explain'});const before=await core.getTask(created.id),input={type:'source.image.paste' as const,taskId:created.id,sourceId:randomUUID(),content:'data:image/png;base64,'+png.toString('base64')},host=await readFile('src/host/index.ts','utf8'),start=host.indexOf('function validate(value:unknown):Command{'),end=host.indexOf('  const allowed=',start);expect(start).toBeGreaterThan(0);expect(end).toBeGreaterThan(start);
+  const helpers=host.slice(host.indexOf('const object='),host.indexOf('function validateComposerValue'));const validate=new Function('readImagePasteCommand',transformSync(helpers+host.slice(start,end)+"throw Error('Unknown companion command.');}",{loader:'ts'}).code+';return validate;')(readImagePasteCommand) as (value:unknown)=>unknown;expect(validate(input)).toEqual(input);expect(()=>validate({...input,path:'/untrusted/file'})).toThrow();expect(()=>validate({...input,type:'source.image.watch'})).toThrow();
+  let active=true;const guard=()=>{if(!active)throw Error('Changed owner');},decode=()=>({isEmpty:()=>false,getSize:()=>({width:1,height:1}),toPNG:()=>png}),branchStart=host.indexOf("    case 'source.image.paste':"),branchEnd=host.indexOf("    case 'source.image':",branchStart);expect(branchEnd).toBeGreaterThan(branchStart);const code=transformSync('async function dispatch(c){const lifecycle=0;switch(c.type){'+host.slice(branchStart,branchEnd)+'}}',{loader:'ts'}).code,dispatch=new Function('pasteImageSource','core','nativeImage','assertCurrentWork','currentViewTaskId','requestedViewTaskId','sourceContextEpoch','changed',code+';return dispatch;')(pasteImageSource,core,{createFromBuffer:decode},guard,created.id,created.id,0,()=>{}) as (value:unknown)=>Promise<unknown>;
+  const saved=await dispatch(validate(input));expect(saved).toMatchObject({taskId:created.id,reference:{sourceId:input.sourceId,version:1},width:1,height:1,imageDigest:createHash('sha256').update(png).digest('hex')});const after=await core.getTask(created.id);expect(after.sources).toHaveLength(2);expect(after.sources[0]).toEqual(before.sources[0]);expect(after.sources[1].versions[0].content).toBe(input.content);expect(after.session?.draft).toBe(before.session?.draft);expect(after.session?.draftKind).toBe(before.session?.draftKind);expect(after.requests).toEqual(before.requests);expect(await dispatch(input)).toEqual(saved);expect(await core.getTask(created.id)).toEqual(after);expect(selectedWithPastedImage([before.sources[0].id],before.sources,{sourceId:input.sourceId,version:1,digest:'a'.repeat(64)})).toEqual([before.sources[0].id,input.sourceId]);
+  await expect(pasteImageSource({...input,sourceId:randomUUID(),content:'data:image/jpeg;base64,'+png.toString('base64')},core,decode,guard)).rejects.toThrow(/type/);await expect(pasteImageSource({...input,sourceId:randomUUID()},core,()=>({...decode(),getSize:()=>({width:10000,height:10000})}),guard)).rejects.toThrow(/megapixels/);active=false;await expect(dispatch({...input,sourceId:randomUUID()})).rejects.toThrow(/owner/);expect(await core.getTask(created.id)).toEqual(after);
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});

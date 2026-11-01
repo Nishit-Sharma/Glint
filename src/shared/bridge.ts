@@ -1,3 +1,4 @@
+import type {ImagePasteCommand} from './image-paste';
 import type {CsvWorkbookCommand} from './csv-workbook';
 import type {RecurringInferenceCommand} from './recurring-work';
 import type {CsvStatisticsCommand} from './csv-statistics';
@@ -124,6 +125,7 @@ export type Command =
   | ({type:'source.import.choose'} & DocumentImportOwner)
   | ({type:'source.import.cancel'} & DocumentImportOwner)
   | ({type:'source.import.add'} & DocumentImportAdd)
+  | ImagePasteCommand
   | {type:'source.image';taskId:string;role:SourceInput['role'];sourceId?:string}
   | {type:'source.follow.get'|'source.follow.enable'|'source.follow.stop'}
   | {type:'source.drag.cancel'} | {type:'source.choose'}
