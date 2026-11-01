@@ -7,7 +7,7 @@ const failure=()=>Error('This Excel workbook is unsupported, malformed or exceed
 const crcTable=Uint32Array.from({length:256},(_,i)=>{let x=i;for(let j=0;j<8;j++)x=x&1?0xedb88320^(x>>>1):x>>>1;return x>>>0;});
 function crc(bytes:Buffer){let x=0xffffffff;for(const byte of bytes)x=crcTable[(x^byte)&255]^(x>>>8);return (x^0xffffffff)>>>0;}
 /** Closed XLSX package reader: no extraction, filename authority, subprocess or remote I/O. */
-function packageParts(bytes:Buffer){
+export function packageParts(bytes:Buffer){
  if(bytes.length<22||bytes.length>20*1024*1024)throw failure();let end=-1;
  for(let at=bytes.length-22;at>=Math.max(0,bytes.length-65557);at--)if(bytes.readUInt32LE(at)===0x06054b50&&at+22+bytes.readUInt16LE(at+20)===bytes.length){end=at;break;}
  if(end<0||bytes.readUInt16LE(end+4)||bytes.readUInt16LE(end+6))throw failure();const count=bytes.readUInt16LE(end+10),size=bytes.readUInt32LE(end+12),start=bytes.readUInt32LE(end+16);
@@ -27,7 +27,7 @@ function packageParts(bytes:Buffer){
  return (name:string)=>{const part=parts.get(name);if(!part)throw failure();const packed=bytes.subarray(part.start,part.start+part.compressed),body=part.method===0?packed:inflateRawSync(packed,{maxOutputLength:Math.max(1,part.expanded)});if(body.length!==part.expanded||crc(body)!==part.crc)throw failure();return body;};
 }
 const mainNamespaces=new Set(['http://schemas.openxmlformats.org/spreadsheetml/2006/main','http://purl.oclc.org/ooxml/spreadsheetml/main']);
-function xml(bytes:Buffer,root:string,namespace?:string){
+export function xml(bytes:Buffer,root:string,namespace?:string){
  const encoding=bytes[0]===0xff&&bytes[1]===0xfe?'utf-16le':bytes[0]===0xfe&&bytes[1]===0xff?'utf-16be':'utf-8',text=new TextDecoder(encoding,{fatal:true}).decode(bytes);
  if(/<!DOCTYPE|<!ENTITY/i.test(text)||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)||(text.match(/</g)?.length??0)>100000)throw failure();
  const reject=()=>{throw failure();},doc=new DOMParser({errorHandler:{warning:reject,error:reject,fatalError:reject}}).parseFromString(text,'application/xml'),element=doc.documentElement;
@@ -35,8 +35,8 @@ function xml(bytes:Buffer,root:string,namespace?:string){
  const pending:[Node,number][]=[[doc,0]];let nodes=0;while(pending.length){const [node,depth]=pending.pop()!;if(depth>64||++nodes>150000)throw failure();for(let child=node.firstChild;child;child=child.nextSibling)pending.push([child,depth+1]);}
  return element;
 }
-function children(element:Element,name:string){return Array.from(element.childNodes).filter((node):node is Element=>node.nodeType===1&&(node as Element).localName===name&&(node as Element).namespaceURI===element.namespaceURI);}
-function one(element:Element,name:string,required=true){const found=children(element,name);if(found.length>1||required&&found.length!==1)throw failure();return found[0];}
+export function children(element:Element,name:string){return Array.from(element.childNodes).filter((node):node is Element=>node.nodeType===1&&(node as Element).localName===name&&(node as Element).namespaceURI===element.namespaceURI);}
+export function one(element:Element,name:string,required=true){const found=children(element,name);if(found.length>1||required&&found.length!==1)throw failure();return found[0];}
 const decoded=(text:string)=>text.replace(/_x([a-fA-F0-9]{4})_/g,(_,hex:string)=>String.fromCharCode(parseInt(hex,16)));
 function stringValue(element:Element){let result='';for(const child of Array.from(element.childNodes)){if(child.nodeType!==1)continue;const item=child as Element;if(item.namespaceURI!==element.namespaceURI)throw failure();if(item.localName==='t')result+=decoded(item.textContent??'');else if(item.localName==='r'){for(const text of children(item,'t'))result+=decoded(text.textContent??'');}else if(!['rPh','phoneticPr'].includes(item.localName))throw failure();}return result;}
 const positive=(text:string,limit:number)=>{if(!/^[1-9]\d*$/.test(text)||Number(text)>limit)throw failure();return Number(text);};
