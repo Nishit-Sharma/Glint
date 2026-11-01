@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {readResponsePreferencesState,readResponsePreferencesCommit,RESPONSE_PREFERENCES_LIMIT,type ResponsePreferencesSnapshot} from '../../shared/response-preferences';
+import {readResponsePreferencesState,readResponsePreferencesCommit,responsePreferencesBytes,responsePreferencesDocument,RESPONSE_PREFERENCES_FILE_LIMIT,RESPONSE_PREFERENCES_LIMIT,type ResponsePreferencesSnapshot} from '../../shared/response-preferences';
 import {Button,Field} from './ui';
 import {useNavigationDraft} from './draft-navigation';
 
@@ -13,9 +13,10 @@ export function ResponsePreferencesEditor(){
 function ResponsePreferencesForm({initial}:{initial:ResponsePreferencesSnapshot}){
  const [base,setBase]=useState(initial),[value,setValue]=useState(initial),[saving,setSaving]=useState(false),[message,setMessage]=useState(''),[blocked,setBlocked]=useState(false),lock=useRef(false),alive=useRef(true);
  const dirty=base.enabled!==value.enabled||base.text!==value.text,clearDraft=useNavigationDraft(dirty||saving);
+ const textBytes=responsePreferencesBytes(value.text),fileBytes=responsePreferencesBytes(responsePreferencesDocument({...value,revision:base.revision+1})),tooLarge=textBytes>RESPONSE_PREFERENCES_LIMIT||fileBytes>RESPONSE_PREFERENCES_FILE_LIMIT;
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  async function save(){
-  if(lock.current||blocked||!dirty)return;lock.current=true;setSaving(true);setMessage('');
+  if(lock.current||blocked||!dirty||tooLarge)return;lock.current=true;setSaving(true);setMessage('');
   try{
    const result=readResponsePreferencesCommit(await window.companion.invoke({type:'response-preferences.update',expectedRevision:base.revision,enabled:value.enabled,text:value.text}));
    if(!alive.current)return;
@@ -36,9 +37,10 @@ function ResponsePreferencesForm({initial}:{initial:ResponsePreferencesSnapshot}
   <p id="response-preferences-scope" className="preference-explanation">When enabled, this saved text goes to your selected AI service with each text question or draft. After the initial provider approval, Ask sends immediately. These preferences do not apply to revisions, screen actions or browser work. Saving a change stops requests using the earlier preferences; a request already sent may still complete or incur charges.</p>
   <label className="row"><input type="checkbox" checked={value.enabled} disabled={saving} aria-describedby="response-preferences-scope" onChange={event=>{setValue(previous=>({...previous,enabled:event.target.checked}));setMessage('');}}/>Enable saved response preferences</label>
   <Field label="Tone and formatting guidance"><textarea rows={7} maxLength={RESPONSE_PREFERENCES_LIMIT} value={value.text} disabled={saving} aria-describedby="response-preferences-help" onChange={event=>{setValue(previous=>({...previous,text:event.target.value}));setMessage('');}}/></Field>
-  <p className="tiny" id="response-preferences-help">{value.text.length} / {RESPONSE_PREFERENCES_LIMIT} characters. Keep passwords and secrets out. Off text stays local. Changes take effect after Save.</p>
+  <p className="tiny" id="response-preferences-help">{textBytes} / {RESPONSE_PREFERENCES_LIMIT} UTF-8 bytes of instruction text. The complete saved file must also fit {RESPONSE_PREFERENCES_FILE_LIMIT} bytes, including JSON encoding. Off text stays local. Changes take effect after Save.</p>
+  {tooLarge&&<p role="alert">Shorten the instructions to fit the text and complete-file byte limits. Your saved instructions are kept.</p>}
   {message&&<p role={blocked?'alert':'status'}>{message}</p>}
   {blocked&&<Button disabled={saving} onClick={()=>void load()}>Load saved preferences and replace these edits</Button>}
-  <div className="row"><Button type="submit" disabled={saving||!dirty||blocked}>{saving?'Saving…':'Save response preferences'}</Button><Button disabled={saving||!dirty} onClick={()=>{setValue(base);setBlocked(false);setMessage('Unsaved changes discarded.');clearDraft();}}>Discard changes</Button></div>
+  <div className="row"><Button type="submit" disabled={saving||!dirty||blocked||tooLarge}>{saving?'Saving…':'Save response preferences'}</Button><Button disabled={saving||!value.text} onClick={()=>{setValue(previous=>({...previous,text:''}));setMessage('Instruction text cleared in this editor. Save to remove the saved text.');}}>Clear instruction text</Button><Button disabled={saving||!dirty} onClick={()=>{setValue(base);setBlocked(false);setMessage('Unsaved changes discarded.');clearDraft();}}>Discard changes</Button></div>
  </form>;
 }

@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {Schema} from 'effect';
 import {isCode} from '../core/store';
 import {TASK_HISTORY_LIMIT} from '../core/task-dialogue';
-import {ResponsePreferencesSnapshotSchema,readResponsePreferencesUpdate,RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT,type ResponsePreferencesSnapshot,type ResponsePreferencesState,type ResponsePreferencesCommit} from '../shared/response-preferences';
+import {ResponsePreferencesSnapshotSchema,readResponsePreferencesUpdate,responsePreferencesDocument,responsePreferencesBytes,RESPONSE_PREFERENCES_FILE_LIMIT,RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT,type ResponsePreferencesSnapshot,type ResponsePreferencesState,type ResponsePreferencesCommit} from '../shared/response-preferences';
 
 const FileSchema=Schema.Struct({schemaVersion:Schema.Literal(1),...ResponsePreferencesSnapshotSchema.fields});
 const unavailable:ResponsePreferencesState={kind:'unavailable',message:RESPONSE_PREFERENCES_UNAVAILABLE};
@@ -26,7 +26,7 @@ export class ResponsePreferences {
  private async load():Promise<ResponsePreferencesState>{
   try{
    const file=await open(join(this.directory,'response-preferences.json'),'r');
-   try{if((await file.stat()).size>20_000)return unavailable;const {schemaVersion,...current}=Schema.decodeUnknownSync(FileSchema,{onExcessProperty:'error'})(JSON.parse(await file.readFile('utf8')));return {kind:'available',current};}finally{await file.close();}
+   try{if((await file.stat()).size>RESPONSE_PREFERENCES_FILE_LIMIT)return unavailable;const {schemaVersion,...current}=Schema.decodeUnknownSync(FileSchema,{onExcessProperty:'error'})(JSON.parse(await file.readFile('utf8')));return {kind:'available',current};}finally{await file.close();}
   }catch(error){return isCode(error,'ENOENT')?{kind:'available',current:{...defaultValue}}:unavailable;}
  }
  read(){return this.serialize(()=>this.load());}
@@ -37,10 +37,11 @@ export class ResponsePreferences {
    if(update.expectedRevision!==state.current.revision)return {kind:'conflict',current:state.current};
    if(state.current.revision===Number.MAX_SAFE_INTEGER)throw Error('Response preference revision limit reached. Your preferences were preserved.');
    const current:ResponsePreferencesSnapshot={revision:state.current.revision+1,enabled:update.enabled,text:update.text};
+   const document=responsePreferencesDocument(current);if(responsePreferencesBytes(document)>RESPONSE_PREFERENCES_FILE_LIMIT)throw Error('The complete saved instructions exceed the 20,000-byte file limit after JSON encoding. Shorten the text. Your previous instructions are kept.');
    await mkdir(this.directory,{recursive:true,mode:0o700});
    const temporary=join(this.directory,`.response-preferences-${randomUUID()}.tmp`);let renamed=false;
    try{
-    const file=await open(temporary,'wx',0o600);try{await file.writeFile(JSON.stringify({schemaVersion:1,...current}));await file.sync();}finally{await file.close();}
+    const file=await open(temporary,'wx',0o600);try{await file.writeFile(document);await file.sync();}finally{await file.close();}
     assertCurrent();await rename(temporary,join(this.directory,'response-preferences.json'));renamed=true;
     this.changes.abort(Error(RESPONSE_PREFERENCES_CHANGED));this.changes=new AbortController();
     const directory=await open(this.directory,'r');try{await directory.sync();}finally{await directory.close();}

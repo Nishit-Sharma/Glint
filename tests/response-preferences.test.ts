@@ -12,7 +12,7 @@ test('opt-in preferences persist, bind exact enabled text and retire an old disp
 test('bounded closed updates preserve unavailable bytes and compare revisions after an unobserved save',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'response-preferences-')),prefs=new ResponsePreferences(directory);
  try{
-  for(const invalid of [{expectedRevision:0,enabled:true,text:'x',permissions:['capture']},{expectedRevision:-1,enabled:false,text:''},{expectedRevision:0,enabled:'yes',text:''},{expectedRevision:0,enabled:true,text:'x'.repeat(4001)}])expect(()=>prefs.update(invalid)).toThrow();
+  for(const invalid of [{expectedRevision:0,enabled:true,text:'x',permissions:['capture']},{expectedRevision:-1,enabled:false,text:''},{expectedRevision:0,enabled:'yes',text:''},{expectedRevision:0,enabled:true,text:'x'.repeat(20001)}])expect(()=>prefs.update(invalid)).toThrow();
   await prefs.update({expectedRevision:0,enabled:true,text:'Exact whitespace  \n α 👋'}); // Caller can lose this acknowledgement.
   expect(await prefs.update({expectedRevision:0,enabled:false,text:'would overwrite'})).toMatchObject({kind:'conflict',current:{revision:1,enabled:true,text:'Exact whitespace  \n α 👋'}});
   const {writeFile}=await import('node:fs/promises'),path=join(directory,'response-preferences.json'),bytes='{"schemaVersion":999,"private":"preserve unfamiliar bytes"}';await writeFile(path,bytes);

@@ -663,6 +663,9 @@ export class Companion {
       const saved={revision:current.revision+1,selection:chosen,...(policy==='automatic'?{policy}:{})};task.session={...session,requestInference:saved,revision:session.revision+1};task.updatedAt=this.time();return {taskId,...saved};
     }));
   }
+  markResponseContextChanged(taskId:string,assertCurrent:()=>void=()=>{}):Promise<Task>{
+    return this.exclusive(()=>this.commit(state=>{assertCurrent();const task=this.task(state,taskId),session=task.session??emptyTaskSession();if(task.status!=='active'||task.archive||(session.contextRevision??0)===Number.MAX_SAFE_INTEGER)throw Error('The response context cannot be changed for this task.');task.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1};task.updatedAt=this.time();return task;}));
+  }
   saveComposerDraft(taskId:string,expectedDraftRevision:number,value:{text:string;kind:ComposerKind}):Promise<ComposerDraft>{
     let next:typeof ComposerValueSchema.Type;
     try{next=Schema.decodeUnknownSync(ComposerValueSchema,{onExcessProperty:'error'})(value);}catch{return Promise.reject(new CompanionError('invalid','Composer draft needs bounded text and a supported request type.'));}

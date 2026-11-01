@@ -1,11 +1,14 @@
 import {Schema} from 'effect';
 
-export const RESPONSE_PREFERENCES_LIMIT=4_000;
+export const RESPONSE_PREFERENCES_LIMIT=20_000;
+export const RESPONSE_PREFERENCES_FILE_LIMIT=20_000;
+export const responsePreferencesBytes=(text:string)=>new TextEncoder().encode(text).length;
+export const responsePreferencesDocument=(current:{revision:number;enabled:boolean;text:string})=>JSON.stringify({schemaVersion:1,...current});
 export const RESPONSE_PREFERENCES_CHANGED='Response preferences changed. Review the current preferences and send a new request. An earlier request may already have reached the service; its outcome and charges are unverified.';
 export const RESPONSE_PREFERENCES_UNAVAILABLE='Your saved response preferences could not be opened. They have not been changed. Review Responses in Settings before sending a new question.';
 export const RESPONSE_PREFERENCES_CONTEXT_LIMIT='The task context and response preferences exceed the safe context limit. Shorten the preferences or turn them off before sending a new question. Nothing was sent.';
 const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_INTEGER));
-const text=Schema.String.pipe(Schema.maxLength(RESPONSE_PREFERENCES_LIMIT));
+const text=Schema.String.pipe(Schema.filter(value=>responsePreferencesBytes(value)<=RESPONSE_PREFERENCES_LIMIT));
 export const ResponsePreferencesSnapshotSchema=Schema.Struct({revision,enabled:Schema.Boolean,text});
 export const ResponsePreferencesUpdateSchema=Schema.Struct({expectedRevision:revision,enabled:Schema.Boolean,text});
 export type ResponsePreferencesSnapshot=typeof ResponsePreferencesSnapshotSchema.Type;
