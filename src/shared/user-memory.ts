@@ -3,6 +3,7 @@ import type {Project} from './projects';
 
 export const MEMORY_FACT_LIMIT=800;
 export const MEMORY_FACT_COUNT=40;
+export const MEMORY_HISTORY_LIMIT=1000;
 export const MEMORY_REQUEST_FACTS=8;
 export const MEMORY_REQUEST_CHARACTERS=4_000;
 export const MEMORY_CHANGED='Memory changed. Send a new question using the current memory. An earlier request may already have reached the service.';
@@ -12,7 +13,11 @@ const text=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(MEMORY_FACT_L
 const topic=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(60),Schema.filter(value=>!!value.trim()&&!value.includes('\0')));
 const topics=Schema.mutable(Schema.Array(topic).pipe(Schema.maxItems(8)));
 export const MemoryFactSchema=Schema.Struct({id,revision,text,topics});
-export const UserMemorySchema=Schema.Struct({revision,enabled:Schema.Boolean,facts:Schema.mutable(Schema.Array(MemoryFactSchema).pipe(Schema.maxItems(MEMORY_FACT_COUNT)))}).pipe(Schema.filter(value=>new Set(value.facts.map(fact=>fact.id)).size===value.facts.length&&value.facts.every(fact=>fact.revision<=value.revision)));
+const positiveRevision=revision.pipe(Schema.positive());
+const utc=Schema.String.pipe(Schema.filter(value=>{try{return new Date(value).toISOString()===value;}catch{return false;}}));
+export const MemoryHistoryEventSchema=Schema.Struct({factId:id,revision:positiveRevision,factRevision:positiveRevision,at:utc,kind:Schema.Literal('added','modified'),fields:Schema.mutable(Schema.Array(Schema.Literal('text','topics')).pipe(Schema.minItems(1),Schema.maxItems(2),Schema.filter(fields=>new Set(fields).size===fields.length)))}).pipe(Schema.filter(event=>event.factRevision===event.revision&&(event.kind!=='added'||event.fields.length===2)));
+export type MemoryHistoryEvent=typeof MemoryHistoryEventSchema.Type;
+export const UserMemorySchema=Schema.Struct({revision,enabled:Schema.Boolean,facts:Schema.mutable(Schema.Array(MemoryFactSchema).pipe(Schema.maxItems(MEMORY_FACT_COUNT))),history:Schema.optional(Schema.mutable(Schema.Array(MemoryHistoryEventSchema).pipe(Schema.maxItems(MEMORY_HISTORY_LIMIT))))}).pipe(Schema.filter(value=>new Set(value.facts.map(fact=>fact.id)).size===value.facts.length&&value.facts.every(fact=>fact.revision<=value.revision)&&(value.history??[]).every((event,index,events)=>event.revision<=value.revision&&(!index||events[index-1].revision<event.revision)&&value.facts.some(fact=>fact.id===event.factId&&event.factRevision<=fact.revision))));
 const ref=Schema.Struct({id,revision});
 const useFields={revision,status:Schema.Literal('off','included','no-match'),facts:Schema.mutable(Schema.Array(ref).pipe(Schema.maxItems(MEMORY_REQUEST_FACTS))),omitted:Schema.Number.pipe(Schema.int(),Schema.between(0,MEMORY_FACT_COUNT))};
 const validUse=(value:{status:string;facts:readonly unknown[]})=>value.status==='included'?value.facts.length>0:value.facts.length===0;

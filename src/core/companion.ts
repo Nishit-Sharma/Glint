@@ -11,7 +11,7 @@ import {changeLocalContacts} from './local-contacts';
 import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
-import {emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
+import {MEMORY_HISTORY_LIMIT,type MemoryHistoryEvent,emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
 import {selectTaskMemory as selectScopedTaskMemory,taskMemoryConsent,readMemoryPreviewInput} from '../shared/project-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
@@ -291,6 +291,10 @@ export class Companion {
     return this.exclusive(async()=>{
       const current=this.state.userMemory??emptyUserMemory();
       if(value.expectedRevision!==current.revision)return {kind:'conflict',current:clone(current)};
+      const requested=value.change,previous=requested.kind==='save'&&requested.id?current.facts.find(fact=>fact.id===requested.id):undefined;
+      const savedTopics=requested.kind==='save'?[...new Set(requested.topics.map(topic=>topic.trim()).filter(Boolean))]:[];
+      const changedFields:MemoryHistoryEvent['fields']=requested.kind==='save'?(previous?([...((previous.text!==requested.text)?['text' as const]:[]),...((JSON.stringify(previous.topics)!==JSON.stringify(savedTopics))?['topics' as const]:[])]):['text','topics']):[];
+      if(requested.kind==='save'&&previous&&!changedFields.length)return {kind:'saved' as const,current:clone(current)};
       if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Memory revision limit reached. Saved memory is preserved.');
       const result=await this.commit(state=>{
         assertCurrent();const next={...clone(current),revision:current.revision+1},change=value.change;
@@ -298,12 +302,14 @@ export class Companion {
         else if(change.kind==='forget'){
           if(!next.facts.some(fact=>fact.id===change.id))reject('not-found','This memory fact was already forgotten.');
           next.facts=next.facts.filter(fact=>fact.id!==change.id);
+          if(next.history)next.history=next.history.filter(event=>event.factId!==change.id);
         }else{
           const previous=change.id?next.facts.find(fact=>fact.id===change.id):undefined;
           if(change.id&&!previous)reject('not-found','This memory fact was already forgotten.');
           if(!previous&&next.facts.length>=MEMORY_FACT_COUNT)reject('invalid',`Keep at most ${MEMORY_FACT_COUNT} memory facts. Forget a fact before adding another.`);
-          const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:[...new Set(change.topics.map(topic=>topic.trim()).filter(Boolean))]};
+          const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:savedTopics};
           if(previous)next.facts[next.facts.indexOf(previous)]=fact;else next.facts.push(fact);
+          next.history=[...(next.history??[]),{factId:fact.id,revision:next.revision,factRevision:fact.revision,at:this.time(),kind:previous?'modified' as const:'added' as const,fields:changedFields}].slice(-MEMORY_HISTORY_LIMIT);
         }
         state.userMemory=next;return {kind:'saved' as const,current:next};
       });
