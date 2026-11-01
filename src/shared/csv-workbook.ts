@@ -1,0 +1,11 @@
+import {Schema} from 'effect';
+import type {SourceRef} from '../core/types';
+import type {CsvChartData} from './csv-chart';
+const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));
+const digest=Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/));
+const source=Schema.Struct({sourceId:id,version:Schema.Int.pipe(Schema.positive()),digest});
+const command=Schema.Union(Schema.Struct({type:Schema.Literal('workbook.preview'),taskId:id,source}),Schema.Struct({type:Schema.Literal('workbook.save'),taskId:id,source,dataDigest:digest}));
+export type CsvWorkbookCommand=typeof command.Type;
+export const readCsvWorkbookCommand=Schema.decodeUnknownSync(command,{onExcessProperty:'error'});
+export type CsvWorkbookPreview=CsvChartData&{rows:number;columns:number;cells:number;byteLength:number;workbookDigest:string};
+export type CsvWorkbookResult={kind:'cancelled'}|{kind:'saved'|'unconfirmed';path:string;source:SourceRef;dataDigest:string;workbookDigest:string;byteLength:number;rows:number;columns:number;cells:number};

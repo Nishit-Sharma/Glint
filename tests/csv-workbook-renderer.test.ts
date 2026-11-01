@@ -1,0 +1,30 @@
+import {expect,test,vi} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('./controlled-renderer.fixture')).hooks}));
+import {createElement} from 'react';
+import {transformSync} from 'esbuild';
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {createCompanion} from '../src/core/companion';
+import {DocumentImports} from '../src/host/document-import';
+import {CsvWorkbooks} from '../src/host/csv-workbook';
+import {readCsvWorkbookCommand} from '../src/shared/csv-workbook';
+import {CsvWorkbook} from '../src/renderer/src/components/CsvWorkbook';
+import type {Command} from '../src/shared/bridge';
+import {createControlledRenderer} from './controlled-renderer.fixture';
+
+test('real workbook UI and production admission/dispatch cancel or create the exact source file, retiring stale-source Save without task mutation',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-workbook-ui-')),core=await createCompanion({dataDir:join(directory,'store')});
+ try{
+  const file=join(directory,'owned.csv');await writeFile(file,'Category,Value\n"A & <one>",-4\nB,12\nC,0\n');const created=await core.createTask({title:'Owned workbook UI'}),imports=new DocumentImports(core,async()=>file),owner={taskId:created.id,attemptId:randomUUID()},review=await imports.pick(owner,()=>{});if(review.kind!=='review')throw Error('No real review');const imported=await imports.add({...owner,label:'Owned workbook CSV',content:review.text,role:'fact'},()=>{});let task=await core.getTask(created.id),destination:string|null=null,tail:Promise<unknown>=Promise.resolve();const before=task,workbooks=new CsvWorkbooks(id=>core.getTask(id),async()=>destination),source=await readFile('src/host/index.ts','utf8'),start=source.indexOf('function validate(value:unknown):Command{'),end=source.indexOf("  if(String(c.type).startsWith('statistics.'))",start),helpers=source.slice(source.indexOf('const object='),source.indexOf('function validateComposerValue'));
+  const admission=transformSync(helpers+source.slice(start,end)+"\nthrow Error('Outside workbook admission');\n}",{loader:'ts'}).code,validate=new Function('readCsvWorkbookCommand',admission+'\nreturn validate;')(readCsvWorkbookCommand) as (input:unknown)=>unknown;expect(()=>validate({type:'workbook.save',taskId:task.id,source:imported.reference,dataDigest:'0'.repeat(64),path:'/untrusted/path.xlsx'})).toThrow();expect(()=>validate({type:'workbook.execute',taskId:task.id})).toThrow();
+  const branchStart=source.indexOf("    case 'workbook.preview':"),branchEnd=source.indexOf("    case 'statistics.data':",branchStart);if(start<0||end<start||branchStart<0||branchEnd<branchStart)throw Error('Production workbook route unavailable');const dispatchCode=transformSync('async function dispatch(c){const lifecycle=0;switch(c.type){'+source.slice(branchStart,branchEnd)+'}}',{loader:'ts'}).code,dispatch=new Function('csvWorkbooks','assertCurrentWork','currentViewTaskId','requestedViewTaskId','sourceContextEpoch',dispatchCode+'\nreturn dispatch;')(workbooks,()=>{},task.id,task.id,0) as (input:unknown)=>Promise<unknown>;
+  const calls:Command[]=[];vi.stubGlobal('window',{companion:{invoke(input:Command){calls.push(input);const operation=dispatch(validate(input));tail=operation;return operation;}}});
+  const renderer=createControlledRenderer(()=>createElement(CsvWorkbook,{task,source:imported.reference,busy:false,isCurrent:()=>true,onBack(){}}));type Node=ReturnType<typeof renderer.nodes>[number];const text=(node:Node):string=>node.type==='#text'?node.props.text:node.children.map(text).join(''),button=()=>renderer.find(node=>node.type==='button'&&text(node)==='Create .xlsx file…'),settle=async()=>{await tail;await Promise.resolve();await Promise.resolve();renderer.render();};
+  renderer.render();await settle();expect(button().props.disabled).toBe(false);expect(renderer.nodes().filter(node=>node.type==='#text').map(text).join(' ')).toContain('all cells Text');button().props.onClick();await settle();expect(renderer.nodes().filter(node=>node.type==='#text').map(text).join(' ')).toContain('Cancelled. No workbook was created.');expect(await core.getTask(task.id)).toEqual(before);
+  destination=join(directory,'owned-ui.xlsx');button().props.onClick();await settle();expect((await readFile(destination)).subarray(0,4)).toEqual(Buffer.from([0x50,0x4b,0x03,0x04]));expect(renderer.nodes().filter(node=>node.type==='#text').map(text).join(' ')).toContain('Workbook saved and its exact bytes verified.');expect(await core.getTask(task.id)).toEqual(before);
+  task=await core.putSource(task.id,{id:imported.reference.sourceId,kind:'text',role:'fact',label:'Updated source',content:'Category,Value\nX,99\n'});renderer.render();expect(button().props.disabled).toBe(true);expect(renderer.nodes().filter(node=>node.type==='#text').map(text).join(' ')).toContain('This source has changed.');expect(calls.every(input=>input.type==='workbook.preview'||input.type==='workbook.save')).toBe(true);
+ }
+ finally{vi.unstubAllGlobals();await core.close();await rm(directory,{recursive:true,force:true});}
+});
