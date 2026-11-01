@@ -1038,7 +1038,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     case 'projects.list':case 'projects.pins.get':case 'projects.sidebar.get':case 'projects.memory.get':case 'projects.delete.preview':return core.projectCommand(c)
     case 'projects.delete':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle)),cleanup=saved.mode==='delete-tasks'?await cleanupDeletedTasks(saved.taskIds,true):{};changed();return {...saved,...cleanup};}
     case 'projects.memory.change':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));if(saved.kind==='saved')changed();return saved;}
-    case 'projects.assign.bulk':case 'projects.sidebar.set':case 'projects.pins.set':case 'projects.create':case 'projects.update':case 'projects.assign':case 'projects.sources.add':case 'projects.sources.update':case 'projects.sources.remove':case 'projects.sources.use':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));changed();return saved;}
+    case 'projects.archive':case 'projects.assign.bulk':case 'projects.sidebar.set':case 'projects.pins.set':case 'projects.create':case 'projects.update':case 'projects.assign':case 'projects.sources.add':case 'projects.sources.update':case 'projects.sources.remove':case 'projects.sources.use':{const saved=await core.projectCommand(c,()=>assertCurrentWork(lifecycle));changed();return saved;}
     case 'source.follow.get':return documentFollow.read()
     case 'source.follow.enable':return documentFollow.enable()
     case 'source.follow.stop':retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');return documentFollow.read()

@@ -1,6 +1,6 @@
 import {useId,useState} from 'react';
 import type {Task} from '../../../core/types';
-import {projectSourceVersion,type Project,type ProjectSource} from '../../../shared/projects';
+import {isProjectArchived,projectSourceVersion,type Project,type ProjectSource} from '../../../shared/projects';
 import {sourceRoleLabel} from '../../../shared/public-messages';
 import {Button,Field} from '../ui';
 import './project-directory.css';
@@ -16,19 +16,21 @@ export type ProjectDirectoryProps={
 };
 
 export function ProjectDirectory({projects,tasks,selected,onSelect,busy,loadError}:ProjectDirectoryProps){
- const [query,setQuery]=useState(''),hintId=useId(),needle=query.trim().toLocaleLowerCase();
- const entries=projects?.map(project=>({project,members:tasks.filter(task=>task.projectId===project.id).length,matches:needle?project.sources.flatMap(source=>{const version=projectSourceVersion(source,tasks);return version?.label.toLocaleLowerCase().includes(needle)?[version.label]:[];}):[]}));
+ const [query,setQuery]=useState(''),[archived,setArchived]=useState(false),hintId=useId(),needle=query.trim().toLocaleLowerCase();
+ const scoped=projects?.filter(project=>isProjectArchived(project)===archived);
+ const entries=scoped?.map(project=>({project,members:tasks.filter(task=>task.projectId===project.id).length,matches:needle?project.sources.flatMap(source=>{const version=projectSourceVersion(source,tasks);return version?.label.toLocaleLowerCase().includes(needle)?[version.label]:[];}):[]}));
  const visible=entries?.filter(({project,matches})=>!needle||project.name.toLocaleLowerCase().includes(needle)||matches.length>0);
  const current=projects?.find(project=>project.id===selected),selectedHidden=!!current&&!visible?.some(entry=>entry.project.id===selected);
  return <section className="project-directory" aria-label="Project directory" aria-busy={busy}>
   {!projects?<p role="status">{loadError?'Project list unavailable. Reload projects to try again.':'Loading projects…'}</p>:!projects.length?<p>No projects yet. Create one, then add your tasks.</p>:<>
+   <Field label="Project view"><select value={archived?'archived':'active'} onChange={event=>setArchived(event.currentTarget.value==='archived')}><option value="active">Active projects</option><option value="archived">Archived projects</option></select></Field>
    <div className="project-directory-search">
     <Field label="Find projects or pinned sources"><input type="search" value={query} maxLength={200} aria-describedby={hintId} onChange={event=>setQuery(event.currentTarget.value)}/></Field>
     {query&&<Button title="Clear project search" onClick={()=>setQuery('')}>Clear</Button>}
    </div>
    <p id={hintId} className="tiny">Search saved project names and pinned source labels on this device.</p>
    {loadError&&<p className="tiny" role="status">Showing previously loaded projects. Reload projects to confirm the list.</p>}
-   <p className="project-directory-status" role="status">{needle?`${visible?.length??0} of ${projects.length} projects`:`${projects.length} ${projects.length===1?'project':'projects'}`}{selectedHidden?` · Selected project: ${current.name} (outside search results)`:''}</p>
+   <p className="project-directory-status" role="status">{needle?`${visible?.length??0} of ${scoped!.length} projects`:`${scoped!.length} ${scoped!.length===1?'project':'projects'}`}{archived?' · Archived':''}{selectedHidden?` · Selected project: ${current.name} (outside search results)`:''}</p>
    {visible?.length?<ul className="project-directory-list" aria-label="Saved projects">{visible.map(({project,members,matches})=><li key={project.id} data-project-directory-entry={project.id}>
     <button type="button" className="project-directory-choice" aria-label={'Open project '+project.name} aria-pressed={selected===project.id} disabled={busy} onClick={()=>{if(!busy&&selected!==project.id)onSelect(project.id);}}>
      <span className="project-directory-name">{project.name}</span>
@@ -36,7 +38,7 @@ export function ProjectDirectory({projects,tasks,selected,onSelect,busy,loadErro
     </button>
     {needle&&matches.length>0&&!project.name.toLocaleLowerCase().includes(needle)&&<p className="project-directory-match">Matched pinned {matches.length===1?'source':'sources'}: {matches.slice(0,2).join(', ')}{matches.length>2?` and ${matches.length-2} more`:''}</p>}
     {project.sources.length?<details className="project-directory-sources"><summary>Pinned sources in {project.name}</summary><ul aria-label={'Pinned sources in '+project.name}>{project.sources.map(source=><PinnedSource key={source.id+':'+source.reference.version+':'+source.reference.digest} source={source} projectId={project.id} tasks={tasks}/>)}</ul></details>:<p className="project-directory-no-sources">No pinned sources.</p>}
-   </li>)}</ul>:<p>No matching projects. Try a project name or pinned source label.</p>}
+   </li>)}</ul>:<p>{!scoped?.length?(archived?'No archived projects.':'No active projects. Archived projects remain available in the Archived projects view.'):'No matching projects. Try a project name or pinned source label.'}</p>}
   </>}
  </section>;
 }

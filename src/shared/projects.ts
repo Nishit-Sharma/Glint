@@ -11,8 +11,11 @@ const PinsRevision=Schema.Int.pipe(Schema.nonNegative(),Schema.filter(Number.isS
 const Reference=Schema.Struct({sourceId:Id,version:Revision,digest:bounded(128).pipe(Schema.minLength(1))});
 const Name=bounded(200).pipe(Schema.filter(value=>value.trim().length>0));
 export const ProjectSourceSchema=Schema.Struct({id:Id,taskId:Id,reference:Reference});
-export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64)),memory:Schema.optional(UserMemorySchema)}));
+const ProjectArchiveSchema=Schema.Struct({revision:Revision,archived:Schema.Boolean,updatedAt:Schema.String.pipe(Schema.filter(value=>Number.isFinite(Date.parse(value))))});
+export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64)),memory:Schema.optional(UserMemorySchema),archive:Schema.optional(ProjectArchiveSchema)}));
 export type Project=typeof ProjectSchema.Type;
+export const isProjectArchived=(project:Project):boolean=>project.archive?.archived===true;
+export const activeProjects=(projects:readonly Project[]):Project[]=>projects.filter(project=>!isProjectArchived(project));
 export type ProjectSource=typeof ProjectSourceSchema.Type;
 export const ProjectPinsSchema=Schema.mutable(Schema.Struct({revision:PinsRevision,projectIds:Schema.mutable(Schema.Array(Id))})).pipe(Schema.filter(pins=>new Set(pins.projectIds).size===pins.projectIds.length));
 export type ProjectPins=typeof ProjectPinsSchema.Type;
@@ -24,6 +27,7 @@ export type ProjectAssignment=typeof Assignment.Type;
 const Assignments=Schema.Array(Assignment).pipe(Schema.minItems(1),Schema.filter(tasks=>new Set(tasks.map(task=>task.taskId)).size===tasks.length));
 const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.list')}),
+ Schema.Struct({type:Schema.Literal('projects.archive'),projectId:Id,expectedRevision:PinsRevision,archived:Schema.Boolean}),
  Schema.Struct({type:Schema.Literal('projects.delete.preview'),projectId:Id}),
  ProjectDeleteCommandSchema,
  Schema.Struct({type:Schema.Literal('projects.memory.get'),projectId:Id}),

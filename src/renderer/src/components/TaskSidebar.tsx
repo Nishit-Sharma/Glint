@@ -1,7 +1,7 @@
 import {ChevronDown,ChevronRight,Clock,Folder,Pin,Plus,Search,Settings,Star} from 'lucide-react';
 import {useId,useState,type ReactNode} from 'react';
 import type {Task} from '../../../core/types';
-import type {Project} from '../../../shared/projects';
+import {activeProjects,type Project} from '../../../shared/projects';
 import {taskAttentionLabel,tasksForReviewFilter,type TaskReviewFilter} from '../task-outcome-review';
 import {isTaskUnread,type TaskAttentionState} from '../../../shared/task-attention';
 import {TaskAttentionFilter} from './TaskAttentionFilter';
@@ -20,7 +20,7 @@ export function TaskSidebar({character,avatar,tasks,attention,attentionError,pin
  const [search,setSearch]=useState('');
  const projectListId=useId();
  const filtered=orderTaskList(tasksForReviewFilter(tasks,reviewFilter,attention).filter(task=>task.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())),pinnedTaskIds);
- const orderedProjects=projects?[...projects].sort((a,b)=>Number(pinnedProjectIds.includes(b.id))-Number(pinnedProjectIds.includes(a.id))):undefined;
+ const orderedProjects=projects?activeProjects(projects).sort((a,b)=>Number(pinnedProjectIds.includes(b.id))-Number(pinnedProjectIds.includes(a.id))):undefined;
  return <aside data-generation-live-region className="task-sidebar" aria-label="Task navigation">
   {character}<div className="roster-toolbar"><button type="button" className="task-sidebar-new" onClick={onCreateTask}><Plus size={17} aria-hidden="true"/><span>New task</span></button></div>
   {onReviewFilter&&<TaskAttentionFilter tasks={tasks} filter={reviewFilter} state={attention} error={attentionError} onChange={onReviewFilter}/>}

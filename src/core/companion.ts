@@ -31,7 +31,7 @@ import {readResponseBranchInput,responseBranchSnapshot} from './response-branch'
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
 import {defaultReadingPreferences,readReadingCommand,type ReadingPreferences,type ReadingCommit} from '../shared/reading-view';
-import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,projectSourceCopyExists,type ProjectCommand,type ProjectReply,type Project,type ProjectSource,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
+import {readProjectCommand,isProjectArchived,projectSourceMatches,projectSourceVersion,projectSourceInTask,projectSourceCopyExists,type ProjectCommand,type ProjectReply,type Project,type ProjectSource,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
 import {taskDeletionBlocker,type ProjectDeletePreview,type ProjectDeleteResult} from '../shared/project-deletion';
 import {encodeProjectDeletion,findProjectDeletion} from './project-deletion-receipt';
 import {encodeProjectCreation,findProjectCreation} from './project-creation-receipt';
@@ -437,6 +437,10 @@ export class Companion {
     const project=state.projects?.find(item=>item.id===id);
     return project??reject('not-found','Project was not found.');
   }
+  private editableProject(state:State,id:string):Project{
+    const project=this.project(state,id);
+    return isProjectArchived(project)?reject('conflict','Restore this archived project before changing or deleting it.'):project;
+  }
   private projectGuidance(state:State,task:Task):ProjectInstructions|undefined{
     if(!task.projectId)return undefined;
     const project=this.project(state,task.projectId);
@@ -469,15 +473,22 @@ export class Companion {
     return this.exclusive(async()=>{
       assertCurrent();
       if(command.type==='projects.list')return clone(this.state.projects??[]);
+      if(command.type==='projects.archive'){
+        const project=this.project(this.state,command.projectId),revision=project.archive?.revision??0;
+        if(isProjectArchived(project)===command.archived&&(command.expectedRevision===revision||command.expectedRevision===revision-1))return clone(project);
+        if(command.expectedRevision!==revision)reject('conflict','Project archive state changed. Reload projects before trying again.');
+        if(revision===Number.MAX_SAFE_INTEGER)reject('invalid','Project archive revision limit reached. The project is kept.');
+        return this.commit(state=>{assertCurrent();const saved=this.project(state,command.projectId);saved.archive={revision:revision+1,archived:command.archived,updatedAt:this.time()};return saved;});
+      }
       if(command.type==='projects.delete.preview'){
-        const project=this.project(this.state,command.projectId);
+        const project=this.editableProject(this.state,command.projectId);
         return clone({projectId:project.id,revision:project.revision,snapshot:hash(JSON.stringify(project)),name:project.name,sharedSources:project.sources.length,memoryFacts:project.memory?.facts.length??0,members:this.state.tasks.filter(task=>task.projectId===project.id).sort((a,b)=>a.id.localeCompare(b.id)).map(task=>({taskId:task.id,title:task.title,snapshot:hash(JSON.stringify(task)),blocker:taskDeletionBlocker(task)}))});
       }
       if(command.type==='projects.delete'){
         const intent='project-delete:v1:'+hash(command.intentId),intentHash=hash(intent),members=[...command.members].sort((a,b)=>a.taskId.localeCompare(b.taskId)),payloadDigest=hash(JSON.stringify({...command,members})),previous=findProjectDeletion(this.state.usedRequestIds,intentHash);
         if(previous){if(previous.payloadDigest!==payloadDigest)reject('conflict','This deletion intent has a different project, choice or snapshot.');return clone(previous.result);}
         const selected=this.state.tasks.filter(task=>task.projectId===command.projectId),result=await this.commit(state=>{
-          assertCurrent();const project=this.project(state,command.projectId),tasks=state.tasks.filter(task=>task.projectId===project.id).sort((a,b)=>a.id.localeCompare(b.id));
+          assertCurrent();const project=this.editableProject(state,command.projectId),tasks=state.tasks.filter(task=>task.projectId===project.id).sort((a,b)=>a.id.localeCompare(b.id));
           if(project.revision!==command.expectedRevision||hash(JSON.stringify(project))!==command.expectedSnapshot||tasks.length!==members.length||tasks.some((task,index)=>task.id!==members[index].taskId||hash(JSON.stringify(task))!==members[index].snapshot))reject('conflict','The project or its member tasks changed. Reload the deletion review before deleting.');
           if(command.mode==='delete-tasks')for(const task of tasks){const blocker=taskDeletionBlocker(task);if(blocker)reject('conflict',blocker);}
           const pins=state.projectPins;if(pins?.projectIds.includes(project.id)&&pins.revision===Number.MAX_SAFE_INTEGER)reject('invalid','Project star revision limit reached. Saved work is kept.');
@@ -495,7 +506,7 @@ export class Companion {
       }
       if(command.type==='projects.memory.get')return clone(this.project(this.state,command.projectId).memory??emptyUserMemory());
       if(command.type==='projects.memory.change'){
-        const current=this.project(this.state,command.projectId).memory??emptyUserMemory();
+        const current=this.editableProject(this.state,command.projectId).memory??emptyUserMemory();
         if(command.expectedRevision!==current.revision)return {kind:'conflict' as const,current:clone(current)};
         if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Project memory revision limit reached. Saved facts are preserved.');
         const result=await this.commit(state=>{
@@ -532,11 +543,12 @@ export class Companion {
       });
       if(command.type==='projects.assign.bulk'){
         const result=await this.commit(state=>{
-          assertCurrent();const destination=command.projectId?this.project(state,command.projectId):undefined;
+          assertCurrent();const destination=command.projectId?this.editableProject(state,command.projectId):undefined;
           const selected=command.tasks.map(entry=>this.task(state,entry.taskId));
           if(selected.every(task=>(task.projectId??null)===command.projectId))return {tasks:selected,movedTaskIds:[] as string[]};
           for(let index=0;index<selected.length;index++)if((selected[index].projectId??null)!==command.tasks[index].expectedProjectId)reject('conflict','A selected task moved to another project. Clear the selection and review it again.');
           const moved=selected.filter(task=>(task.projectId??null)!==command.projectId);
+          for(const task of moved)if(task.projectId)this.editableProject(state,task.projectId);
           const copies=destination?this.projectJoinSources(state,destination,moved,command.expectedProjectRevision,command.expectedAddSharedSourcesOnJoin):[];
           for(const task of moved){
             if(command.projectId)task.projectId=command.projectId;else delete task.projectId;
@@ -558,6 +570,7 @@ export class Companion {
         }
         const result=await this.commit(state=>{
           assertCurrent();const task=command.includeTask?this.task(state,command.includeTask.taskId):undefined;
+          if(task?.projectId)this.editableProject(state,task.projectId);
           if(task&&(task.projectId??null)!==command.includeTask!.expectedProjectId)reject('conflict','The included task moved to another project. Clear task inclusion and choose it again.');
           if(state.projects?.some(project=>project.name.toLocaleLowerCase()===name.toLocaleLowerCase()))reject('conflict','Another project already uses this name. Choose a different name for the new project.');
           this.claimRequest(state,intent);
@@ -579,8 +592,9 @@ export class Companion {
         }
         if(command.type==='projects.assign'){
           const task=this.task(state,command.taskId);
-          const destination=command.projectId?this.project(state,command.projectId):undefined;
+          const destination=command.projectId?this.editableProject(state,command.projectId):undefined;
           if((task.projectId??null)===command.projectId)return task;
+          if(task.projectId)this.editableProject(state,task.projectId);
           if((task.projectId??null)!==command.expectedProjectId)reject('conflict','This task moved to another project. Reload before moving it again.');
           const copies=destination?this.projectJoinSources(state,destination,[task],command.expectedProjectRevision,command.expectedAddSharedSourcesOnJoin):[];
           if(command.projectId)task.projectId=command.projectId;else delete task.projectId;
@@ -588,7 +602,7 @@ export class Companion {
           if(destination)for(const {shared,version} of copies)if(!projectSourceCopyExists(task,destination.id,shared))this.appendProjectSource(task,destination,shared,version);
           return task;
         }
-        const project=this.project(state,command.projectId);
+        const project=this.editableProject(state,command.projectId);
         if(command.type==='projects.update'&&project.name===command.name.trim()&&project.instructions===command.instructions&&(project.useAccountMemory??true)===(command.useAccountMemory??project.useAccountMemory??true)&&(project.addSharedSourcesOnJoin??false)===(command.addSharedSourcesOnJoin??project.addSharedSourcesOnJoin??false))return project;
         if(command.type!=='projects.sources.update'&&project.revision!==command.expectedRevision)reject('conflict','This project changed. Reload its saved details before trying again.');
         if(command.type==='projects.update'){

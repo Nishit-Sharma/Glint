@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import type {Task} from '../../../core/types';
-import type {Project,ProjectCommand,ProjectReply} from '../../../shared/projects';
+import {isProjectArchived,type Project,type ProjectCommand,type ProjectReply} from '../../../shared/projects';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {Button,Field} from '../ui';
 
@@ -20,7 +20,8 @@ export function ProjectCreate({projects,tasks,currentTaskId,busy,change,onSelect
  const reset=()=>{setName('');setInclusion(undefined);setCreation({phase:'idle'});};
  const clearCreate=useNavigationDraft(name.length>0||!!inclusion,reset);
  const currentTask=tasks.find(task=>task.id===currentTaskId),includedTask=inclusion?tasks.find(task=>task.id===inclusion.taskId):undefined;
- const stale=!!inclusion&&(!includedTask||currentTaskId!==inclusion.taskId||(includedTask.projectId??null)!==inclusion.expectedProjectId);
+ const currentArchived=projects.some(project=>project.id===currentTask?.projectId&&isProjectArchived(project));
+ const stale=!!inclusion&&(!includedTask||currentTaskId!==inclusion.taskId||(includedTask.projectId??null)!==inclusion.expectedProjectId||projects.some(project=>project.id===includedTask.projectId&&isProjectArchived(project)));
  const collision=creation.phase==='idle'&&!!name.trim()&&projects.some(project=>project.name.toLocaleLowerCase()===name.trim().toLocaleLowerCase());
  const pending=creation.phase==='saving',held=busy||pending,frozen=creation.phase!=='idle';
  async function save(command:CreateCommand,taskTitle?:string){
@@ -45,11 +46,12 @@ export function ProjectCreate({projects,tasks,currentTaskId,busy,change,onSelect
    </div>
    {(currentTask||inclusion)&&<fieldset className="project-bulk-select" disabled={held||frozen}>
     <legend>Starting tasks</legend>
-    <label className="project-move-option"><input type="checkbox" checked={!!inclusion} onChange={event=>{
+    <label className="project-move-option"><input type="checkbox" checked={!!inclusion} disabled={currentArchived&&!inclusion} onChange={event=>{
      if(!event.currentTarget.checked){setInclusion(undefined);return;}
-     if(currentTask)setInclusion({taskId:currentTask.id,title:currentTask.title,expectedProjectId:currentTask.projectId??null,projectName:projects.find(project=>project.id===currentTask.projectId)?.name??'another project'});
+     if(currentTask&&!currentArchived)setInclusion({taskId:currentTask.id,title:currentTask.title,expectedProjectId:currentTask.projectId??null,projectName:projects.find(project=>project.id===currentTask.projectId)?.name??'another project'});
     }}/><span>Include current task<strong style={{display:'block'}}>{inclusion?.title??currentTask?.title}</strong></span></label>
     {inclusion?<p className="tiny">{inclusion.expectedProjectId?`This moves “${inclusion.title}” from “${inclusion.projectName}” into the new project.`:`“${inclusion.title}” will join the new project.`} It keeps its sources, saved work, history, unsent message and browser route. A running response in this task will stop.</p>:<p className="tiny">Leave this unchecked to create an empty project.</p>}
+    {currentArchived&&<p className="tiny">The current task belongs to an archived project. Restore that project before moving the task.</p>}
    </fieldset>}
    {stale&&creation.phase==='idle'&&<p role="status">The current task or its project changed. Clear task inclusion and choose it again before creating.</p>}
    {collision&&<p role="status">A project already uses this name. Choose a different name for the new project.</p>}
