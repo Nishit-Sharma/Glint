@@ -1,5 +1,7 @@
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
 import {readProviderModelReceipt} from '../shared/response-model';
+import {INSTRUCTION_SKILL_MIME,InstructionSkillReferenceSchema,readInstructionSkillSave,readInstructionSkillBody,instructionSkillSelection,sameInstructionSkill,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillCatalog} from '../shared/instruction-skill';
+import {instructionSkillEntry,instructionSkillReference,instructionSkillCatalog} from './instruction-skills';
 import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
 import {changeLocalContacts} from './local-contacts';
@@ -66,7 +68,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -606,6 +608,47 @@ export class Companion {
       return result;
     });
   }
+  listInstructionSkills():Promise<InstructionSkillEntry[]>{
+    return this.exclusive(()=>clone(instructionSkillCatalog(this.state.tasks).entries));
+  }
+  getInstructionSkillCatalog(taskId:string):Promise<InstructionSkillCatalog>{
+    return this.exclusive(()=>{const task=this.task(this.state,taskId),catalog=instructionSkillCatalog(this.state.tasks),invocation=instructionSkillSelection(task.session);if(invocation.selection&&!catalog.entries.some(entry=>sameInstructionSkill(entry.reference,invocation.selection))){try{catalog.entries.push(instructionSkillEntry(this.state.tasks,invocation.selection));}catch{if(!catalog.unavailable.some(item=>sameInstructionSkill(item.reference,invocation.selection)))catalog.unavailable.push({reference:invocation.selection,name:'Pinned saved version',reason:'This exact pinned skill or resource is unavailable. Clear the choice or inspect its owner file.'});}}return clone({...catalog,invocation});});
+  }
+  saveInstructionSkill(input:unknown,assertCurrent:()=>void=()=>{}):Promise<InstructionSkillEntry>{
+    const value=readInstructionSkillSave(input);
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();const task=this.task(state,value.taskId);if(task.status!=='active'||task.archive)throw Error('Open and resume the skill owner task before saving.');
+      const artifact=value.artifactId?task.artifacts.find(item=>item.id===value.artifactId):undefined;
+      if(value.artifactId&&!artifact)throw Error('The saved skill was not found in its owner task.');
+      const previous=artifact?readInstructionSkillBody(JSON.parse(latest(artifact.revisions).content)):undefined;
+      if(artifact&&latest(artifact.revisions).mimeType!==INSTRUCTION_SKILL_MIME)throw Error('This saved file is not an instruction skill.');
+      const body={kind:'instruction-skill' as const,schemaVersion:1 as const,creationId:previous?.creationId??value.intentId,name:value.name,description:value.description,instructions:value.instructions,resources:value.resources},content=JSON.stringify(body);
+      if(!artifact){
+        const duplicate=task.artifacts.find(item=>{try{return item.revisions[0]?.mimeType===INSTRUCTION_SKILL_MIME&&readInstructionSkillBody(JSON.parse(item.revisions[0].content)).creationId===value.intentId;}catch{return false;}});
+        if(duplicate){if(duplicate.revisions[0].content!==content)throw Error('This skill creation attempt already has different instructions or resources.');return instructionSkillEntry(state.tasks,instructionSkillReference(task.id,duplicate.id,duplicate.revisions[0]));}
+      }else if(latest(artifact.revisions).content===content&&(value.expectedRevision===latest(artifact.revisions).revision||value.expectedRevision===latest(artifact.revisions).revision-1))return instructionSkillEntry(state.tasks,instructionSkillReference(task.id,artifact.id,latest(artifact.revisions)));
+      this.validRefs(task,[...value.resources]);
+      const saved=this.appendArtifact(task,{...(artifact?{artifactId:artifact.id,expectedRevision:value.expectedRevision}:{}),title:value.name,content,mimeType:INSTRUCTION_SKILL_MIME,sourceRefs:[...value.resources]});
+      return instructionSkillEntry(state.tasks,instructionSkillReference(task.id,saved.artifactId,saved.revision));
+    }));
+  }
+  setInstructionSkill(taskId:string,expectedRevision:number,selection:InstructionSkillReference|null,assertCurrent:()=>void=()=>{}):Promise<InstructionSkillSelection>{
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();const task=this.task(state,taskId),session=task.session??emptyTaskSession(),current=instructionSkillSelection(session);
+      if(task.status!=='active'||task.archive||session.browserContext)throw Error('Use skills in an active ordinary text task.');
+      if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0||current.revision!==expectedRevision)throw Error('This task skill choice changed. Reload before choosing again.');
+      if(selection)instructionSkillEntry(state.tasks,selection);
+      if(sameInstructionSkill(current.selection,selection))return clone(current);
+      if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('The skill choice revision limit was reached.');
+      const saved={revision:current.revision+1,selection:selection?{...selection}:null};task.session={...session,instructionSkill:saved,revision:session.revision+1};task.updatedAt=this.time();return clone(saved);
+    }));
+  }
+  instructionSkillContext(taskId:string,selection?:InstructionSkillReference|null):Promise<InstructionSkillEntry|undefined>{
+    return this.exclusive(()=>{const task=this.task(this.state,taskId),chosen=selection===undefined?instructionSkillSelection(task.session).selection:selection;return chosen?clone(instructionSkillEntry(this.state.tasks,chosen)):undefined;});
+  }
+  previewInstructionRequest(taskId:string,expectedRevision:number,sourceIds:string[]):Promise<Omit<RequestContext,'signal'>>{
+    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection,selected=new Set(sourceIds);return clone({task:{...task,sources:task.sources.filter(source=>selected.has(source.id)).map(source=>({...source,versions:[latest(source.versions)]}))},sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:instructionSkillEntry(this.state.tasks,chosen)}:{})});});
+  }
   setRequestInference(taskId:string,expectedRevision:number,selection:RequestInferenceSelection|null,assertCurrent:()=>void=()=>{},policy:RequestInferencePolicy='fixed'):Promise<RequestInferenceState>{
     const chosen=selection===null?null:readRequestInferenceSelection(selection);
     if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)return Promise.reject(Error('The model choice revision is invalid.'));
@@ -648,6 +691,8 @@ export class Companion {
       if((existing?.revision??0)!==expectedRevision||existing&&(existing.status==='dispatched'||existing.status==='cancelled')||item.revision!==expectedRevision+1)reject('conflict','This queued follow-up changed. Reload before editing.');
       if(this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis)reject('conflict','The queued context changed before saving. Your text is kept.');
       this.validRefs(task,[...item.sourceRefs]);
+      if(!sameInstructionSkill(existing?existing.instructionSkill:instructionSkillSelection(session).selection,item.instructionSkill))reject('conflict','The queued skill choice changed. Keep its original pinned selection.');
+      if(item.instructionSkill)instructionSkillEntry(state.tasks,item.instructionSkill);
       if(index<0){if(items.length>=100)reject('invalid','This task has reached its saved follow-up limit.');if(state.usedRequestIds.includes(item.id)||state.tasks.some(owner=>owner.id!==taskId&&owner.session?.queuedFollowups?.some(entry=>entry.id===item.id)))reject('conflict','This follow-up identity is already used.');items.push(item);}else{items[index]=item;for(let position=index+1;position<items.length;position++)if(items[position].status==='queued')items[position]={...items[position],status:'held',reason:'An earlier queued message changed. Review this follow-up before queueing it again.'};}
       const current=readComposerDraft(session),consume=submittedDraft&&sameComposerDraft(current,submittedDraft)&&submittedDraft.text.trim()===item.prompt.trim()&&submittedDraft.kind===item.kind;
       task.session={...session,queuedFollowups:items,revision:session.revision+1,...(consume?{draft:'',draftKind:current.kind,draftRevision:current.revision}:{})};task.updatedAt=this.time();return task;
@@ -1149,6 +1194,8 @@ export class Companion {
   async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
     input = clone(input);
     if(input.inference!==undefined)input.inference=readRequestInferenceSelection(input.inference);
+    if(input.instructionSkill!==undefined&&input.instructionSkill!==null)input.instructionSkill=Schema.decodeUnknownSync(InstructionSkillReferenceSchema,{onExcessProperty:'error'})(input.instructionSkill);
+    if(input.instructionSkillRevision!==undefined&&(!Number.isSafeInteger(input.instructionSkillRevision)||input.instructionSkillRevision<0))throw Error('The task skill choice revision is invalid.');
     if(input.inferenceRevision!==undefined&&(!Number.isSafeInteger(input.inferenceRevision)||input.inferenceRevision<0))throw Error('The request model choice revision is invalid.');
     if(input.submittedDraft!==undefined){try{input.submittedDraft=Schema.decodeUnknownSync(SubmittedComposerDraftSchema,{onExcessProperty:'error'})(input.submittedDraft);if(!Number.isSafeInteger(input.submittedDraft.revision))throw Error('Invalid revision.');}catch{return reject('invalid','Submitted composer draft is invalid.');}}
     if(input.browserContinuation!==undefined){try{input.browserContinuation=readBrowserContinuationReceipt(input.browserContinuation);if(input.kind!=='browser'||input.submittedDraft||input.artifactId)throw Error();}catch{return reject('invalid','The browser continuation receipt is invalid. Existing work is kept.');}}
@@ -1158,6 +1205,11 @@ export class Companion {
     const controller = new AbortController();
     const begun = await this.exclusive(async () => {
       const task = this.task(this.state, input.taskId), sourceRefs = this.requestRefs(task, input.sourceIds);
+      const ordinarySkill=['explain','create'].includes(input.kind)&&!input.artifactId&&(!input.executionScope||input.executionScope.startsWith('response-preferences:v1:'));
+      if(!ordinarySkill&&(input.instructionSkill||input.instructionSkillRevision!==undefined))throw Error('Skills apply only to ordinary questions and drafts.');
+      const currentSkill=instructionSkillSelection(task.session);
+      if(ordinarySkill&&!input.queuedFollowup&&(!sameInstructionSkill(currentSkill.selection,input.instructionSkill)||input.instructionSkillRevision!==undefined&&input.instructionSkillRevision!==currentSkill.revision))throw Error('The selected skill changed. Review the current task choice before asking.');
+      const skill=input.instructionSkill?instructionSkillEntry(this.state.tasks,input.instructionSkill):undefined;
       if(input.expectedSourceRefs!==undefined){const refs=input.expectedSourceRefs;if(!Array.isArray(refs)||refs.length!==sourceRefs.length||new Set(refs.map(ref=>ref?.sourceId)).size!==refs.length||refs.some(ref=>!ref||Object.keys(ref).sort().join(',')!=='digest,sourceId,version'||!sourceRefs.some(actual=>actual.sourceId===ref.sourceId&&actual.version===ref.version&&actual.digest===ref.digest)))reject('conflict','Selected source versions changed. Review the current snapshot.');input.expectedSourceRefs=clone(sourceRefs);}
       if(input.memory){
         if(!['explain','create'].includes(input.kind)||input.artifactId)reject('invalid','Memory applies only to ordinary questions and drafts.');
@@ -1175,6 +1227,8 @@ export class Companion {
       }
       const context = await this.commit(state => {
         const task = this.task(state, input.taskId); if (task.status !== 'active') reject('conflict', 'Resume the task before starting a request.');
+        if(ordinarySkill&&!input.queuedFollowup&&!sameInstructionSkill(instructionSkillSelection(task.session).selection,input.instructionSkill))throw Error('The selected skill changed before this request.');
+        if(input.instructionSkill)instructionSkillEntry(state.tasks,input.instructionSkill);
         if(input.inference&&!input.queuedFollowup){const current=requestInferenceSaved(task.session);if(input.inferenceRevision!==current.revision||current.policy!=='automatic'&&current.selection&&!sameRequestInference(current.selection,input.inference))throw Error('The task model choice changed before this request. Ask again with its current choice.');}
         text(input.kind, 'Request kind', 100); text(input.prompt, 'Prompt', 50_000); this.claimRequest(state, input.requestId);
         if (input.executionScope !== undefined) text(input.executionScope, 'Execution scope', 2000);
@@ -1195,12 +1249,12 @@ export class Companion {
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
-        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||!sameRequestInference(item.inference,input.inference)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
-        task.requests.push({ ...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||!sameRequestInference(item.inference,input.inference)||!sameInstructionSkill(item.instructionSkill,input.instructionSkill)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
+        task.requests.push({ ...(input.instructionSkill?{instructionSkill:clone(input.instructionSkill)}:{}),...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
         const {publicGithub:_publicGithub,...requestTask}=task;
-        return { ...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...requestTask,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        return { ...(skill?{instructionSkill:clone(skill)}:{}),...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...requestTask,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
       return { context };

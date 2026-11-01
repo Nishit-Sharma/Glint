@@ -1,6 +1,7 @@
 import {RequestInferenceSavedSchema} from '../shared/request-inference';
 import {SpeechSelectionSchema} from '../shared/document-speech';
 import {ReadingPreferencesSchema} from '../shared/reading-view';
+import {InstructionSkillSelectionSchema} from '../shared/instruction-skill';
 import {QueuedFollowupSchema} from '../shared/queued-followup';
 import { Schema } from 'effect';
 import {BrowserContinuationAttemptSchema} from '../shared/browser-continuation';
@@ -36,6 +37,7 @@ export const BrowserOperationSchema = Schema.Struct({
   error: Schema.optional(text),
 });
 export const TaskSessionSchema = Schema.Struct({
+  instructionSkill:Schema.optional(InstructionSkillSelectionSchema),
   readingPreferences:Schema.optional(ReadingPreferencesSchema),
   requestInference:Schema.optional(RequestInferenceSavedSchema),
   speech:Schema.optional(SpeechSelectionSchema),
