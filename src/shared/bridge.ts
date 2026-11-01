@@ -51,10 +51,12 @@ import type {NotificationToastAction} from './task-notifications';
 import type {NotificationCommand} from './task-notifications';
 import type {TaskAttentionCommand} from './task-attention';
 import type {FileFavoritesCommand} from './task-view';
+import type {CsvChartCommand} from './csv-chart';
 
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command =
+  | CsvChartCommand
   | FileFavoritesCommand
   | MemoryExportCommand
   | SystemSettingsCommand

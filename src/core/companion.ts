@@ -1,4 +1,6 @@
 import {bundledDirectorySkill,directorySkillPayload,directoryReference} from '../shared/skill-directory';
+import {CSV_CHART_MIME,CSV_CHART_SVG_MIME,readCsvChartCommand,readCsvChart,csvChartPoints,csvChartSvg,type CsvChartData,type CsvChartSave,type CsvChartSaved} from '../shared/csv-chart';
+import {csvChartSource} from './csv-chart-source';
 import {STUDY_SET_MIME,readStudyCommand,readStudySet,parseStudyNotes,type StudyCommand} from '../shared/study-workbench';
 import {studyMaterial,studyDeck,studyProgress,studyProgressEvents,updateStudyState,STUDY_MODULE_ID} from './study-workbench';
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
@@ -49,7 +51,7 @@ import {readSourceTextSave,readSourceTextSaveInspection,sourceTextSaveBindingTex
 import {encodeSourceTextSaveReceipt,findSourceTextSaveReceipt,sourceTextSaveClaim,type SourceTextSaveReceipt} from './source-text-save-receipt';
 import { emptyTaskSession, recoverTaskSession,readComposerDraft,ComposerKindSchema,BrowserStartReceiptSchema,type BrowserStartReceipt,type ComposerDraft,type ComposerKind, type TaskSession } from './task-session';
 import type {
-  ArtifactInput, ArtifactRevision, CompanionOptions, ExportAction, ExportEvidence,
+  Artifact,ArtifactInput, ArtifactRevision, CompanionOptions, ExportAction, ExportEvidence,
   ProcedureInput, RequestContext, RequestInput, RequestOutput, RequestRecord, ResumeResult,
   SourceInput, SourceRef, SourceVersion, Source, Task, ArtifactRef, SessionCommitGuard,ModuleStateRef,
 } from './types';
@@ -433,6 +435,35 @@ export class Companion {
 
   listTasks(): Promise<Task[]> { return this.exclusive(() => clone(this.state.tasks)); }
   getTask(taskId: string): Promise<Task> { return this.exclusive(() => clone(this.task(this.state, taskId))); }
+  previewCsvChart(taskId:string,reference:SourceRef):Promise<CsvChartData>{return this.exclusive(()=>clone(csvChartSource(this.task(this.state,taskId),reference)));}
+  saveCsvChart(input:CsvChartSave,assertCurrent:()=>void=()=>{}):Promise<CsvChartSaved>{
+    const command=readCsvChartCommand(input);if(command.type!=='chart.save')throw Error('Choose a chart save.');
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,command.taskId);if(task.status!=='active'||task.archive)throw Error('Resume the owner task before saving a chart.');
+      const data=csvChartSource(task,command.source,true);if(data.dataDigest!==command.dataDigest)throw Error('The chart data basis changed. Review its exact CSV source.');
+      csvChartPoints(data.csv,command.settings);csvChartSvg(data.csv,command.settings,data.label,command.source.version);
+      const body=readCsvChart({kind:'csv-chart',schemaVersion:1,creationId:command.creationId,source:command.source,dataDigest:data.dataDigest,settings:command.settings}),content=JSON.stringify(body);
+      const result=(owner:Task,artifact:Artifact):CsvChartSaved=>{const revision=latest(artifact.revisions);return clone({task:owner,artifactId:artifact.id,revision:revision.revision,digest:revision.digest});};
+      if(!command.artifact){
+        const prior=task.artifacts.filter(artifact=>{try{return artifact.revisions[0]?.mimeType===CSV_CHART_MIME&&readCsvChart(JSON.parse(artifact.revisions[0].content)).creationId===command.creationId;}catch{return false;}});
+        if(prior.length>1)throw Error('This chart creation is ambiguous. Existing charts are kept.');
+        if(prior.length){if(prior[0].revisions[0].content!==content)throw Error('This chart creation was already submitted with different data or settings. Check the original save.');return result(task,prior[0]);}
+      }else{
+        const artifact=task.artifacts.find(item=>item.id===command.artifact!.artifactId),revision=artifact?.revisions.at(-1);if(!artifact||revision?.mimeType!==CSV_CHART_MIME)throw Error('The saved chart is unavailable.');
+        const previous=readCsvChart(JSON.parse(revision.content));if(previous.creationId!==body.creationId||JSON.stringify(previous.source)!==JSON.stringify(body.source)||previous.dataDigest!==body.dataDigest)throw Error('A saved chart keeps its exact CSV source. Create a new chart for different data.');
+        if(revision.content===content)return result(task,artifact);this.validArtifacts(task,[command.artifact]);
+      }
+      return this.commit(state=>{assertCurrent();const owner=this.task(state,command.taskId),saved=this.appendArtifact(owner,{...(command.artifact?{artifactId:command.artifact.artifactId,expectedRevision:command.artifact.revision}:{}),title:body.settings.title,content,mimeType:CSV_CHART_MIME,sourceRefs:[{...command.source}]});return clone({task:owner,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest});});
+    });
+  }
+  saveCsvChartSvg(taskId:string,reference:ArtifactRef,assertCurrent:()=>void=()=>{}):Promise<CsvChartSaved>{return this.exclusive(async()=>{
+    assertCurrent();const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive)throw Error('Resume this task before saving a chart SVG copy.');this.validArtifacts(task,[reference]);
+    const artifact=task.artifacts.find(item=>item.id===reference.artifactId)!,revision=latest(artifact.revisions);if(revision.mimeType!==CSV_CHART_MIME)throw Error('Choose a saved CSV chart.');
+    const body=readCsvChart(JSON.parse(revision.content)),data=csvChartSource(task,body.source,true);if(data.dataDigest!==body.dataDigest)throw Error('The chart data digest no longer matches.');
+    const content=csvChartSvg(data.csv,body.settings,data.label,body.source.version),title=(body.settings.title+' · chart SVG').slice(0,500),existing=task.artifacts.find(item=>{const saved=latest(item.revisions);return saved.mimeType===CSV_CHART_SVG_MIME&&saved.content===content&&JSON.stringify(saved.sourceRefs)===JSON.stringify([body.source]);});
+    if(existing){const saved=latest(existing.revisions);return clone({task,artifactId:existing.id,revision:saved.revision,digest:saved.digest});}
+    return this.commit(state=>{assertCurrent();const owner=this.task(state,taskId),saved=this.appendArtifact(owner,{title,content,mimeType:CSV_CHART_SVG_MIME,sourceRefs:[{...body.source}]});return clone({task:owner,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest});});
+  });}
   private project(state:State,id:string):Project{
     const project=state.projects?.find(item=>item.id===id);
     return project??reject('not-found','Project was not found.');
