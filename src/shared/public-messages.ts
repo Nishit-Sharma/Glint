@@ -1,3 +1,4 @@
+import {STUDY_PUBLIC_MESSAGES} from './study-workbench';
 import {SPEECH_ERROR} from './document-speech';
 import {CODE_WORKSPACE_ERROR} from './code-workspace';
 import {conversationAttemptPublicMessage} from './conversation-attempt';
@@ -52,6 +53,7 @@ export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
  if(text.startsWith('Content backup: '))return text;
  if(text===SPEECH_ERROR)return text;
+ if(STUDY_PUBLIC_MESSAGES.some(message=>message===text))return text;
  if(text===CODE_WORKSPACE_ERROR)return text;
  const attemptMessage=conversationAttemptPublicMessage(text);if(attemptMessage)return attemptMessage;
  const queueMessages=new Set(['Follow-up was not authorized. Its saved text is kept.','Check the provider connection before reviewing this follow-up.','Ask directly when no response is running.','Only ordinary text follow-ups can be queued. Browser and external actions need their own review.','Source versions changed. Review the queued context.','This queued follow-up changed. Reload before editing.','This queued follow-up identity already has different text.','The connection changed before the follow-up was queued.','The queued context or provider session changed before transmission.','The queued context changed before saving. Your text is kept.','This follow-up changed. Reload before cancelling.','The exact first queued follow-up is no longer ready. Review it again.']);if(queueMessages.has(text))return text;

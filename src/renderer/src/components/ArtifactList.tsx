@@ -1,3 +1,4 @@
+import {STUDY_SET_MIME} from '../../../shared/study-workbench';
 import {useRef,useState} from 'react';
 import {ArrowUpRight,FileText,ListChecks} from 'lucide-react';
 import type {Artifact,Procedure,Task} from '../../../core/types';
@@ -6,7 +7,7 @@ import {BROWSER_WORKFLOW_MIME} from '../../../shared/browser-workflow';
 import {CONCEPT_MAP_MIME} from '../../../shared/concept-map';
 import {readModelDraft} from './ModelDraftReview';
 
-const artifactKind=(artifact:Artifact)=>{const r=artifact.revisions.at(-1)!;return r.mimeType===DESIGN_CANVAS_MIME?'Design canvas':r.mimeType===DESIGN_SVG_MIME?'SVG copy':r.mimeType===CONCEPT_MAP_MIME?'Concept map':r.mimeType===BROWSER_WORKFLOW_MIME?'Browser workflow':r.mimeType.startsWith('image/')?'Image':readModelDraft(r)?.kind==='experiment'?'Experiment':readModelDraft(r)?.kind==='procedure'?'Procedure':'Document';};
+const artifactKind=(artifact:Artifact)=>{const r=artifact.revisions.at(-1)!;return r.mimeType===STUDY_SET_MIME?'Study set':r.mimeType===DESIGN_CANVAS_MIME?'Design canvas':r.mimeType===DESIGN_SVG_MIME?'SVG copy':r.mimeType===CONCEPT_MAP_MIME?'Concept map':r.mimeType===BROWSER_WORKFLOW_MIME?'Browser workflow':r.mimeType.startsWith('image/')?'Image':readModelDraft(r)?.kind==='experiment'?'Experiment':readModelDraft(r)?.kind==='procedure'?'Procedure':'Document';};
 
 /** One tab stop for saved results; arrows move deliberately, never on arrival. */
 export function ArtifactList({task,onArtifact,onProcedure}:{task:Task;onArtifact:(artifact:Artifact)=>void;onProcedure:(procedure:Procedure)=>void}){

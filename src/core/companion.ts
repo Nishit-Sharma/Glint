@@ -1,3 +1,5 @@
+import {STUDY_SET_MIME,readStudyCommand,readStudySet,parseStudyNotes,type StudyCommand} from '../shared/study-workbench';
+import {studyMaterial,studyDeck,studyProgress,studyProgressEvents,updateStudyState,STUDY_MODULE_ID} from './study-workbench';
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
 import {readPdfPageImages,pdfPageMessages,type PdfPageAddResult} from '../shared/pdf-page-import';
 import {readProviderModelReceipt} from '../shared/response-model';
@@ -608,6 +610,31 @@ export class Companion {
       for(const task of this.state.tasks)this.abortCancelled(task);
       return result;
     });
+  }
+  previewStudyNotes(taskId:string,reference:SourceRef){
+    return this.exclusive(()=>{const task=this.task(this.state,taskId),material=studyMaterial(task,reference);return clone({material,...parseStudyNotes(material.text)});});
+  }
+  getStudyView(taskId:string,reference:ArtifactRef){
+    return this.exclusive(()=>{const task=this.task(this.state,taskId),view=studyDeck(task,reference,false);let current=true;try{this.validArtifacts(task,[reference]);if(view.deck.material)this.validRefs(task,[view.deck.material.reference]);}catch{current=false;}return clone({task,reference,...view,current,progress:studyProgress(view.deck,view.state),events:studyProgressEvents(task)});});
+  }
+  saveStudySet(input:Extract<StudyCommand,{type:'study.create'|'study.save'}>,assertCurrent:()=>void=()=>{}){
+    const command=readStudyCommand(input);if(command.type!=='study.create'&&command.type!=='study.save')throw Error('Choose a study-set save action.');
+    return this.exclusive(()=>this.commit(state=>{assertCurrent();const task=this.task(state,command.taskId);if(task.status!=='active'||task.archive)throw Error('Resume the owning task before saving study work.');
+      if(command.type==='study.create'){
+        const duplicate=task.artifacts.find(artifact=>{try{return artifact.revisions[0]?.mimeType===STUDY_SET_MIME&&readStudySet(JSON.parse(artifact.revisions[0].content)).creationId===command.intentId;}catch{return false;}});if(duplicate)return clone({task,artifactId:duplicate.id,revision:latest(duplicate.revisions)});
+        const body=readStudySet({kind:'study-set',schemaVersion:1,creationId:command.intentId,name:'New study set',cards:[]}),saved=this.appendArtifact(task,{title:body.name,content:JSON.stringify(body),mimeType:STUDY_SET_MIME,sourceRefs:[]});return clone({task,...saved});
+      }
+      const artifact=task.artifacts.find(artifact=>artifact.id===command.artifactId),previous=artifact&&latest(artifact.revisions);if(!previous||previous.mimeType!==STUDY_SET_MIME)throw Error('The saved study set is unavailable.');const before=readStudySet(JSON.parse(previous.content)),material=studyMaterial(task,command.reference),body=readStudySet({kind:'study-set',schemaVersion:1,creationId:before.creationId,name:command.name,material,cards:command.cards}),content=JSON.stringify(body);
+      if(previous.content===content&&(command.expectedRevision===previous.revision||command.expectedRevision===previous.revision-1))return clone({task,artifactId:artifact.id,revision:previous});
+      const saved=this.appendArtifact(task,{artifactId:artifact.id,expectedRevision:command.expectedRevision,title:body.name,content,mimeType:STUDY_SET_MIME,sourceRefs:[{...material.reference}]});return clone({task,...saved});
+    }));
+  }
+  actOnStudy(input:Extract<StudyCommand,{type:'study.action'}>,assertCurrent:()=>void=()=>{}){
+    const command=readStudyCommand(input);if(command.type!=='study.action')throw Error('Choose a study action.');
+    return this.exclusive(()=>this.commit(state=>{assertCurrent();const task=this.task(state,command.taskId);if(task.status!=='active'||task.archive)throw Error('Resume the owning task before continuing study.');this.validArtifacts(task,[command.deckRef]);const view=studyDeck(task,command.deckRef);if(view.deck.material)this.validRefs(task,[view.deck.material.reference]);const updated=updateStudyState(view.deck,command.deckRef,view.state,command.action,this.time());
+      if(JSON.stringify(updated)!==JSON.stringify(view.state)){const session=task.session??emptyTaskSession();task.session={...session,revision:session.revision+1,moduleStates:[...session.moduleStates.filter(item=>!(item.artifactId===command.deckRef.artifactId&&item.artifactRevision===command.deckRef.revision&&item.moduleId===STUDY_MODULE_ID)),{artifactId:command.deckRef.artifactId,artifactRevision:command.deckRef.revision,moduleId:STUDY_MODULE_ID,state:updated}]};task.updatedAt=this.time();}
+      return clone({task,reference:command.deckRef,deck:view.deck,state:updated,current:true,progress:studyProgress(view.deck,updated),events:studyProgressEvents(task)});
+    }));
   }
   listInstructionSkills():Promise<InstructionSkillEntry[]>{
     return this.exclusive(()=>clone(instructionSkillCatalog(this.state.tasks).entries));

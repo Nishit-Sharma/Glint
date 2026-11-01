@@ -2,6 +2,7 @@ import {fitFloatingBounds,type FloatingBounds} from '../shared/bot-catalog';
 import {PdfPageImports} from './pdf-page-import';
 import {inspectPdfRequest} from './pdf-request-inspection';
 import {isPdfPageCommand,readPdfPageCommand} from '../shared/pdf-page-import';
+import {isStudyCommand,readStudyCommand} from '../shared/study-workbench';
 import {modelImageInput} from '../shared/request-inference';
 import {queuedInferenceReview} from './queued-inference-review'
 import {composeOrdinaryRequest,dispatchOrdinaryRequest,instructionSkillReview} from './ordinary-request-composition';
@@ -222,6 +223,7 @@ function validate(value:unknown):Command{
   if(String(c.type).startsWith('reading.preferences.'))return readReadingCommand(c);
   if(String(c.type).startsWith('skills.'))return readInstructionSkillCommand(c);
   if(String(c.type).startsWith('source.pdf.'))return readPdfPageCommand(c);
+  if(String(c.type).startsWith('study.'))return readStudyCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
@@ -954,6 +956,12 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(contentBackupGate.busy&&!['draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('Content backup: Content is frozen. Finish the backup or restart Glint after restore.')
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
+  if(isStudyCommand(c)){
+    const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The study owner task changed. Your saved work is kept.');};guard();
+    if(c.type==='study.preview'){const result=await core.previewStudyNotes(c.taskId,c.reference);guard();return result;}
+    if(c.type==='study.view'){const result=await core.getStudyView(c.taskId,c.deckRef);guard();return result;}
+    const result=c.type==='study.action'?await core.actOnStudy(c,guard):await core.saveStudySet(c,guard);changed(c.taskId);return result;
+  }
   if(isPdfPageCommand(c)){
     if(c.type==='source.pdf.cancel')return pdfPageImports.cancel(c);
     const epoch=sourceContextEpoch,connectionEpoch=keyEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The visual PDF owner task changed. Existing sources are kept.');};guard();
