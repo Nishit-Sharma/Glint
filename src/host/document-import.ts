@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {createHash,randomUUID} from 'node:crypto';
 import {Schema} from 'effect';
+import {readXlsxContext} from './xlsx-context';
 import type {Companion} from '../core/companion';
 import {DOCUMENT_IMPORT_FILE_LIMIT,DOCUMENT_IMPORT_TEXT_LIMIT,readDocumentCsv,documentImportMessages as messages,type ImportedDocument,type DocumentImportOwner,type DocumentImportAdd,type DocumentImportChoice,type DocumentImportResult} from '../shared/document-import';
 
@@ -16,7 +17,7 @@ const knownMessages=new Set<string>(Object.values(messages));
 const PdfReply=Schema.Union(Schema.Struct({kind:Schema.Literal('error'),reason:Schema.Literal('failed','pdf','text')}),Schema.Struct({kind:Schema.Literal('text'),text:Schema.String.pipe(Schema.maxLength(DOCUMENT_IMPORT_TEXT_LIMIT)),pageCount:Schema.Int.pipe(Schema.positive(),Schema.lessThanOrEqualTo(200)),emptyPages:Schema.Array(Schema.Int.pipe(Schema.positive(),Schema.lessThanOrEqualTo(200)))}));
 const formatOf=(path:string):ImportedDocument['format']=>{
  const ext=extname(path).toLowerCase().slice(1);
- if(ext==='pdf'||ext==='docx'||ext==='doc'||ext==='txt'||ext==='md'||ext==='csv')return ext;
+ if(ext==='pdf'||ext==='docx'||ext==='doc'||ext==='txt'||ext==='md'||ext==='csv'||ext==='xlsx')return ext;
  throw Error(messages.unsupported);
 };
 function readable(text:string){
@@ -41,10 +42,12 @@ export async function readPickedDocumentBytes(path:string,signal:AbortSignal):Pr
 }
 /** Only a native-picker path enters this function. Parse an immutable private copy. */
 export async function extractDocument(path:string,signal:AbortSignal):Promise<ImportedDocument>{
- const format=formatOf(path);if(!['txt','md','csv'].includes(format)&&process.platform!=='darwin')throw Error(messages.platform);
+ const format=formatOf(path);if(!['txt','md','csv','xlsx'].includes(format)&&process.platform!=='darwin')throw Error(messages.platform);
  const bytes=await readPickedDocumentBytes(path,signal);
  let text='',method='',pageCount:number|undefined;const warnings:string[]=[];
- if(format==='csv'){
+ if(format==='xlsx'){
+  const result=readXlsxContext(bytes);text=result.text;warnings.push(...result.warnings);method='Local bounded XLSX ZIP/XML raw-cell extraction';
+ }else if(format==='csv'){
   try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes).replace(/^\ufeff/,'');}catch{throw Error(messages.csvEncoding);}
   readDocumentCsv(text);method='Local UTF-8 CSV decoding and comma-separated syntax parsing';warnings.push('The original decoded CSV is kept exactly, except an initial UTF-8 BOM is removed. Quotes, line endings, Unicode and formula text are preserved. Cells are inert text: formulas, scripts and links are not executed.');
  }else if(format==='txt'||format==='md'){

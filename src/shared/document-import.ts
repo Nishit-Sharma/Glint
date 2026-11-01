@@ -6,7 +6,7 @@ export const DOCUMENT_IMPORT_TEXT_LIMIT=100_000;
 export const DOCUMENT_IMPORT_FILE_LIMIT=20*1024*1024;
 export const CSV_IMPORT_LIMITS=Object.freeze({rows:10_001,columns:100,cellCharacters:10_000});
 export const documentImportMessages={
- unsupported:'Choose a PDF, Word (.docx or .doc), plain-text (.txt) or Markdown (.md) or CSV (.csv) file.',
+ unsupported:'Choose a PDF, Word (.docx or .doc), plain-text (.txt) or Markdown (.md) CSV (.csv) or Excel (.xlsx) file.',
  platform:'PDF and Word import is available on macOS. Plain-text and Markdown files can still be imported.',
  file:'This document could not be read. Choose an accessible, ordinary local file.',
  size:'Choose a document up to 20 MiB.',
@@ -22,7 +22,7 @@ export const documentImportMessages={
  busy:'Finish or cancel the current document import before choosing another file.',
  changed:'This import was already added with different text. Review its saved source in Context.',
 } as const;
-export type ImportedDocument={fileName:string;fileDigest:string;byteLength:number;format:'pdf'|'docx'|'doc'|'txt'|'md'|'csv';method:string;extractedAt:string;text:string;warnings:string[];pageCount?:number};
+export type ImportedDocument={fileName:string;fileDigest:string;byteLength:number;format:'pdf'|'docx'|'doc'|'txt'|'md'|'csv'|'xlsx';method:string;extractedAt:string;text:string;warnings:string[];pageCount?:number};
 export type DocumentImportPreview=ImportedDocument&{kind:'review';taskId:string;attemptId:string};
 export type DocumentImportChoice=DocumentImportPreview|{kind:'cancelled'};
 export type DocumentImportResult={task:Task;reference:SourceRef};

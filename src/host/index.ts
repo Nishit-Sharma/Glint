@@ -193,7 +193,7 @@ function retireDocumentFollow(reason:string){documentSelectionEpoch++;documentFo
 let requestedViewTaskId:string|undefined
 let currentViewTaskId:string|undefined
 const publicGithub=new PublicGithubReader()
-const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md','csv']}]});return choice.canceled?undefined:choice.filePaths[0];})
+const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md','csv','xlsx']}]});return choice.canceled?undefined:choice.filePaths[0];})
 const pdfPageImports=new PdfPageImports({getTask:id=>core.getTask(id),addPdfPageSources:(...args)=>core.addPdfPageSources(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import visual PDF pages',properties:['openFile'],filters:[{name:'PDF document',extensions:['pdf']}]});return choice.canceled?undefined:choice.filePaths[0];});
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))

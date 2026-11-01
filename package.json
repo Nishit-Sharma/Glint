@@ -23,6 +23,7 @@
     "@tiptap/pm": "3.32.0",
     "@tiptap/react": "3.32.0",
     "@tiptap/starter-kit": "3.32.0",
+    "@xmldom/xmldom": "0.8.15",
     "ai": "7.0.151",
     "clsx": "2.1.1",
     "diff": "9.0.0",
