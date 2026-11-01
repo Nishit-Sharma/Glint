@@ -1,5 +1,5 @@
 import {queuedInferenceReview} from './queued-inference-review'
-import {readRequestInferenceCommand,requestInferenceSaved,resolveRequestInference,buildCodexInferenceWire,requestInferenceScopeFields,type RequestInferenceSelection} from '../shared/request-inference'
+import {readRequestInferenceCommand,requestInferenceSaved,resolveRequestInference,buildCodexInferenceWire,requestInferenceScopeFields,type RequestInferenceCatalog,type RequestInferenceSelection} from '../shared/request-inference'
 import {readCodeBlockCopy,writeCodeBlockCopy} from '../shared/code-block-copy';
 import {ContentBackups,ContentBackupGate,recoverContentRestore} from './content-backup';
 import {isContentBackupCommand,readContentBackupCommand} from '../shared/content-backup';
@@ -866,6 +866,13 @@ const recurringWorkRunner=createRecurringWorkRunner({
 });
 function assertCurrentWork(lifecycle:number){if(quitting||contentBackupGate.busy||lifecycle!==quitEpoch)throw Error('The app started closing. Start this action again.');}
 let queueDrain:Promise<void>|undefined;
+async function resolveTaskRequestInference(task:Task,prompt:string,kind:'explain'|'create',queued?:{inference?:RequestInferenceSelection},knownCatalog?:RequestInferenceCatalog){
+ const epoch=keyEpoch,route=selectedProvider,automatic=!queued&&requestInferenceSaved(task.session).policy==='automatic';
+ const catalog=automatic&&route==='codex'?(knownCatalog??await codexProvider.catalog()):undefined;
+ if(epoch!==keyEpoch||route!==selectedProvider)throw Error('The connection changed while resolving this task model policy. Ask again.');
+ if(catalog?.kind==='unavailable')throw Error(catalog.message);
+ return resolveRequestInference(task.session,route,codexProvider.defaultInference(),queued,{prompt,kind,models:catalog?.kind==='available'?catalog.models:[]});
+}
 async function queuedScope(taskId:string,prompt:string,basis:string,inference?:RequestInferenceSelection){
  const epoch=keyEpoch,route=selectedProvider,provider=activeProvider(),account=await provider.accountScope(),preferences=await responsePreferences.lease(),memory=await core.leaseUserMemory(taskId,prompt);
  await preferences.check();await memory.check();if(epoch!==keyEpoch||route!==selectedProvider||quitting)throw Error('The connection changed before the follow-up was queued.');
@@ -880,7 +887,7 @@ async function saveQueuedCommand(c:Extract<QueueCommand,{type:'queue.submit'|'qu
  const sources=task.sources.filter(source=>c.sourceIds.includes(source.id)),refs=sources.map(source=>({sourceId:source.id,version:source.currentVersion,digest:source.versions.at(-1)!.digest}));
  if(new Set(c.sourceIds).size!==c.sourceIds.length||refs.length!==c.sourceIds.length||JSON.stringify(refs)!==JSON.stringify(c.expectedSourceRefs))throw Error('Source versions changed. Review the queued context.');
  const precedingRequestIds=existing?[...existing.precedingRequestIds]:[...task.requests.filter(request=>request.status==='running').map(request=>request.id),...active.map(item=>item.id)];
- const inference=resolveRequestInference(task.session,selectedProvider,codexProvider.defaultInference(),existing).selection;
+ const inference=(await resolveTaskRequestInference(task,c.prompt,c.kind,existing)).selection;
  const basis=await core.queuedFollowupBasis(c.taskId,refs,precedingRequestIds),snapshot=await queuedScope(c.taskId,c.prompt,basis,inference);let authorized=ordinaryTransmissionConsent===snapshot.grant;
  if(c.type==='queue.edit'&&!authorized){
   const review=await queuedInferenceReview(inference,selectedProvider,{current:()=>activeProvider().status(),selected:selection=>codexProvider.statusFor(selection)}),connection=review.connection;assertCurrentWork(lifecycle);if(!connection.configured)throw Error('Check the provider connection before reviewing this follow-up.');
@@ -1096,13 +1103,14 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const owner=c.taskId,context=sourceContextEpoch,connectionEpoch=keyEpoch;
       const guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==owner||requestedViewTaskId!==owner||context!==sourceContextEpoch||connectionEpoch!==keyEpoch)throw Error('The selected task or connection changed. Reopen its model settings.');};guard();
       if(c.type==='inference.select'){
-        if(c.selection){if(selectedProvider!=='codex')throw Error('Connect Codex before choosing its model settings.');codexProvider.validateInference(c.selection);}
-        const saved=await core.setRequestInference(owner,c.expectedRevision,c.selection,guard);changed(owner);return saved;
+        if(c.policy==='automatic'&&selectedProvider!=='codex')throw Error('Connect Codex before choosing Automatic routing.');
+        if(c.selection&&c.policy!=='automatic'){if(selectedProvider!=='codex')throw Error('Connect Codex before choosing its model settings.');codexProvider.validateInference(c.selection);}
+        const saved=await core.setRequestInference(owner,c.expectedRevision,c.selection,guard,c.policy??'fixed');changed(owner);return saved;
       }
       if(selectedProvider!=='codex')return {kind:'unavailable',message:'Model, reasoning and speed controls are available for the connected Codex adapter. Meta keeps its fixed adapter settings.'};
       const catalog=await codexProvider.catalog();guard();if(c.type==='inference.catalog'||catalog.kind!=='available')return catalog;
-      const task=await core.getTask(owner);guard();const saved=requestInferenceSaved(task.session),selection=resolveRequestInference(task.session,selectedProvider,codexProvider.defaultInference()).selection!;codexProvider.validateInference(selection);
-      return {taskId:owner,revision:saved.revision,selection,wire:buildCodexInferenceWire(selection)};
+      const task=await core.getTask(owner);guard();const saved=requestInferenceSaved(task.session),prompt=c.prompt??task.session?.draft??'',kind=c.kind??(task.session?.draftKind==='create'?'create':'explain'),resolved=await resolveTaskRequestInference(task,prompt,kind,undefined,catalog);guard();const selection=resolved.selection!;codexProvider.validateInference(selection);
+      return {taskId:owner,revision:saved.revision,prompt,kind,selection,decision:resolved.decision,wire:buildCodexInferenceWire(selection)};
     }
     case 'task-attention.get':return taskViewPreferences.readAttention()
     case 'task-attention.change':return taskViewPreferences.changeAttention(c.change)
@@ -1204,7 +1212,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const canvasGeneration=prepareCanvasGeneration(before,c),conceptGeneration=prepareConceptMapGeneration(before,c);
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)
       const ordinary=!plan&&!target&&['explain','create'].includes(kind);
-      const inference=ordinary&&!recurring?resolveRequestInference(before.session,selectedProvider,codexProvider.defaultInference(),queued):undefined;
+      const inference=ordinary&&!recurring?await resolveTaskRequestInference(before,prompt,kind==='create'?'create':'explain',queued):undefined;
       const preferences=ordinary?await responsePreferences.lease():undefined,memory=ordinary&&!recurring?await core.leaseUserMemory(c.taskId,prompt):undefined;assertCurrentWork(lifecycle);
       if(recurring){if(c.taskId!==recurring.taskId||c.requestId!==recurring.requestId||prompt!==recurring.prompt||kind!=='explain'||c.artifactId||c.submittedDraft||c.briefAction||JSON.stringify(c.sourceIds)!=='[]'||JSON.stringify(c.expectedSourceRefs)!=='[]'||before.sources.length||before.artifacts.length||before.requests.length||JSON.stringify(preferences?.current)!==recurring.grant.preferences)throw Error('The exact recurring response scope is unavailable.');await checkRecurringGrant(recurring.grant);}
       const request=canvasGeneration?.request??conceptGeneration?.request??plan?.request??{...(inference?.selection?{inference:inference.selection,...(inference.revision===undefined?{}:{inferenceRevision:inference.revision})}:{}),...(queued?{queuedFollowup:{id:queued.id,revision:queued.revision,basis:queued.basis,scope:queued.scope}}:{}),taskId:c.taskId,requestId:str(c.requestId,'request ID',200),kind,prompt,...(memory?{memory:memory.receipt}:{}),...(c.conversationAttempt?{conversationAttempt:c.conversationAttempt}:{}),...(recurring?{executionScope:'recurring-response:v1:'+recurring.grant.id+':'+c.requestId}:preferences?.scope?{executionScope:preferences.scope}:{}),...(c.submittedDraft?{submittedDraft:c.submittedDraft}:{}),...(c.sourceIds!==undefined?{sourceIds:c.sourceIds}:{}),...(c.expectedSourceRefs!==undefined?{expectedSourceRefs:c.expectedSourceRefs}:{}),...(target?{artifactId:target.id,expectedRevision:targetRevision!.revision}:{})}

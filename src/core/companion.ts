@@ -1,4 +1,4 @@
-import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
+import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
 import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
 import {changeLocalContacts} from './local-contacts';
@@ -605,16 +605,18 @@ export class Companion {
       return result;
     });
   }
-  setRequestInference(taskId:string,expectedRevision:number,selection:RequestInferenceSelection|null,assertCurrent:()=>void=()=>{}):Promise<RequestInferenceState>{
+  setRequestInference(taskId:string,expectedRevision:number,selection:RequestInferenceSelection|null,assertCurrent:()=>void=()=>{},policy:RequestInferencePolicy='fixed'):Promise<RequestInferenceState>{
     const chosen=selection===null?null:readRequestInferenceSelection(selection);
     if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)return Promise.reject(Error('The model choice revision is invalid.'));
+    if(policy!=='fixed'&&policy!=='automatic')return Promise.reject(Error('Choose Fixed or Automatic routing.'));
     return this.exclusive(()=>this.commit(state=>{
       assertCurrent();const task=this.task(state,taskId),session=task.session??emptyTaskSession(),current=requestInferenceSaved(session);
       if(task.status!=='active'||task.archive)throw Error('Open and resume the task before changing its model choice.');
       if(current.revision!==expectedRevision)throw Error('The task model choice changed. Reopen its settings before changing it.');
-      if(sameRequestInference(current.selection,chosen))return {taskId,...current};
+      if(policy==='automatic'&&!sameRequestInference(current.selection,chosen))throw Error('Automatic routing keeps the existing fixed choice. Choose Fixed before changing that choice.');
+      if(sameRequestInference(current.selection,chosen)&&(current.policy??'fixed')===policy)return {taskId,...current};
       if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('The model choice revision limit was reached.');
-      const saved={revision:current.revision+1,selection:chosen};task.session={...session,requestInference:saved,revision:session.revision+1};task.updatedAt=this.time();return {taskId,...saved};
+      const saved={revision:current.revision+1,selection:chosen,...(policy==='automatic'?{policy}:{})};task.session={...session,requestInference:saved,revision:session.revision+1};task.updatedAt=this.time();return {taskId,...saved};
     }));
   }
   saveComposerDraft(taskId:string,expectedDraftRevision:number,value:{text:string;kind:ComposerKind}):Promise<ComposerDraft>{
@@ -1172,7 +1174,7 @@ export class Companion {
       }
       const context = await this.commit(state => {
         const task = this.task(state, input.taskId); if (task.status !== 'active') reject('conflict', 'Resume the task before starting a request.');
-        if(input.inference&&!input.queuedFollowup){const current=requestInferenceSaved(task.session);if(input.inferenceRevision!==current.revision||current.selection&&!sameRequestInference(current.selection,input.inference))throw Error('The task model choice changed before this request. Ask again with its current choice.');}
+        if(input.inference&&!input.queuedFollowup){const current=requestInferenceSaved(task.session);if(input.inferenceRevision!==current.revision||current.policy!=='automatic'&&current.selection&&!sameRequestInference(current.selection,input.inference))throw Error('The task model choice changed before this request. Ask again with its current choice.');}
         text(input.kind, 'Request kind', 100); text(input.prompt, 'Prompt', 50_000); this.claimRequest(state, input.requestId);
         if (input.executionScope !== undefined) text(input.executionScope, 'Execution scope', 2000);
         if (input.artifactId) {

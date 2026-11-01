@@ -34,3 +34,24 @@ it('inspect completion keeps its same-revision wire preview visible until task c
  expect(renderer.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join(' ')).toContain('Outgoing settings · nothing sent');expect(renderer.nodes().some(node=>node.type==='pre')).toBe(true);
  connectionKey='meta';renderer.render();expect(renderer.nodes().some(node=>node.type==='pre')).toBe(false);
 });
+
+it('saves Auto without replacing Fixed and inspects the actual unsent message again after edits',async()=>{
+ const fixed={provider:'codex' as const,model:'alternate',effort:'high',tier:'default' as const},calls:Command[]=[];
+ let revision=4;vi.stubGlobal('window',{companion:{invoke:async(command:Command)=>{
+  calls.push(command);if(command.type==='inference.catalog')return catalog;
+  if(command.type==='inference.select')return {taskId:base.id,revision:++revision,selection:command.selection,...(command.policy?{policy:command.policy}:{})};
+  if(command.type==='inference.preview')return {taskId:base.id,revision,prompt:command.prompt,kind:command.kind,selection:catalog.defaultSelection,decision:{policy:'automatic',rule:'routine',reason:'Short question under local policy.'},wire:{thread:{model:'luna',serviceTier:'default',config:{model_reasoning_effort:'medium'}},turn:{model:'luna',effort:'medium',serviceTierForTurn:'default'}}};
+  throw Error('Unexpected command');
+ }}});
+ let prompt='Say hello.',kind:'explain'|'create'='explain';const task={...base,session:{...emptyTaskSession(),requestInference:{revision:4,selection:fixed}}};
+ const renderer=createControlledRenderer(()=>createElement(RequestInferenceSettings,{task,prompt,kind}));renderer.render();renderer.find(node=>node.type==='details'&&node.props.className==='request-inference').props.onToggle({currentTarget:{open:true}});await settle(renderer);
+ renderer.find(node=>node.type==='select'&&node.props['aria-label']==='Request model routing').props.onChange({target:{value:'automatic'}});await settle(renderer);
+ expect(calls.filter(command=>command.type==='inference.select')).toEqual([{type:'inference.select',taskId:base.id,expectedRevision:4,selection:fixed,policy:'automatic'}]);
+ const inspect=()=>renderer.find(node=>node.type==='button'&&node.children.some(child=>child.type==='#text'&&child.props.text==='Inspect next request settings')).props.onClick();
+ inspect();await settle(renderer);expect(renderer.nodes().some(node=>node.type==='pre')).toBe(true);
+ prompt='Compare these designs.';kind='create';renderer.render();expect(renderer.nodes().some(node=>node.type==='pre')).toBe(false);inspect();await settle(renderer);
+ expect(calls.filter(command=>command.type==='inference.preview')).toEqual([{type:'inference.preview',taskId:base.id,prompt:'Say hello.',kind:'explain'},{type:'inference.preview',taskId:base.id,prompt:'Compare these designs.',kind:'create'}]);
+ renderer.find(node=>node.type==='select'&&node.props['aria-label']==='Request model routing').props.onChange({target:{value:'fixed'}});await settle(renderer);
+ expect(renderer.find(node=>node.type==='select'&&node.props['aria-label']==='Request model').props.value).toBe('alternate');
+ expect(calls.some(command=>command.type==='model.run')).toBe(false);
+});
