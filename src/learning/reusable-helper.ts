@@ -16,13 +16,17 @@ export const TextDemonstrationSchema=Schema.Struct({id,atRevision:rev,input,step
 export type TextDemonstration=typeof TextDemonstrationSchema.Type;
 const step=Schema.Struct({operation:HelperOperationSchema,before:output,after:output});
 const runResult=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),text:output,exceptionId:Schema.NullOr(id),trace:Schema.Array(step).pipe(Schema.maxItems(8))}),Schema.Struct({kind:Schema.Literal('abstain'),reason:short,exceptionId:id,trace:Schema.Array(step).pipe(Schema.maxItems(8))}));
+export const TEXT_HELPER_ACTIVITY_LIMIT=20;
+const activityResult=Schema.Union(Schema.Struct({kind:Schema.Literal('output'),text:output,exceptionId:Schema.NullOr(id)}),Schema.Struct({kind:Schema.Literal('abstain'),reason:short,exceptionId:id}));
+const runRevision=Schema.Int.pipe(Schema.between(1,500));
+const runActivity=Schema.Struct({startedAtRevision:runRevision,runs:Schema.Array(Schema.Struct({atRevision:runRevision,version:Schema.Int.pipe(Schema.between(1,20)),savedAtRevision:rev,input,result:activityResult})).pipe(Schema.minItems(1),Schema.maxItems(TEXT_HELPER_ACTIVITY_LIMIT))});
 const testCase=Schema.Struct({id,label:short,role:Schema.Literal('example','counterexample'),input,expected,demonstration:Schema.optional(Schema.Array(step).pipe(Schema.minItems(1),Schema.maxItems(8)))});
 const definition=Schema.Struct({name:short,description:short,invocation:short,operations:Schema.Array(HelperOperationSchema).pipe(Schema.maxItems(8)),exceptions:Schema.Array(exception).pipe(Schema.maxItems(8)),tests:Schema.Array(testCase).pipe(Schema.maxItems(20))});
 export type HelperDefinition=typeof definition.Type;
 const version=Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),savedAtRevision:rev,changeNote:short,definition});
 export const HelperDataSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),schemaVersion:Schema.Literal(1),id,title:short,description:short,recordedText:Schema.optional(Schema.Struct({kind:Schema.Literal('owned-local-text-actions'),physicalGestureVerified:Schema.Literal(false),effectAuthority:Schema.Literal('none'),source:Schema.Struct({taskId:id,artifactId:id,artifactRevision:Schema.Int.pipe(Schema.positive()),artifactDigest:Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),moduleId:id,moduleVersion:Schema.Int.pipe(Schema.positive()),helperId:id,stateRevision:rev}),observation:TextDemonstrationSchema}))});
 export type HelperData=typeof HelperDataSchema.Type;
-export const HelperStateSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),helperId:id,revision:rev,draft:definition,versions:Schema.Array(version).pipe(Schema.maxItems(20)),activeVersion:Schema.NullOr(Schema.Int.pipe(Schema.between(1,20))),observations:Schema.optional(Schema.Array(TextDemonstrationSchema).pipe(Schema.maxItems(166))),recording:Schema.NullOr(Schema.Struct({input,current:output,steps:Schema.Array(step).pipe(Schema.maxItems(8))})),lastRun:Schema.optional(Schema.NullOr(Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),input,result:runResult})))});
+export const HelperStateSchema=Schema.Struct({kind:Schema.Literal('helper-studio'),helperId:id,revision:rev,draft:definition,versions:Schema.Array(version).pipe(Schema.maxItems(20)),activeVersion:Schema.NullOr(Schema.Int.pipe(Schema.between(1,20))),observations:Schema.optional(Schema.Array(TextDemonstrationSchema).pipe(Schema.maxItems(166))),recording:Schema.NullOr(Schema.Struct({input,current:output,steps:Schema.Array(step).pipe(Schema.maxItems(8))})),lastRun:Schema.optional(Schema.NullOr(Schema.Struct({version:Schema.Int.pipe(Schema.between(1,20)),input,result:runResult}))),runActivity:Schema.optional(runActivity)});
 export type HelperState=typeof HelperStateSchema.Type;
 export const HelperActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('apply-example-proposal'),examples:textExamples,proposalId:id,expectedRevision:rev}),
@@ -64,6 +68,9 @@ function execute(data:HelperDefinition,value:string){
  for(const op of data.operations){const before=text;text=operation(text,op);trace.push({operation:op,before,after:text});}
  return {kind:'output' as const,text,exceptionId:null,trace};
 }
+function activityOutcome(result:typeof activityResult.Type):typeof activityResult.Type{
+ return result.kind==='output'?{kind:result.kind,text:result.text,exceptionId:result.exceptionId}:{kind:result.kind,reason:result.reason,exceptionId:result.exceptionId};
+}
 function unique(values:readonly string[]){if(new Set(values).size!==values.length)throw Error('Test and exception identities must be unique.');}
 function validateDefinition(data:HelperDefinition){
  unique(data.tests.map(t=>t.id));unique(data.exceptions.map(t=>t.id));unique(data.exceptions.map(t=>t.contains));
@@ -100,6 +107,16 @@ function parseState(dataValue:unknown,value:unknown):HelperState{
  state.versions.forEach((v,index)=>{validateDefinition(v.definition);if(v.version!==index+1||v.savedAtRevision>state.revision||!checkHelper(v.definition).passed)throw Error('Saved helper versions must be ordered, tested immutable snapshots.');});
  if(state.activeVersion!==null&&!state.versions.some(v=>v.version===state.activeVersion))throw Error('The active helper version is unavailable.');
  if(state.lastRun){const run=state.lastRun,saved=state.versions.find(v=>v.version===run.version);if(!saved||JSON.stringify(execute(saved.definition,run.input))!==JSON.stringify(run.result))throw Error('Saved helper output does not match its exact input and version.');}
+ if(state.runActivity){
+  const activity=state.runActivity;if(activity.startedAtRevision>state.revision)throw Error('Helper activity starts after its saved state.');
+  for(const [index,run] of activity.runs.entries()){
+   const saved=state.versions.find(v=>v.version===run.version);
+   if(run.atRevision<activity.startedAtRevision||run.atRevision>state.revision||index>0&&run.atRevision<=activity.runs[index-1].atRevision)throw Error('Helper activity must retain unique committed revision order.');
+   if(!saved||run.savedAtRevision!==saved.savedAtRevision||run.atRevision<=saved.savedAtRevision||JSON.stringify(activityOutcome(execute(saved.definition,run.input)))!==JSON.stringify(run.result))throw Error('Helper activity does not match its exact saved version and result.');
+  }
+  const latest=activity.runs.at(-1)!;
+  if(state.lastRun&&(latest.atRevision!==state.revision||latest.version!==state.lastRun.version||latest.input!==state.lastRun.input||JSON.stringify(latest.result)!==JSON.stringify(activityOutcome(state.lastRun.result))))throw Error('The latest saved helper run is not its committed activity record.');
+ }
  if(state.recording){let current=state.recording.input;for(const event of state.recording.steps){if(event.before!==current||operation(current,event.operation)!==event.after)throw Error('Invalid recording trace.');current=event.after;}if(current!==state.recording.current)throw Error('Recording output does not match its actions.');}
  return state;
 }
@@ -150,7 +167,8 @@ function update(dataValue:unknown,stateValue:unknown,actionValue:unknown):Helper
    case 'deactivate':next={...next,activeVersion:null};break;
    case 'run-active':{
     const saved=state.versions.find(v=>v.version===state.activeVersion);if(!saved)throw Error('Activate a saved version before running this helper.');
-    next={...next,lastRun:{version:saved.version,input:action.input,result:execute(saved.definition,action.input)}};break;
+    const result=execute(saved.definition,action.input),record={atRevision:next.revision,version:saved.version,savedAtRevision:saved.savedAtRevision,input:action.input,result:activityOutcome(result)};
+    next={...next,lastRun:{version:saved.version,input:action.input,result},runActivity:{startedAtRevision:state.runActivity?.startedAtRevision??next.revision,runs:[...(state.runActivity?.runs??[]),record].slice(-TEXT_HELPER_ACTIVITY_LIMIT)}};break;
    }
   }
  }

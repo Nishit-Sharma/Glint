@@ -9,6 +9,8 @@ import {INSTRUCTION_SKILL_MIME} from '../src/shared/instruction-skill';
 import {composeOrdinaryRequest,dispatchOrdinaryRequest} from '../src/host/ordinary-request-composition';
 import {buildCodexInput} from '../src/host/codex-provider';
 import {buildMetaMessages} from '../src/host/provider';
+import {instructionSkillCatalog} from '../src/core/instruction-skills';
+import type {RequestRecord} from '../src/core/types';
 
 const definition=(taskId:string,intentId='731-create')=>({taskId,intentId,name:'Evidence editor731',description:'A reusable review workflow',instructions:'Use only supplied evidence. Preserve uncertainty.',resources:[]});
 
@@ -68,5 +70,18 @@ it('persists the skill pin and confirmed model receipt on the same exact success
   const receipt={requestId:'combined-local-response',provider:'codex' as const,model:'gpt-6-luna',effort:'medium',tier:'default' as const,confirmation:'accepted-thread-and-completed-turn' as const};
   const result=await core.runRequest({taskId:task.id,requestId:receipt.requestId,kind:'explain',prompt:'Synthetic union only.',sourceIds:[],instructionSkill:skill.reference,instructionSkillRevision:1},async context=>{expect(context.instructionSkill?.reference).toEqual(skill.reference);expect(context.task.session).not.toHaveProperty('instructionSkill');return {title:'Combined local result',content:'No provider called.',modelReceipt:receipt};});
   expect(result.status).toBe('completed');expect(result.instructionSkill).toEqual(skill.reference);expect(result.responseModel).toEqual({...receipt,answer:result.answer});await core.close();core=await createCompanion({dataDir:directory});const reopened=(await core.getTask(task.id)).requests[0];expect(reopened.instructionSkill).toEqual(skill.reference);expect(reopened.responseModel).toEqual(result.responseModel);
+  expect((await core.getInstructionSkillCatalog(task.id)).activity?.records).toMatchObject([{requestId:receipt.requestId,reference:skill.reference,name:skill.name,status:'completed',startedAt:reopened.startedAt,finishedAt:reopened.finishedAt}]);
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});
+
+it('projects only actual request references, exact historical names/status/times, bounded metadata and honest unavailable versions',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-skill-activity-')),core=await createCompanion({dataDir:directory});
+ try{
+  const owner=await core.createTask({title:'Owned activity skill'}),consumer=await core.createTask({title:'Owned request task'}),v1=await core.saveInstructionSkill({...definition(owner.id),name:'Original saved name',instructions:'PRIVATE_INSTRUCTIONS'}),v2=await core.saveInstructionSkill({...definition(owner.id),artifactId:v1.reference.artifactId,expectedRevision:1,name:'Latest saved name',instructions:'PRIVATE_NEW_INSTRUCTIONS'});await core.setInstructionSkill(consumer.id,0,v2.reference);
+  const tasks=await core.listTasks(),target=tasks.find(task=>task.id===consumer.id)!;
+  const record=(id:string,status:RequestRecord['status'],reference:typeof v1.reference|undefined,start='2026-11-01T01:00:00.000Z'):RequestRecord=>({id,kind:'explain',prompt:'PRIVATE_PROMPT',digest:'request-digest',status,sourceRefs:[],startedAt:start,...(reference?{instructionSkill:reference}:{}),...(status==='completed'?{finishedAt:'2026-11-01T01:01:00.000Z'}:{}),error:'PRIVATE_ERROR',answer:{artifactId:'PRIVATE_ANSWER',revision:1,digest:'PRIVATE_BODY'}});
+  target.requests=[record('old-version','completed',v1.reference),record('failed','failed',v2.reference,'2026-11-01T02:00:00.000Z'),record('cancelled','cancelled',{...v1.reference,digest:'f'.repeat(64)},'2026-11-01T03:00:00.000Z'),record('interrupted','interrupted',v2.reference,'not-recorded'),record('running','running',v2.reference,'2026-11-01T04:00:00.000Z'),record('pin-only-does-not-count','completed',undefined)];
+  const before=JSON.stringify(tasks),activity=instructionSkillCatalog(tasks).activity;expect(activity.total).toBe(5);expect(activity.records.map(item=>item.requestId)).toEqual(['running','cancelled','failed','old-version','interrupted']);expect(activity.records.find(item=>item.requestId==='old-version')).toMatchObject({reference:v1.reference,name:'Original saved name',status:'completed',startedAt:'2026-11-01T01:00:00.000Z',finishedAt:'2026-11-01T01:01:00.000Z'});expect(activity.records.find(item=>item.requestId==='cancelled')).toMatchObject({name:null,status:'cancelled',finishedAt:null});expect(activity.records.find(item=>item.requestId==='interrupted')?.startedAt).toBeNull();expect(JSON.stringify(activity)).not.toMatch(/PRIVATE|instructions|resources|prompt|answer|error/);expect(JSON.stringify(tasks)).toBe(before);
+  target.requests.push(...Array.from({length:60},(_,i)=>record('recent-'+i,'completed',v2.reference,new Date(Date.UTC(2026,10,2,0,i)).toISOString())));const bounded=instructionSkillCatalog(tasks).activity;expect(bounded.total).toBe(65);expect(bounded.records).toHaveLength(50);expect(bounded.records[0].requestId).toBe('recent-59');expect(bounded.records.at(-1)?.requestId).toBe('recent-10');
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });

@@ -1,5 +1,5 @@
 import {Schema} from 'effect';
-import type {SourceRef} from '../core/types';
+import type {SourceRef,RequestStatus} from '../core/types';
 
 export const INSTRUCTION_SKILL_MIME='application/vnd.glint.instruction-skill+json';
 const bounded=(max:number)=>Schema.String.pipe(Schema.maxLength(max),Schema.filter(value=>!value.includes('\0')));
@@ -21,7 +21,9 @@ export type InstructionSkillResource={reference:SourceRef;label:string;content:s
 export type InstructionSkillSnapshot={reference:InstructionSkillReference;name:string;description:string;instructions:string;resources:InstructionSkillResource[]};
 export type InstructionSkillEntry=InstructionSkillSnapshot&{current:boolean};
 export type InstructionSkillUnavailable={reference:InstructionSkillReference;name:string;reason:string};
-export type InstructionSkillCatalog={entries:InstructionSkillEntry[];unavailable:InstructionSkillUnavailable[];invocation:InstructionSkillSelection};
+export const INSTRUCTION_SKILL_ACTIVITY_LIMIT=50;
+export type InstructionSkillRequestActivity={reference:InstructionSkillReference;name:string|null;taskId:string;taskTitle:string;requestId:string;status:RequestStatus;startedAt:string|null;finishedAt:string|null};
+export type InstructionSkillCatalog={entries:InstructionSkillEntry[];unavailable:InstructionSkillUnavailable[];invocation:InstructionSkillSelection;activity?:{records:InstructionSkillRequestActivity[];total:number}};
 export const instructionSkillSelection=(session?:{instructionSkill?:InstructionSkillSelection}):InstructionSkillSelection=>session?.instructionSkill??{revision:0,selection:null};
 export const sameInstructionSkill=(a:InstructionSkillReference|null|undefined,b:InstructionSkillReference|null|undefined)=>JSON.stringify(a??null)===JSON.stringify(b??null);
 const commands=Schema.Union(

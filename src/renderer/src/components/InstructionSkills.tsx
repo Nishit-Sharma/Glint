@@ -1,6 +1,6 @@
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import type {Task,SourceRef} from '../../../core/types';
-import {instructionSkillSelection,sameInstructionSkill,type InstructionSkillCatalog,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillReference} from '../../../shared/instruction-skill';
+import {INSTRUCTION_SKILL_ACTIVITY_LIMIT,instructionSkillSelection,sameInstructionSkill,type InstructionSkillCatalog,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillReference} from '../../../shared/instruction-skill';
 import {useNavigationDraft} from '../draft-navigation';
 import {publicErrorMessage} from '../../../shared/public-messages';
 import './instruction-skills.css';
@@ -47,5 +47,17 @@ export function InstructionSkills({task,sourceIds,onManageSources,prompt=task.se
   <p className="tiny">The inspector shows the current message and context as an inspected snapshot. Future Ask uses its then-current context. Each queued request keeps its original skill version. Browser, scheduled and other request kinds do not inherit it.</p>
   {preview&&preview.revision===choice.current.revision&&<details open><summary>Outgoing composition · nothing sent</summary><pre>{JSON.stringify(preview.request,null,2)}</pre></details>}
   {message&&<p role="status">{message}</p>}
+  <details><summary>Recorded instruction-skill request activity</summary><section aria-label="Recorded instruction-skill request activity">
+   <p>These saved request records retain the requested/included skill version. Status describes the saved request; following instructions and delivery for incomplete requests remain unverified. Instructions, knowledge text and request bodies are not shown here.</p>
+   {!catalog?<p>Open or reload skills to read activity.</p>:!catalog.activity?<p>Request activity is unavailable in this catalogue response.</p>:<>
+    <p>Showing {catalog.activity.records.length} of {catalog.activity.total} retained request records with skill references, up to {INSTRUCTION_SKILL_ACTIVITY_LIMIT}, newest recorded start first. Requests without a saved reference and removed records are not reconstructed. Package and connected-agent internals are not covered.</p>
+    {catalog.activity.records.length===0?<p>No saved instruction-skill request references are recorded. This does not mean a skill was never used.</p>:<ol>{catalog.activity.records.map(record=><li key={record.taskId+':'+record.requestId}><details><summary>{record.name??'Saved version unavailable'} · requested saved revision {record.reference.revision} · {record.status}</summary>
+     <p>Task: {record.taskTitle}. Recorded status: {record.status}.</p>
+     <p>Recorded start: {record.startedAt?<time dateTime={record.startedAt}>{record.startedAt}</time>:'Unavailable'}. Recorded finish: {record.finishedAt?<time dateTime={record.finishedAt}>{record.finishedAt}</time>:'Not recorded'}.</p>
+     <details><summary>Request and saved version references</summary><p>Task {record.taskId} · request {record.requestId}</p><p>Skill owner {record.reference.ownerTaskId} · file {record.reference.artifactId} · requested/included saved revision {record.reference.revision} · digest {record.reference.digest}</p></details>
+     {record.name===null&&<p>The exact saved skill version is unavailable. Its recorded reference is retained; a newer version has not been substituted.</p>}
+    </details></li>)}</ol>}
+   </>}
+  </section></details>
  </section></details>;
 }

@@ -15,6 +15,7 @@ export interface SavedHelperEntry{
  name:string;description:string;invocation:string;version:number;activeVersion:number|null;savedVersionCount:number;
  example:HelperExample|undefined;
  recordExample?:{input:SemanticRecord;output:SemanticRecord};scope?:'record'|'table';activationGeneration?:number;
+ textRunActivity?:{retainedCount:number;startedAtRevision?:number;latest?:{atRevision:number;version:number}};
 }
 
 export function savedHelpers(tasks:readonly Task[]):SavedHelperEntry[]{
@@ -50,8 +51,9 @@ export function savedHelpers(tasks:readonly Task[]):SavedHelperEntry[]{
      }
      const state=helperStudio.parseState(module.data,matches[0].state),saved=state.versions.find(item=>item.version===state.activeVersion)??state.versions.at(-1);
      if(!saved)continue;
-     const definition=saved.definition,example=definition.tests.find(test=>test.role==='example');
-     entries.push({taskId:task.id,taskTitle:task.title,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,helperId:module.data.id,stateRevision:state.revision,name:definition.name,description:definition.description,invocation:definition.invocation,version:saved.version,activeVersion:state.activeVersion,savedVersionCount:state.versions.length,example:example?{input:example.input,expected:{...example.expected}}:undefined});
+     const definition=saved.definition,example=definition.tests.find(test=>test.role==='example'),latest=state.runActivity?.runs.at(-1);
+     const textRunActivity={retainedCount:state.runActivity?.runs.length??0,...(state.runActivity?{startedAtRevision:state.runActivity.startedAtRevision}:{}),...(latest?{latest:{atRevision:latest.atRevision,version:latest.version}}:{})};
+     entries.push({taskId:task.id,taskTitle:task.title,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,helperId:module.data.id,stateRevision:state.revision,name:definition.name,description:definition.description,invocation:definition.invocation,version:saved.version,activeVersion:state.activeVersion,savedVersionCount:state.versions.length,example:example?{input:example.input,expected:{...example.expected}}:undefined,textRunActivity});
     }catch{/* An invalid saved state stays in its original task for review. */}
    }
   }catch{/* Invalid envelopes stay available in their original task for review. */}
