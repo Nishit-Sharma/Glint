@@ -1,3 +1,5 @@
+import {OpenViewFind} from './open-view-find';
+import {readOpenViewFindCommand} from '../shared/open-view-find';
 import {CsvWorkbooks} from './csv-workbook';
 import {readCsvWorkbookCommand} from '../shared/csv-workbook';
 import {readCsvStatisticsCommand} from '../shared/csv-statistics';
@@ -151,6 +153,7 @@ const native=new NativeSourceAdapter()
 // Disposable integration instances must not compete with the user's running app for input.
 const testNoGlobalInput=process.env.WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT==='1'
 const contentBackupGate=new ContentBackupGate()
+let openViewFind:OpenViewFind|undefined;
 let core:Companion,panel:BrowserWindow,credentialWindow:BrowserWindow|undefined,contentBackups:ContentBackups
 let shortcut=DEFAULT_FALLBACK_SHORTCUT,panelBounds:Electron.Rectangle|undefined,attachedWindowId:string|undefined,monitor:ReturnType<typeof setInterval>|undefined
 let placementMode:'attached'|'edge'|'detached'='detached'
@@ -240,6 +243,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(c.type==='view.find')return readOpenViewFindCommand(c);
   if(c.type==='image.copy')return readImageCopyCommand(c);
   if(c.type==='code-block.copy')return readCodeBlockCopy(c);
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
@@ -1216,6 +1220,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       if(c.edit){const result=await core.saveTextSource({taskId:c.taskId,source:selected,expectedSource,intentId:c.edit.intentId,binding:c.edit.binding},()=>assertCurrentWork(lifecycle));changed(c.taskId);return {...result,task:await core.getTask(c.taskId)}}
       return taskMutation(c.taskId,()=>core.putSource(c.taskId,selected,undefined,expectedSource,()=>assertCurrentWork(lifecycle)))
     }
+    case 'view.find':{assertCurrentWork(lifecycle);if(!openViewFind)throw Error('Find is unavailable.');return openViewFind.handle(c);}
     case 'source.image':{
       if(c.sourceId){const t=await core.getTask(c.taskId);if(t.sources.find(s=>s.id===c.sourceId)?.versions.at(-1)?.kind!=='image')throw Error('Select an imported image to replace.')}
       const choice=await dialog.showOpenDialog(panel,{title:'Add an image',properties:['openFile'],filters:[{name:'Images',extensions:['png','jpg','jpeg']} ]})
@@ -1505,7 +1510,7 @@ app.whenReady().then(async()=>{
   if(Menu?.buildFromTemplate)Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform==='darwin'?[{label:'Glint',submenu:[{role:'about' as const,label:'About Glint'},{type:'separator' as const},{role:'hide' as const,label:'Hide Glint'},{role:'hideOthers' as const},{role:'unhide' as const},{type:'separator' as const},{role:'quit' as const,label:'Quit Glint'}]}]:[]),
     {label:'File',submenu:[{label:'Use screen context',accelerator:undefined,click:()=>void activateContext()},{role:'close'}]},
-    {label:'Edit',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},
+    {label:'Edit',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'},{type:'separator'},{label:'Find in Glint window…',accelerator:'CommandOrControl+F',click:()=>{if(panel&&!panel.isDestroyed()&&panel.getSize()[0]>100)openViewFind?.open();}}]},
     {label:'View',submenu:[{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'}]},
     {label:'Window',submenu:[{label:'Minimize',accelerator:'CommandOrControl+M',click:()=>void requestCollapse()},{role:'front'}]},
   ]))
@@ -1518,6 +1523,7 @@ app.whenReady().then(async()=>{
   panel=new BrowserWindow({width:430,height:760,x:screen.getPrimaryDisplay().workArea.x+screen.getPrimaryDisplay().workArea.width-450,y:screen.getPrimaryDisplay().workArea.y+20,frame:false,show:false,alwaysOnTop:true,title:'Glint',backgroundColor:process.platform==='darwin'?'#00000000':'#f6f7f9',...(process.platform==='darwin'?{transparent:true,hasShadow:false}:{}),webPreferences:{preload:join(here,'../preload/index.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}})
   if(process.platform==='darwin'||process.platform==='win32')panel.setContentProtection(true)
   panel.webContents.setWindowOpenHandler(()=>({action:'deny'}));panel.webContents.on('will-navigate',e=>e.preventDefault());panel.on('close',e=>{if(!quitApproved){e.preventDefault();if(!quitting)void requestCollapse()}})
+  openViewFind=new OpenViewFind(panel.webContents,event=>emit(event));panel.webContents.on('found-in-page',(_event,result)=>openViewFind?.found(result));panel.webContents.on('did-start-navigation',()=>openViewFind?.clear());panel.on('closed',()=>{openViewFind=undefined;});
   installNativeSourceDrag()
   installNativeWindowMove()
   ipcMain.handle('companion:command',dispatchCompanionCommand)
