@@ -10,6 +10,7 @@ import {BotSnapshotSchema} from '../shared/bot-catalog';
 import {CharacterSnapshotSchema} from '../shared/character-catalog';
 import {ResponsePreferencesSnapshotSchema} from '../shared/response-preferences';
 import {TaskAttentionSavedSchema} from '../shared/task-attention';
+import {TaskViewSavedSchema} from '../shared/task-view';
 import {CONTENT_BACKUP_FILES,CONTENT_BACKUP_FORMAT,CONTENT_BACKUP_LIMIT,CONTENT_BACKUP_ERROR,readContentBackupCommand,type ContentBackupName,type ContentBackupCommand,type ContentBackupReply,type ContentBackupSummary,type ContentBackupReview,type ContentBackupStatus} from '../shared/content-backup';
 import {writeConversationExport} from './conversation-export';
 
@@ -26,7 +27,7 @@ const characterFile=Schema.Struct({schemaVersion:Schema.Literal(1),...CharacterS
 const botFile=Schema.Struct({schemaVersion:Schema.Literal(2),current:BotSnapshotSchema});
 const responseFile=Schema.Struct({schemaVersion:Schema.Literal(1),...ResponsePreferencesSnapshotSchema.fields});
 const taskId=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200),Schema.filter(value=>!value.includes('\0')));
-const viewFile=Schema.Struct({schemaVersion:Schema.Literal(1),taskId:Schema.NullOr(taskId)});
+const viewFile=TaskViewSavedSchema;
 const pinsFile=Schema.Struct({schemaVersion:Schema.Literal(1),taskIds:Schema.Array(taskId).pipe(Schema.maxItems(100),Schema.filter(values=>new Set(values).size===values.length))});
 
 function validateFile(file:BackupFile):void{
