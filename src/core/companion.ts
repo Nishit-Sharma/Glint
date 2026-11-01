@@ -1,3 +1,4 @@
+import {readSavedWorkLibraryCommand,readSavedLinkDefinition,savedLink,SAVED_LINK_MIME,type SavedWorkLibraryCommand,type SavedLinkResult} from '../shared/saved-work-library';
 import {CSV_STATISTICS_MIME,readCsvStatisticsCommand,readCsvStatistics,csvStatistics,type CsvStatisticsData,type CsvStatisticsSave,type CsvStatisticsSaved} from '../shared/csv-statistics';
 import {bundledDirectorySkill,directorySkillPayload,directoryReference} from '../shared/skill-directory';
 import {CSV_CHART_MIME,CSV_CHART_SVG_MIME,readCsvChartCommand,readCsvChart,csvChartPoints,csvChartSvg,type CsvChartData,type CsvChartSave,type CsvChartSaved} from '../shared/csv-chart';
@@ -1237,6 +1238,13 @@ export class Companion {
     if (artifact) { artifact.revisions.push(revision); this.retire(task, 'Artifact revised.'); }
     else task.artifacts.push({ id, revisions: [revision] });
     task.updatedAt = this.time(); return { artifactId: id, revision };
+  }
+  createSavedLink(input:Extract<SavedWorkLibraryCommand,{type:'library.link.create'}>,assertCurrent:()=>void=()=>{}):Promise<SavedLinkResult>{
+    const value=readSavedWorkLibraryCommand(input);if(value.type!=='library.link.create')return reject('invalid','Choose a saved link creation.');const definition=readSavedLinkDefinition(value.definition),content=JSON.stringify(definition);
+    return this.exclusive(async()=>{assertCurrent();const task=this.task(this.state,value.taskId),matches=task.artifacts.filter(item=>item.revisions.some(revision=>savedLink(revision)?.creationId===definition.creationId));
+      if(matches.length){const item=matches[0],revision=item.revisions[0];if(matches.length!==1||item.revisions.length!==1||revision.content!==content||revision.title!==definition.label)return reject('conflict','This saved link identity belongs to different or changed content. Inspect the library.');return clone({taskId:task.id,artifactId:item.id,revision});}
+      if(task.status!=='active'||task.archive)return reject('conflict','Open an active task before saving a new link.');return this.commit(state=>{assertCurrent();const owner=this.task(state,value.taskId),saved=this.appendArtifact(owner,{title:definition.label,content,mimeType:SAVED_LINK_MIME,sourceRefs:[]});return {taskId:owner.id,...saved};});
+    });
   }
   saveArtifact(taskId: string, input: ArtifactInput): Promise<{ artifactId: string; revision: ArtifactRevision }> {
     return this.exclusive(() => this.commit(state => this.appendArtifact(this.task(state, taskId), input)));

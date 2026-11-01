@@ -1,3 +1,4 @@
+import {readLibraryPinChange,libraryPinKey,type LibraryPinChange,type LibraryPinState} from '../shared/saved-work-library';
 import {randomUUID} from 'node:crypto';
 import {mkdir,open,readFile,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -74,6 +75,14 @@ export class TaskViewPreferences{
   const items=change.kind==='favorite'?[...current.items,{taskId:change.taskId,artifactId:change.artifactId,label:task!.artifacts.find(file=>file.id===change.artifactId)!.revisions.at(-1)!.title,reference:{revision:change.revision,digest:change.digest}}]:current.items.filter(item=>favoriteFileKey(item)!==key);
   if(items.length>100)throw Error('Remove a favorite before adding another. At most 100 favorite files are kept.');
   const fileFavorites={revision:current.revision+1,items};assertCurrent();await this.writeView({...saved,fileFavorites},assertCurrent);return {kind:'available',...fileFavorites};
+ });}
+ readLibraryPins():Promise<LibraryPinState>{return this.serialize(async()=>{try{const saved=await this.loadDocument();return {kind:'available',...(saved.libraryPins??{revision:0,items:[]})};}catch{return {kind:'unavailable',message:'Library pins could not be read. Saved preferences are kept.'};}});}
+ changeLibraryPins(input:LibraryPinChange,assertCurrent:()=>void=()=>{}):Promise<LibraryPinState>{return this.serialize(async()=>{
+  const {expectedRevision,change}=readLibraryPinChange(input);assertCurrent();let saved:TaskViewSaved;try{saved=await this.loadDocument();}catch{return {kind:'unavailable',message:'Library pins could not be read. Saved preferences are kept.'};}
+  const current=saved.libraryPins??{revision:0,items:[]};if(expectedRevision!==current.revision)throw Error('Library pins changed. Reload pins before trying again.');const key=libraryPinKey(change),existing=current.items.find(item=>libraryPinKey(item)===key);let candidate:typeof existing;
+  if(change.kind==='pin'){const task=await this.getTask?.(change.taskId),files=task?.artifacts.filter(item=>item.id===change.artifactId),file=files?.length===1?files[0]:undefined,revision=file?.revisions.at(-1);if(!task||!file||!revision||revision.revision!==change.revision||revision.digest!==change.digest||file.revisions.filter(item=>item.revision===change.revision).length!==1)throw Error('The saved item changed or is unavailable. Reload the library before pinning.');candidate={taskId:task.id,artifactId:file.id,label:revision.title,reference:{revision:revision.revision,digest:revision.digest}};if(existing)return {kind:'available',...current};}
+  else if(!existing)return {kind:'available',...current};
+  if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('Library pin revision limit reached. Saved preferences are kept.');const items=change.kind==='pin'?[...current.items,candidate!]:current.items.filter(item=>libraryPinKey(item)!==key);if(items.length>100)throw Error('Unpin an item before adding another. Up to 100 library pins are kept.');const libraryPins={revision:current.revision+1,items};assertCurrent();await this.writeView({...saved,libraryPins},assertCurrent);return {kind:'available',...libraryPins};
  });}
  private async loadPins():Promise<TaskPinsState>{
   try{

@@ -1,3 +1,4 @@
+import {readSavedWorkLibraryCommand} from '../shared/saved-work-library';
 import {CsvWorkbooks} from './csv-workbook';
 import {readCsvWorkbookCommand} from '../shared/csv-workbook';
 import {readCsvStatisticsCommand} from '../shared/csv-statistics';
@@ -240,6 +241,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('library.'))return readSavedWorkLibraryCommand(c);
   if(c.type==='image.copy')return readImageCopyCommand(c);
   if(c.type==='code-block.copy')return readCodeBlockCopy(c);
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
@@ -1216,6 +1218,9 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       if(c.edit){const result=await core.saveTextSource({taskId:c.taskId,source:selected,expectedSource,intentId:c.edit.intentId,binding:c.edit.binding},()=>assertCurrentWork(lifecycle));changed(c.taskId);return {...result,task:await core.getTask(c.taskId)}}
       return taskMutation(c.taskId,()=>core.putSource(c.taskId,selected,undefined,expectedSource,()=>assertCurrentWork(lifecycle)))
     }
+    case 'library.pins.get':return taskViewPreferences.readLibraryPins();
+    case 'library.pins.change':{const {type,...input}=c;return taskViewPreferences.changeLibraryPins(input,()=>assertCurrentWork(lifecycle));}
+    case 'library.link.create':{const context=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==context)throw Error('Return to the owning task before saving the link.');};guard();const result=await core.createSavedLink(c,guard);changed(c.taskId);return result;}
     case 'source.image':{
       if(c.sourceId){const t=await core.getTask(c.taskId);if(t.sources.find(s=>s.id===c.sourceId)?.versions.at(-1)?.kind!=='image')throw Error('Select an imported image to replace.')}
       const choice=await dialog.showOpenDialog(panel,{title:'Add an image',properties:['openFile'],filters:[{name:'Images',extensions:['png','jpg','jpeg']} ]})

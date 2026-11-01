@@ -1,3 +1,4 @@
+import {LibraryPinsSchema} from './saved-work-library';
 import {Schema} from 'effect';
 import type {Task} from '../core/types';
 import {searchableSavedFile,savedWorkSearchLimits,type SavedWorkMatch} from './saved-work-search';
@@ -9,7 +10,7 @@ const FileReference=Schema.Struct({revision:Revision.pipe(Schema.positive()),dig
 const FileLabel=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(500),Schema.filter(value=>!value.includes('\0')));
 const FavoriteFile=Schema.Struct({taskId:Id,artifactId:Id,label:FileLabel,reference:FileReference});
 export const FileFavoritesSchema=Schema.Struct({revision:Revision,items:Schema.Array(FavoriteFile).pipe(Schema.maxItems(100),Schema.filter(items=>new Set(items.map(item=>JSON.stringify([item.taskId,item.artifactId]))).size===items.length))});
-export const TaskViewSavedSchema=Schema.Struct({schemaVersion:Schema.Literal(1),taskId:Schema.NullOr(Id),fileFavorites:Schema.optional(FileFavoritesSchema)});
+export const TaskViewSavedSchema=Schema.Struct({schemaVersion:Schema.Literal(1),taskId:Schema.NullOr(Id),fileFavorites:Schema.optional(FileFavoritesSchema),libraryPins:Schema.optional(LibraryPinsSchema)});
 export type TaskViewSaved=typeof TaskViewSavedSchema.Type;
 export type FileFavorites=typeof FileFavoritesSchema.Type;
 export type FavoriteFile=typeof FavoriteFile.Type;
