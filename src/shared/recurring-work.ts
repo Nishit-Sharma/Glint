@@ -1,10 +1,12 @@
+import type {Task} from '../core/types';
 import {Schema} from 'effect';
+import {RequestInferenceSelectionSchema,assertAdvertisedInference,buildCodexInferenceWire,type RequestInferenceSelection,type RequestInferenceCatalog,requestInferenceSaved,sameRequestInference} from './request-inference';
 
 const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_INTEGER));
 const bounded=(max:number)=>Schema.String.pipe(Schema.minLength(1),Schema.maxLength(max),Schema.filter(value=>value.trim().length>0&&!value.includes('\0')));
 const timestamp=Schema.String.pipe(Schema.filter(value=>Number.isFinite(Date.parse(value))&&Date.parse(value)<Date.parse('2200-01-01T00:00:00.000Z')&&new Date(value).toISOString()===value));
 const timeZone=bounded(100).pipe(Schema.filter(value=>{try{new Intl.DateTimeFormat('en',{timeZone:value});return true;}catch{return false;}}));
-const scope={mode:Schema.optional(Schema.Literal('response')),timeZone:Schema.optional(timeZone)};
+const scope={inference:Schema.optional(RequestInferenceSelectionSchema),mode:Schema.optional(Schema.Literal('response')),timeZone:Schema.optional(timeZone)};
 const cadence=Schema.Literal(24,168);
 export const RECURRING_WORK_LIMIT=40;
 export const RECURRING_HISTORY_LIMIT=50;
@@ -38,3 +40,26 @@ const publicScheduleMessages=new Set([
  'Current Codex user instructions could not be bound for recurring responses.',
 ]);
 export function recurringWorkPublicMessage(message:string):string|undefined{return publicScheduleMessages.has(message)?message:undefined;}
+
+const inferenceCommand=Schema.Union(Schema.Struct({type:Schema.Literal('schedules.models')}),Schema.Struct({type:Schema.Literal('schedules.preview'),id:bounded(200),expectedRevision:revision}));
+export type RecurringInferenceCommand=typeof inferenceCommand.Type;
+export const readRecurringInferenceCommand=Schema.decodeUnknownSync(inferenceCommand,{onExcessProperty:'error'});
+/** This exact resolution feeds both inspection and the real recurring grant. No catalog refresh. */
+export function recurringInference(item:Pick<RecurringWork,'inference'>,route:'codex'|'meta',defaultSelection:RequestInferenceSelection,catalog:RequestInferenceCatalog):{source:'saved'|'connection-default';route:'codex'|'meta';selection?:RequestInferenceSelection;wire?:ReturnType<typeof buildCodexInferenceWire>}{
+ if(item.inference){
+  if(route!=='codex')throw Error('This schedule selects Codex. Select the Codex connection before reviewing or resuming it.');
+  if(catalog.kind!=='available')throw Error(catalog.message);
+  assertAdvertisedInference(item.inference,catalog.models);
+ }
+ const selection=item.inference??(route==='codex'?defaultSelection:undefined);
+ return {source:item.inference?'saved':'connection-default',route,...(selection?{selection:{...selection},wire:buildCodexInferenceWire(selection)}:{})};
+}
+export type RecurringInferencePreview={id:string;revision:number;configurationDigest:string;authorized:boolean}&ReturnType<typeof recurringInference>;
+export const recurringResponseScope=(item:RecurringWork)=>JSON.stringify([item.id,item.title,item.instruction,item.intervalHours,item.mode,item.timeZone,...(item.inference?[item.inference]:[])]);
+
+/** Bind the immutable grant tuple to the exact task prepared from this schedule. */
+export function recurringRequestInference(grant:{inference?:RequestInferenceSelection},task:Task){
+ const saved=requestInferenceSaved(task.session);
+ if(saved.selection&&!sameRequestInference(saved.selection,grant.inference))throw Error('The prepared task model choice differs from the reviewed recurring grant.');
+ return {selection:grant.inference,revision:saved.revision};
+}

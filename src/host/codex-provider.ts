@@ -198,6 +198,10 @@ export class CodexProvider {
     this.configured = true;
     return accountScope;
   }
+  cachedCatalog():RequestInferenceCatalog{
+    if(this.options.enabled?.()===false||!this.configured||!this.advertised.length)return {kind:'unavailable',message:'No cached advertised Codex model options are available. Saved schedule choices are kept; this view does not refresh the connection.'};
+    return {kind:'available',models:structuredClone(this.advertised),defaultSelection:this.defaultInference()};
+  }
   async catalog():Promise<RequestInferenceCatalog>{
     if(this.options.enabled?.()===false)return {kind:'unavailable',message:'Codex is disconnected in this app. Connect it in Settings to choose model options.'};
     if(this.active)return this.advertised.length?{kind:'available',models:structuredClone(this.advertised),defaultSelection:this.defaultInference()}:{kind:'unavailable',message:'Model options are unavailable while this response is starting.'};

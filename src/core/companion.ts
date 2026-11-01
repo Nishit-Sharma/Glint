@@ -210,7 +210,7 @@ export class Companion {
       if(current?.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Schedule revision limit reached. Saved work was preserved.');
       if(change.kind==='save'){
         if(!current&&items.length>=RECURRING_WORK_LIMIT)reject('invalid',`Keep at most ${RECURRING_WORK_LIMIT} schedules. Delete one before adding another.`);
-        const time=this.time(),next:RecurringWork={id:change.id,revision:(current?.revision??0)+1,title:change.title.trim(),instruction:change.instruction,intervalHours:change.intervalHours,nextDueAt:change.nextDueAt,...(change.mode?{mode:change.mode}:{}),...(change.timeZone?{timeZone:change.timeZone}:{}),enabled:change.mode==='response'?false:current?.enabled??true,createdAt:current?.createdAt??time,updatedAt:time,history:current?.history??[]};
+        const time=this.time(),next:RecurringWork={id:change.id,revision:(current?.revision??0)+1,title:change.title.trim(),instruction:change.instruction,intervalHours:change.intervalHours,nextDueAt:change.nextDueAt,...(change.mode?{mode:change.mode}:{}),...(change.timeZone?{timeZone:change.timeZone}:{}),...(change.inference?{inference:{...change.inference}}:{}),enabled:change.mode==='response'?false:current?.enabled??true,createdAt:current?.createdAt??time,updatedAt:time,history:current?.history??[]};
         if(current)items[items.indexOf(current)]=next;else items.push(next);
       }else{
         if(!current)reject('not-found','This schedule is no longer available.');
@@ -235,6 +235,7 @@ export class Companion {
           const nextDueAt=new Date(start+(skipped+1)*interval).toISOString();
           const task:Task={id:randomUUID(),title:item.title,goal:item.instruction,assignedBotId,status:'active',createdAt:time,updatedAt:time,sources:[],artifacts:[],requests:[],procedures:[],checkpoints:[],actions:[],memory:{enabled:false},session:{...emptyTaskSession(),draft:item.instruction,draftKind:'explain',draftRevision:1}};
           if(item.mode==='response')task.session=emptyTaskSession();
+          if(item.inference)task.session={...task.session!,requestInference:{revision:1,selection:{...item.inference},policy:'fixed'}};
           state.tasks.push(task);ids.push(task.id);item.history.push({taskId:task.id,scheduledFor,preparedAt:time,skipped,...(item.mode==='response'?{status:'running' as const,requestId:randomUUID()}:{} )});item.history=item.history.slice(-RECURRING_HISTORY_LIMIT);item.nextDueAt=nextDueAt;item.revision++;item.updatedAt=time;
         }
         return ids;
