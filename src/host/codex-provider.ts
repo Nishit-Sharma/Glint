@@ -1,4 +1,4 @@
-import {codexInferenceModels,assertAdvertisedInference,buildCodexInferenceWire,readRequestInferenceSelection,type RequestInferenceSelection,type RequestInferenceModel,type RequestInferenceCatalog} from '../shared/request-inference';
+import {codexInferenceModels,modelImageInput,assertAdvertisedInference,buildCodexInferenceWire,readRequestInferenceSelection,type RequestInferenceSelection,type RequestInferenceModel,type RequestInferenceCatalog} from '../shared/request-inference';
 import {readProviderModelReceipt} from '../shared/response-model';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
@@ -132,7 +132,7 @@ export function buildCodexInput(input: Pick<MetaRunInput, 'prompt' | 'sources' |
   let characters = 0;
   for (const source of input.sources) {
     if (!source.id || !Number.isInteger(source.version) || source.version < 1 || !source.digest) throw new CodexProviderError('INVALID_INPUT', 'Each source needs its host-owned version and identity.');
-    const metadata = { id: source.id, version: source.version, digest: source.digest, label: source.label, role: source.role, kind: source.kind, capturedAt: source.capturedAt };
+    const metadata = { id: source.id, version: source.version, digest: source.digest, label: source.label, role: source.role, kind: source.kind, capturedAt: source.capturedAt,...(source.pdfPage?{pdfPage:source.pdfPage}:{}) };
     parts.push({ type: 'text', text: `Untrusted reference metadata: ${JSON.stringify(metadata)}` });
     if (source.kind === 'image' || source.kind === 'window') {
       if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(source.content) || source.content.length > 16_000_000) throw new CodexProviderError('INVALID_INPUT', 'Images require explicit inline bytes; refresh frozen window pixels before each use.');
@@ -274,6 +274,7 @@ export class CodexProvider {
       directory = await mkdtemp(join(tmpdir(), 'window-companion-codex-'));
       connection = await (this.options.connect ?? connectStdio)(this.cliPath, directory); this.connection = connection;
       const accountScope=await this.initialize(connection,!!input.expectedAccountScope,selection);
+      if(input.sources.some(source=>source.kind==='image'||source.kind==='window')&&modelImageInput(this.advertised.find(model=>model.id===selection.model))==='text-only')throw new CodexProviderError('MODEL_UNAVAILABLE','The selected model explicitly advertises text-only input. Choose an image-capable model; no request was sent.');
       if(input.expectedAccountScope&&input.expectedAccountScope!==accountScope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in or instructions changed. Resume the schedule to authorize its current scope. Nothing was generated.');
       if (controller.signal.aborted) throw controller.signal.reason;
       this.update('streaming', `Sending explicitly selected references through Codex ${selection.model}, ${selection.tier}, ${selection.effort} reasoning.`);

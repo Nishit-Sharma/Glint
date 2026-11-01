@@ -15,8 +15,9 @@ export const readRequestInferenceSelection=Schema.decodeUnknownSync(RequestInfer
 const command=Schema.Union(Schema.Struct({type:Schema.Literal('inference.catalog'),taskId:id}),Schema.Struct({type:Schema.Literal('inference.preview'),taskId:id,prompt:Schema.optional(Schema.String.pipe(Schema.maxLength(16_000))),kind:Schema.optional(Schema.Literal('explain','create'))}),Schema.Struct({type:Schema.Literal('inference.select'),taskId:id,expectedRevision:revision,selection:Schema.NullOr(RequestInferenceSelectionSchema),policy:Schema.optional(policy)}));
 export type RequestInferenceCommand=typeof command.Type;
 export const readRequestInferenceCommand=Schema.decodeUnknownSync(command,{onExcessProperty:'error'});
-export type RequestInferenceModel={id:string;label:string;efforts:string[];tiers:Array<{id:'default'|'priority';label:string}>;initialEffort:string;initialTier:'default'|'priority'};
+export type RequestInferenceModel={id:string;label:string;efforts:string[];tiers:Array<{id:'default'|'priority';label:string}>;initialEffort:string;initialTier:'default'|'priority';inputModalities?:string[]};
 export type RequestInferenceCatalog={kind:'available';models:RequestInferenceModel[];defaultSelection:RequestInferenceSelection}|{kind:'unavailable';message:string};
+export const modelImageInput=(model?:RequestInferenceModel):'advertised'|'text-only'|'unknown'=>model?.inputModalities?.includes('image')?'advertised':model?.inputModalities?.includes('text')?'text-only':'unknown';
 export const requestInferenceSaved=(session?:{requestInference?:RequestInferenceSaved}):RequestInferenceSaved=>session?.requestInference??{revision:0,selection:null};
 export const sameRequestInference=(a:RequestInferenceSelection|null|undefined,b:RequestInferenceSelection|null|undefined)=>JSON.stringify(a??null)===JSON.stringify(b??null);
 export function assertAdvertisedInference(selection:RequestInferenceSelection,models:readonly RequestInferenceModel[]){
@@ -28,7 +29,8 @@ export function buildCodexInferenceWire(value:RequestInferenceSelection){
  const selection=readRequestInferenceSelection(value);
  return {thread:{model:selection.model,serviceTier:selection.tier,allowProviderModelFallback:false,config:{model_reasoning_effort:selection.effort}},turn:{model:selection.model,effort:selection.effort,serviceTierForTurn:selection.tier}};
 }
-const advertisedModel=Schema.Struct({model:id,displayName:Schema.optional(id),hidden:Schema.optional(Schema.Boolean),supportedReasoningEfforts:Schema.Array(Schema.Struct({reasoningEffort:id})).pipe(Schema.maxItems(20)),defaultReasoningEffort:Schema.optional(id),serviceTiers:Schema.optional(Schema.Array(Schema.Struct({id,name:id})).pipe(Schema.maxItems(20))),defaultServiceTier:Schema.optional(Schema.NullOr(id))});
+const advertisedModalities=Schema.Array(id).pipe(Schema.maxItems(8));
+const advertisedModel=Schema.Struct({model:id,displayName:Schema.optional(id),hidden:Schema.optional(Schema.Boolean),supportedReasoningEfforts:Schema.Array(Schema.Struct({reasoningEffort:id})).pipe(Schema.maxItems(20)),defaultReasoningEffort:Schema.optional(id),serviceTiers:Schema.optional(Schema.Array(Schema.Struct({id,name:id})).pipe(Schema.maxItems(20))),defaultServiceTier:Schema.optional(Schema.NullOr(id)),inputModalities:Schema.optional(Schema.Unknown)});
 export function codexInferenceModels(value:unknown):RequestInferenceModel[]{
  const advertised=Schema.decodeUnknownSync(Schema.Array(advertisedModel).pipe(Schema.maxItems(400)))(value),models:RequestInferenceModel[]=[];
  for(const model of advertised){
@@ -37,7 +39,8 @@ export function codexInferenceModels(value:unknown):RequestInferenceModel[]{
   if(model.defaultServiceTier===null||model.defaultServiceTier==='default'||model.serviceTiers?.some(tier=>tier.id==='default'))tiers.push({id:'default',label:'Standard'});
   const fast=model.serviceTiers?.find(tier=>tier.id==='priority');if(fast)tiers.push({id:'priority',label:fast.name});
   if(!efforts.length||!tiers.length)continue;
-  models.push({id:model.model,label:model.displayName??model.model,efforts,tiers,initialEffort:efforts.includes(model.defaultReasoningEffort??'')?model.defaultReasoningEffort!:efforts[0],initialTier:model.defaultServiceTier==='priority'&&fast?'priority':tiers[0].id});
+  const inputModalities=Schema.is(advertisedModalities)(model.inputModalities)?[...model.inputModalities]:undefined;
+  models.push({id:model.model,label:model.displayName??model.model,efforts,tiers,initialEffort:efforts.includes(model.defaultReasoningEffort??'')?model.defaultReasoningEffort!:efforts[0],initialTier:model.defaultServiceTier==='priority'&&fast?'priority':tiers[0].id,...(inputModalities?{inputModalities}:{})});
  }
  return models;
 }

@@ -1,0 +1,20 @@
+import {useEffect,useLayoutEffect,useRef,useState} from 'react';
+import type {Task} from '../../../core/types';
+import type {inspectPdfRequest} from '../../../host/pdf-request-inspection';
+import {publicErrorMessage} from '../../../shared/public-messages';
+import './pdf-request-inspector.css';
+type Inspection=ReturnType<typeof inspectPdfRequest>;
+export function PdfRequestInspector({task,prompt,kind,sourceIds,connectionKey}:{task:Task;prompt:string;kind:'explain'|'create';sourceIds:string[];connectionKey:string}){
+ const [inspection,setInspection]=useState<Inspection>(),[working,setWorking]=useState(false),[message,setMessage]=useState('');const mounted=useRef(true),locked=useRef(false),generation=useRef(0);
+ const basis=JSON.stringify([task.id,prompt,kind,connectionKey,task.updatedAt,task.session?.contextRevision,task.session?.instructionSkill?.revision,task.session?.requestInference,sourceIds.map(id=>{const source=task.sources.find(source=>source.id===id);return [id,source?.currentVersion,source?.versions.at(-1)?.digest,source?.freshness];})]),current=useRef(basis);current.current=basis;
+ useLayoutEffect(()=>{mounted.current=true;generation.current++;locked.current=false;setWorking(false);setInspection(undefined);setMessage('');return()=>{mounted.current=false;generation.current++;};},[task.id]);
+ useEffect(()=>{setInspection(undefined);},[basis]);
+ async function inspect(){if(locked.current)return;locked.current=true;setWorking(true);setMessage('');setInspection(undefined);const captured=current.current,epoch=++generation.current;
+  try{const result=await window.companion.invoke<Inspection>({type:'source.pdf.inspect',taskId:task.id,prompt,kind,sourceIds,expectedSkillRevision:task.session?.instructionSkill?.revision??0});if(!mounted.current||epoch!==generation.current)return;if(captured!==current.current||result.taskId!==task.id){setMessage('The visual request context changed. Inspect it again before sending.');return;}setInspection(result);}
+  catch(reason){if(mounted.current&&epoch===generation.current)setMessage(publicErrorMessage(reason));}finally{if(epoch===generation.current){locked.current=false;if(mounted.current)setWorking(false);}}
+ }
+ return <details className="pdf-request-inspector"><summary>Visual PDF · inspect outgoing request</summary><section aria-label="Visual PDF request inspection"><p>Inspect the selected PDF images, current message, chosen skill and requested model. Nothing is sent by this inspector.</p><div className="row"><button type="button" disabled={working||!prompt.trim()} onClick={()=>void inspect()}>Inspect visual request</button><button type="button" disabled={working||!inspection} onClick={()=>{setInspection(undefined);setMessage('Inspection cleared. Your sources and message are unchanged.');}}>Clear inspection</button></div>
+  {inspection&&<><p>Requested model: {inspection.requested.model} · {inspection.requested.effort} reasoning · {inspection.requested.tier} tier.</p><p>Image input: {inspection.imageInput==='advertised'?'advertised by the model catalog':'unverified; the catalog does not establish support'}. No model fallback is selected.</p>{inspection.images.map(image=><figure key={image.reference.sourceId}><img src={image.dataUrl} alt={`${image.provenance.fileName}, page ${image.provenance.page}`}/><figcaption>{image.label} · saved version {image.reference.version} · {image.provenance.width} × {image.provenance.height}</figcaption><details><summary>Exact page provenance</summary><pre>{JSON.stringify({reference:image.reference,...image.provenance},null,2)}</pre></details></figure>)}<details open><summary>Exact text and image parts · nothing sent</summary><pre>{JSON.stringify(inspection.parts,null,2)}</pre></details><details><summary>Requested model settings and payload identity</summary><pre>{JSON.stringify({settings:inspection.wireSettings,wireDigest:inspection.wireDigest},null,2)}</pre></details><p className="tiny">This is an inspected snapshot. Changing your message, sources, skill or model retires it. Ask uses the current context when you explicitly send.</p></>}
+  {message&&<p role="status">{message}</p>}
+ </section></details>;
+}

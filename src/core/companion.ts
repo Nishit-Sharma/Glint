@@ -1,4 +1,5 @@
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
+import {readPdfPageImages,pdfPageMessages,type PdfPageAddResult} from '../shared/pdf-page-import';
 import {readProviderModelReceipt} from '../shared/response-model';
 import {INSTRUCTION_SKILL_MIME,InstructionSkillReferenceSchema,readInstructionSkillSave,readInstructionSkillBody,instructionSkillSelection,sameInstructionSkill,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillCatalog} from '../shared/instruction-skill';
 import {instructionSkillEntry,instructionSkillReference,instructionSkillCatalog} from './instruction-skills';
@@ -957,6 +958,20 @@ export class Companion {
       });
       this.abortCancelled(result.task);return result;
     });
+  }
+  async addPdfPageSources(taskId:string,input:unknown,assertCurrent:()=>void=()=>{}):Promise<PdfPageAddResult>{
+    const images=clone(readPdfPageImages(input));
+    for(const image of images){const match=/^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(image.content);if(!match)throw Error(pdfPageMessages.render);const png=Buffer.from(match[1],'base64');if(png.length<24||png.length>8*1024*1024||!png.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||png.readUInt32BE(16)!==image.pdfPage.width||png.readUInt32BE(20)!==image.pdfPage.height||hash(png)!==image.pdfPage.pngDigest)throw Error(pdfPageMessages.changed);}
+    return this.exclusive(async()=>{const result=await this.commit(state=>{
+      assertCurrent();const task=this.task(state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error(pdfPageMessages.inactive);
+      const existing=images.map(image=>task.sources.find(source=>source.id===image.id));
+      if(existing.some(Boolean)){
+        if(!existing.every((source,index)=>{const version=source?.versions.at(-1),image=images[index];return source?.currentVersion===1&&version?.kind==='image'&&version.label===image.label&&version.content===image.content&&version.role===image.role&&JSON.stringify(version.pdfPage)===JSON.stringify(image.pdfPage);}))throw Error(pdfPageMessages.changed);
+        return {task,references:existing.map(source=>({sourceId:source!.id,version:source!.currentVersion,digest:source!.versions.at(-1)!.digest})),alreadyAdded:true};
+      }
+      for(const image of images)this.appendSource(task,{...image});
+      return {task,references:images.map(image=>{const source=task.sources.find(source=>source.id===image.id)!,version=source.versions.at(-1)!;return {sourceId:source.id,version:version.version,digest:version.digest};}),alreadyAdded:false};
+    });this.abortCancelled(result.task);return result;});
   }
   putSource(taskId: string, sourceInput: SourceInput, expectedTask?:Task, expectedSource?:SourceRef&{freshness?:Source['freshness']}, assertCurrent:()=>void=()=>{}, options?:{preserveBrowserContextForNewText:true}): Promise<Task> {
     const input=clone(sourceInput),expected=expectedTask?clone(expectedTask):undefined,expectedRef=expectedSource?clone(expectedSource):undefined;

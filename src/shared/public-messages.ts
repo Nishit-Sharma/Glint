@@ -3,6 +3,7 @@ import {CODE_WORKSPACE_ERROR} from './code-workspace';
 import {conversationAttemptPublicMessage} from './conversation-attempt';
 import {recurringWorkPublicMessage} from './recurring-work';
 import {documentImportMessages} from './document-import';
+import {pdfPageMessages} from './pdf-page-import';
 import {conceptMapPublicMessage} from './concept-map';
 import {RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT} from './response-preferences';
 export const RESPONSE_BRANCH_IMAGE_LIMIT = 'This conversation includes embedded image data. Choose an earlier response, or start a new task with selected readable text without image data. Your original task is unchanged.';
@@ -60,7 +61,7 @@ export function publicErrorMessage(error:unknown):string {
  const mapMessage=conceptMapPublicMessage(text);if(mapMessage)return mapMessage;
  const browserRecovery=browserRecoveryMessage(text)??inspectionRecoveryMessages.get(text);
  if(browserRecovery)return glintCopy.get(browserRecovery)??browserRecovery;
- if([...glintCopy.values()].includes(text)||Object.values(documentImportMessages).some(message=>message===text))return text;
+ if([...glintCopy.values()].includes(text)||Object.values(documentImportMessages).some(message=>message===text)||Object.values(pdfPageMessages).some(message=>message===text))return text;
  if([RESPONSE_PREFERENCES_CHANGED,RESPONSE_PREFERENCES_UNAVAILABLE,RESPONSE_PREFERENCES_CONTEXT_LIMIT].includes(text)||text===RESPONSE_BRANCH_IMAGE_LIMIT||publicMessages.has(text)||savedWorkMessages.has(text)||text===MODULE_EXPORT_RECOVERY||text===MODULE_REVISION_RECOVERY)return text;
  if(text==='Browser inspection stopped.'||text==='Stopped checking. The earlier action still needs review.')return 'Stopped checking. The earlier action still needs review.';
  if(/native source targeting is unavailable/i.test(text))return 'Drag attachment is unavailable on this device. Press Down Arrow to choose a window.';

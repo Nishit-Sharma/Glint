@@ -1,4 +1,5 @@
 import {RequestInferenceSelectionSchema} from '../shared/request-inference';
+import {PdfPageProvenanceSchema} from '../shared/pdf-page-import';
 import {ResponseModelReceiptSchema,confirmedResponseModel} from '../shared/response-model';
 import {InstructionSkillReferenceSchema} from '../shared/instruction-skill';
 import {CliPreferencesSchema,type CliPreferences} from '../shared/cli-preferences';
@@ -21,6 +22,7 @@ import {ProjectSchema,ProjectPinsSchema,ProjectSidebarSchema,type Project,type P
 const list = <A, I, R>(schema: Schema.Schema<A, I, R>) => Schema.mutable(Schema.Array(schema));
 const optionalText = Schema.optional(Schema.String);
 const sourceFields = {
+  pdfPage:Schema.optional(PdfPageProvenanceSchema),
   publicGithub:Schema.optional(PublicGithubSnapshotSchema),
   id: Schema.String, kind: Schema.Literal('text', 'image', 'window'), label: Schema.String,
   content: Schema.String, role: Schema.Literal('fact', 'style', 'inspiration'),

@@ -25,9 +25,9 @@ function readable(text:string){
  if(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text))throw Error(messages.failed);
  return text;
 }
-/** Only a native-picker path enters this function. Parse an immutable private copy. */
-export async function extractDocument(path:string,signal:AbortSignal):Promise<ImportedDocument>{
- const format=formatOf(path);if(!['txt','md','csv'].includes(format)&&process.platform!=='darwin')throw Error(messages.platform);
+
+/** Reads only a path already chosen by the native single-file picker. */
+export async function readPickedDocumentBytes(path:string,signal:AbortSignal):Promise<Buffer>{
  let bytes:Buffer;
  try{
   const file=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
@@ -37,6 +37,12 @@ export async function extractDocument(path:string,signal:AbortSignal):Promise<Im
   }finally{await file.close();}
  }catch(error){if(error instanceof Error&&knownMessages.has(error.message))throw error;throw Error(messages.file);}
  signal.throwIfAborted();
+ return bytes;
+}
+/** Only a native-picker path enters this function. Parse an immutable private copy. */
+export async function extractDocument(path:string,signal:AbortSignal):Promise<ImportedDocument>{
+ const format=formatOf(path);if(!['txt','md','csv'].includes(format)&&process.platform!=='darwin')throw Error(messages.platform);
+ const bytes=await readPickedDocumentBytes(path,signal);
  let text='',method='',pageCount:number|undefined;const warnings:string[]=[];
  if(format==='csv'){
   try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes).replace(/^\ufeff/,'');}catch{throw Error(messages.csvEncoding);}

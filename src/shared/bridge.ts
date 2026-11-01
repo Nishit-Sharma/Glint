@@ -1,4 +1,5 @@
 import type {RequestInferenceCommand} from './request-inference';
+import type {PdfPageCommand} from './pdf-page-import';
 import type {InstructionSkillCommand} from './instruction-skill';
 import type {CliPreferencesUpdate} from './cli-preferences';
 import type {LocalContactsChange} from './local-contacts';
@@ -57,6 +58,7 @@ export type Command =
   | ({type:'canvas.save'} & CanvasSave)
   | ({type:'canvas.svg'} & CanvasSvg)
   | RequestInferenceCommand
+  | PdfPageCommand
   | InstructionSkillCommand
   | TaskAttentionCommand
   | ConversationExportCommand

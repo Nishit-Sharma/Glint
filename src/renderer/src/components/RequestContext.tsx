@@ -1,5 +1,6 @@
 import {RequestInferenceSettings} from './RequestInferenceSettings';
 import {InstructionSkills} from './InstructionSkills';
+import {PdfRequestInspector} from './PdfRequestInspector';
 import type {Task} from '../../../core/types';
 import type {ConnectionStatus} from '../../../shared/bridge';
 import {sourceRoleLabel} from '../../../shared/public-messages';
@@ -20,6 +21,7 @@ export function RequestContext({task,selectedSourceIds,connection,onReview,kind=
   </details>:<span>Context · Your message</span>}
   {task&&history&&<RequestInferenceSettings key={task.id} task={task} prompt={prompt} kind={kind==='create'?'create':'explain'} connectionKey={JSON.stringify([connection?.provider,connection?.endpoint,connection?.configured])}/>}
   {task&&history&&<InstructionSkills key={'skills:'+task.id} task={task} prompt={prompt} sourceIds={sources.map(source=>source.id)} onManageSources={onReview}/>}
+  {task&&history&&sources.some(source=>source.versions.at(-1)?.pdfPage)&&<PdfRequestInspector key={'visual:'+task.id} task={task} prompt={prompt??''} kind={kind==='create'?'create':'explain'} sourceIds={sources.map(source=>source.id)} connectionKey={JSON.stringify([connection?.provider,connection?.endpoint,connection?.configured])}/>}
   {destination&&<span className="request-destination">To {destination}</span>}
  </div>;
 }

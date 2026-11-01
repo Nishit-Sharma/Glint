@@ -1,3 +1,7 @@
+import {PdfPageImports} from './pdf-page-import';
+import {inspectPdfRequest} from './pdf-request-inspection';
+import {isPdfPageCommand,readPdfPageCommand} from '../shared/pdf-page-import';
+import {modelImageInput} from '../shared/request-inference';
 import {queuedInferenceReview} from './queued-inference-review'
 import {composeOrdinaryRequest,dispatchOrdinaryRequest,instructionSkillReview} from './ordinary-request-composition';
 import {isInstructionSkillCommand,readInstructionSkillCommand,instructionSkillSelection,type InstructionSkillReference} from '../shared/instruction-skill';
@@ -163,6 +167,7 @@ let requestedViewTaskId:string|undefined
 let currentViewTaskId:string|undefined
 const publicGithub=new PublicGithubReader()
 const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md','csv']}]});return choice.canceled?undefined:choice.filePaths[0];})
+const pdfPageImports=new PdfPageImports({getTask:id=>core.getTask(id),addPdfPageSources:(...args)=>core.addPdfPageSources(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import visual PDF pages',properties:['openFile'],filters:[{name:'PDF document',extensions:['pdf']}]});return choice.canceled?undefined:choice.filePaths[0];});
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))
 const documentSpeech=new DocumentSpeech({directory:dataDir,core:{getTask:id=>core.getTask(id),replaceSession:(...args)=>core.replaceSession(...args)}})
@@ -213,6 +218,7 @@ function validate(value:unknown):Command{
   if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
   if(String(c.type).startsWith('reading.preferences.'))return readReadingCommand(c);
   if(String(c.type).startsWith('skills.'))return readInstructionSkillCommand(c);
+  if(String(c.type).startsWith('source.pdf.'))return readPdfPageCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
@@ -925,6 +931,21 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(contentBackupGate.busy&&!['draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('Content backup: Content is frozen. Finish the backup or restart Glint after restore.')
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
+  if(isPdfPageCommand(c)){
+    if(c.type==='source.pdf.cancel')return pdfPageImports.cancel(c);
+    const epoch=sourceContextEpoch,connectionEpoch=keyEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The visual PDF owner task changed. Existing sources are kept.');};guard();
+    if(c.type==='source.pdf.choose')return pdfPageImports.pick(c,guard);
+    if(c.type==='source.pdf.page')return pdfPageImports.preview(c,c.page,guard);
+    if(c.type==='source.pdf.add'){const result=await pdfPageImports.add(c,guard);changed(c.taskId);return result;}
+    if(selectedProvider!=='codex')throw Error('Visual request inspection uses the selected Codex connection. Choose it explicitly in Settings.');
+    const context=await core.previewInstructionRequest(c.taskId,c.expectedSkillRevision,[...c.sourceIds]),preferences=await responsePreferences.lease(),memory=await core.leaseUserMemory(c.taskId,c.prompt),catalog=await codexProvider.catalog(),folderGuidance=await codeWorkspaces.guidanceLease(c.taskId);guard();await folderGuidance.check();
+    const inference=await resolveTaskRequestInference(context.task,c.prompt,c.kind,undefined,catalog);if(!inference.selection)throw Error('The requested Codex model choice is unavailable.');
+    const capability=modelImageInput(catalog.kind==='available'?catalog.models.find(model=>model.id===inference.selection!.model):undefined);
+    const result=inspectPdfRequest(c.taskId,{prompt:c.prompt,sources:context.task.sources.map(source=>({...source.versions.at(-1)!})),taskHistory:context.taskHistory,projectInstructions:context.projectInstructions,preferences:preferences.current,memory,instructionSkill:context.instructionSkill,folderGuidance:folderGuidance.current},inference.selection,capability);
+    await preferences.check();await memory.check();await folderGuidance.check();const current=await core.previewInstructionRequest(c.taskId,c.expectedSkillRevision,[...c.sourceIds]);const currentInference=await resolveTaskRequestInference(current.task,c.prompt,c.kind,undefined,catalog);
+    const latest=inspectPdfRequest(c.taskId,{prompt:c.prompt,sources:current.task.sources.map(source=>({...source.versions.at(-1)!})),taskHistory:current.taskHistory,projectInstructions:current.projectInstructions,preferences:preferences.current,memory,instructionSkill:current.instructionSkill,folderGuidance:folderGuidance.current},inference.selection,capability);
+    if(result.wireDigest!==latest.wireDigest||JSON.stringify(inference)!==JSON.stringify(currentInference)||connectionEpoch!==keyEpoch||selectedProvider!=='codex')throw Error('The visual request context changed. Inspect it again before sending.');guard();preferences.assertCurrent();memory.assertCurrent();folderGuidance.assertCurrent();return result;
+  }
   if(isInstructionSkillCommand(c)){
     const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The skill owner task changed. Saved work is kept.');};guard();
     if(c.type==='skills.list'){const catalog=await core.getInstructionSkillCatalog(c.taskId);guard();return catalog;}
@@ -1419,6 +1440,7 @@ const quitDrafts=createQuitDraftBarrier({
  confirmDiscard:async reason=>{const options={type:'warning',message:'Quit without saving unfinished work?',detail:reason+'\n\nKeep the app open to retain your unsent messages and practice edits, or quit without saving the unconfirmed edits.',buttons:['Keep app open','Quit without saving'],defaultId:0,cancelId:0} as const;const result=await (panel&&!panel.isDestroyed()?dialog.showMessageBox(panel,{...options,buttons:[...options.buttons]}):dialog.showMessageBox({...options,buttons:[...options.buttons]}));return result.response===1;},
 })
 async function stopForQuit(){
+ await pdfPageImports.close();
  publicGithub.cancel();
  await documentSpeech.close();
  sourceDrag?.cancel();sourceDragPreview?.clear();sourceContextEpoch++

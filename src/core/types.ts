@@ -7,6 +7,7 @@ import type {DocumentStamp,DocumentChange} from '../shared/document-source';
 import type { TaskSession,ComposerDraft,BrowserStartReceipt } from './task-session';
 /** Local task data. Source and provider text is inert content, never instructions to tools. */
 export interface SourceInput {
+  pdfPage?:import('../shared/pdf-page-import').PdfPageProvenance;
   publicGithub?: import('../shared/public-github').PublicGithubSnapshot;
   id?: string;
   kind: 'text' | 'image' | 'window';
