@@ -1,5 +1,6 @@
 import type {MemoryExportCommand} from './memory-export';
 import type {SystemSettingsCommand,HardwareAccelerationRuntime} from './system-settings';
+import type {FallbackShortcutCommand} from './fallback-shortcut';
 import type {RequestInferenceCommand} from './request-inference';
 import type {PdfPageCommand} from './pdf-page-import';
 import type {StudyCommand} from './study-workbench';
@@ -175,7 +176,7 @@ export type Command =
   | {type:'connection.select';provider:'meta'|'codex'}
   | {type:'surface.collapse'} | {type:'surface.expand'} | {type:'surface.companion'} | {type:'surface.floating'} | {type:'surface.hide'} | {type:'surface.workspace'} | {type:'surface.standalone'} | {type:'surface.attach';windowId:string}
   | {type:'surface.fit';fitId:string;height:number;phase:'preparing'|'running'|'settled'}
-  | {type:'shortcut.set';accelerator:string}
+  | FallbackShortcutCommand
   | {type:'presentation.finish';exitId:string}
   | {type:'presentation.capture';exitId:string}
   | {type:'presentation.reveal';exitId:string}
@@ -193,7 +194,7 @@ export interface HostStatus {
   platform:string;screenPermission:string;accessibilityPermission:string;shortcut:string;
   shortcutStatus?:'registered'|'unavailable';
   modifierShortcutStatus?:'stopped'|'starting'|'ready'|'permission-required'|'unsupported'|'unavailable';
-  fallbackShortcut?:string;fallbackShortcutStatus?:'registered'|'unavailable';
+  fallbackShortcut?:string;fallbackShortcutStatus?:'registered'|'unavailable';fallbackShortcutDefault?:string;
   captureMode:'explicit-frozen';memoryEnabled:boolean;dataDir:string;
 }
 export interface AttachedWindow {id:string;title:string;ownerName:string}

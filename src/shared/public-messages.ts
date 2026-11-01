@@ -1,5 +1,6 @@
 import {MEMORY_EXPORT_MESSAGES} from './memory-export';
 import {SYSTEM_SETTINGS_MESSAGES} from './system-settings';
+import {FALLBACK_SHORTCUT_MESSAGES} from './fallback-shortcut';
 import {STUDY_PUBLIC_MESSAGES} from './study-workbench';
 import {SPEECH_ERROR} from './document-speech';
 import {CODE_WORKSPACE_ERROR} from './code-workspace';
@@ -57,6 +58,7 @@ export function publicErrorMessage(error:unknown):string {
  if(text===SPEECH_ERROR)return text;
  if(MEMORY_EXPORT_MESSAGES.some(message=>message===text))return text;
  if(Object.values(SYSTEM_SETTINGS_MESSAGES).some(message=>message===text))return text;
+ if(Object.values(FALLBACK_SHORTCUT_MESSAGES).some(message=>message===text))return text;
  if(STUDY_PUBLIC_MESSAGES.some(message=>message===text))return text;
  if(text===CODE_WORKSPACE_ERROR)return text;
  const attemptMessage=conversationAttemptPublicMessage(text);if(attemptMessage)return attemptMessage;
