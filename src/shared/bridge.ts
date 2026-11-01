@@ -1,4 +1,5 @@
 import type {MemoryExportCommand} from './memory-export';
+import type {SystemSettingsCommand,HardwareAccelerationRuntime} from './system-settings';
 import type {RequestInferenceCommand} from './request-inference';
 import type {PdfPageCommand} from './pdf-page-import';
 import type {StudyCommand} from './study-workbench';
@@ -50,6 +51,7 @@ import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command =
   | MemoryExportCommand
+  | SystemSettingsCommand
   | CodeBlockCopyCommand
   | {type:'cli.preferences.get'}
   | ({type:'cli.preferences.update'} & CliPreferencesUpdate)
@@ -203,6 +205,7 @@ export interface ContextActivation {activationId:string;tucked:boolean;target?:W
 export type ContextPending={kind:'none'}|{kind:'ready';activation:ContextActivation}|{kind:'busy'}
 export type ContextCapture = {activationId:string;tucked:boolean}&({state:'captured';task:Task;sourceId:string}|{state:'no-room';task?:Task})
 export type CompanionEvent =
+  | {type:'system.gpu-info';runtime:HardwareAccelerationRuntime}
   | {type:'schedules.changed'}
   | {type:'source.drag';state:SourceDragState}
   | {type:'capture.retired'}
