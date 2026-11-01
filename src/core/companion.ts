@@ -1,9 +1,10 @@
+import {bundledDirectorySkill,directorySkillPayload,directoryReference} from '../shared/skill-directory';
 import {STUDY_SET_MIME,readStudyCommand,readStudySet,parseStudyNotes,type StudyCommand} from '../shared/study-workbench';
 import {studyMaterial,studyDeck,studyProgress,studyProgressEvents,updateStudyState,STUDY_MODULE_ID} from './study-workbench';
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
 import {readPdfPageImages,pdfPageMessages,type PdfPageAddResult} from '../shared/pdf-page-import';
 import {readProviderModelReceipt} from '../shared/response-model';
-import {INSTRUCTION_SKILL_MIME,InstructionSkillReferenceSchema,readInstructionSkillSave,readInstructionSkillBody,instructionSkillSelection,sameInstructionSkill,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillCatalog} from '../shared/instruction-skill';
+import {INSTRUCTION_SKILL_MIME,InstructionSkillReferenceSchema,readInstructionSkillSave,readInstructionSkillCommand,readInstructionSkillBody,instructionSkillSelection,sameInstructionSkill,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillCatalog} from '../shared/instruction-skill';
 import {instructionSkillEntry,instructionSkillReference,instructionSkillCatalog} from './instruction-skills';
 import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
@@ -669,6 +670,21 @@ export class Companion {
   getInstructionSkillCatalog(taskId:string):Promise<InstructionSkillCatalog>{
     return this.exclusive(()=>{const task=this.task(this.state,taskId),catalog=instructionSkillCatalog(this.state.tasks),invocation=instructionSkillSelection(task.session);if(invocation.selection&&!catalog.entries.some(entry=>sameInstructionSkill(entry.reference,invocation.selection))){try{catalog.entries.push(instructionSkillEntry(this.state.tasks,invocation.selection));}catch{if(!catalog.unavailable.some(item=>sameInstructionSkill(item.reference,invocation.selection)))catalog.unavailable.push({reference:invocation.selection,name:'Pinned saved version',reason:'This exact pinned skill or resource is unavailable. Clear the choice or inspect its owner file.'});}}return clone({...catalog,invocation});});
   }
+  copyDirectorySkill(input:unknown,assertCurrent:()=>void=()=>{}):Promise<InstructionSkillEntry>{
+    const command=readInstructionSkillCommand(input);if(command.type!=='skills.directory.copy')throw Error('Choose a bundled directory skill to copy.');
+    const template=bundledDirectorySkill(command.reference);if(hash(directorySkillPayload(template))!==template.digest)throw Error('The bundled template could not be verified. Personal skills are kept.');
+    const creationId='glint-directory:'+template.id+':'+template.version+':'+template.digest;
+    return this.exclusive<InstructionSkillEntry>(()=>{
+      assertCurrent();const task=this.task(this.state,command.taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Open an active ordinary task before copying a directory skill.');
+      const copies=task.artifacts.filter(artifact=>{try{return artifact.revisions[0]?.mimeType===INSTRUCTION_SKILL_MIME&&readInstructionSkillBody(JSON.parse(artifact.revisions[0].content)).creationId===creationId;}catch{return false;}});
+      if(copies.length>1)throw Error('Several personal copies have this directory identity. Review their saved files; none was overwritten.');
+      if(copies.length){const first=readInstructionSkillBody(JSON.parse(copies[0].revisions[0].content));if(JSON.stringify(first.directoryOrigin)!==JSON.stringify(directoryReference(template)))throw Error('The existing directory copy needs review. No replacement was created.');return clone(instructionSkillEntry(this.state.tasks,instructionSkillReference(task.id,copies[0].id,latest(copies[0].revisions))));}
+      return this.commit(state=>{
+        assertCurrent();const owner=this.task(state,command.taskId),resources=template.resources.map(resource=>this.appendSource(owner,{kind:'text',role:'fact',label:'Glint '+template.name+' · '+resource.path,content:resource.content})),body={kind:'instruction-skill' as const,schemaVersion:1 as const,creationId,name:template.name,description:template.description,instructions:template.instructions,resources,directoryOrigin:directoryReference(template)},saved=this.appendArtifact(owner,{title:body.name,content:JSON.stringify(body),mimeType:INSTRUCTION_SKILL_MIME,sourceRefs:resources});
+        return clone(instructionSkillEntry(state.tasks,instructionSkillReference(owner.id,saved.artifactId,saved.revision)));
+      });
+    });
+  }
   saveInstructionSkill(input:unknown,assertCurrent:()=>void=()=>{}):Promise<InstructionSkillEntry>{
     const value=readInstructionSkillSave(input);
     return this.exclusive(()=>this.commit(state=>{
@@ -677,7 +693,7 @@ export class Companion {
       if(value.artifactId&&!artifact)throw Error('The saved skill was not found in its owner task.');
       const previous=artifact?readInstructionSkillBody(JSON.parse(latest(artifact.revisions).content)):undefined;
       if(artifact&&latest(artifact.revisions).mimeType!==INSTRUCTION_SKILL_MIME)throw Error('This saved file is not an instruction skill.');
-      const body={kind:'instruction-skill' as const,schemaVersion:1 as const,creationId:previous?.creationId??value.intentId,name:value.name,description:value.description,instructions:value.instructions,resources:value.resources},content=JSON.stringify(body);
+      const body={kind:'instruction-skill' as const,schemaVersion:1 as const,creationId:previous?.creationId??value.intentId,name:value.name,description:value.description,instructions:value.instructions,resources:value.resources,...(previous?.directoryOrigin?{directoryOrigin:previous.directoryOrigin}:{})},content=JSON.stringify(body);
       if(!artifact){
         const duplicate=task.artifacts.find(item=>{try{return item.revisions[0]?.mimeType===INSTRUCTION_SKILL_MIME&&readInstructionSkillBody(JSON.parse(item.revisions[0].content)).creationId===value.intentId;}catch{return false;}});
         if(duplicate){if(duplicate.revisions[0].content!==content)throw Error('This skill creation attempt already has different instructions or resources.');return instructionSkillEntry(state.tasks,instructionSkillReference(task.id,duplicate.id,duplicate.revisions[0]));}

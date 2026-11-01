@@ -1005,6 +1005,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(isInstructionSkillCommand(c)){
     const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The skill owner task changed. Saved work is kept.');};guard();
     if(c.type==='skills.list'){const catalog=await core.getInstructionSkillCatalog(c.taskId);guard();return catalog;}
+    if(c.type==='skills.directory.copy'){const saved=await core.copyDirectorySkill(c,guard);changed(c.taskId);return saved;}
     if(c.type==='skills.save'){const {type,...input}=c,saved=await core.saveInstructionSkill(input,guard);changed(c.taskId);return saved;}
     if(c.type==='skills.use'){const result=await core.setInstructionSkill(c.taskId,c.expectedRevision,c.selection,guard);changed(c.taskId);return result;}
     const context=await core.previewInstructionRequest(c.taskId,c.expectedRevision,[...c.sourceIds]),preferences=await responsePreferences.lease(),memory=await core.leaseUserMemory(c.taskId,c.prompt),folderGuidance=await codeWorkspaces.guidanceLease(c.taskId);guard();await preferences.check();await memory.check();await folderGuidance.check();

@@ -8,7 +8,7 @@ export function instructionSkillEntry(tasks:readonly Task[],reference:Instructio
  const body=readInstructionSkillBody(JSON.parse(saved.content));
  const resources=body.resources.map(ref=>{const source=owner.sources.find(source=>source.id===ref.sourceId),version=source?.versions.find(version=>version.version===ref.version&&version.digest===ref.digest);if(!version||version.kind!=='text')throw Error('A pinned skill resource is unavailable. Reattach a chosen saved text resource.');return {reference:{...ref},label:version.label,content:version.content};});
  if(body.instructions.length+resources.reduce((length,item)=>length+item.content.length,0)>32000)throw Error('Skill instructions and resources exceed the 32,000-character request limit. Choose smaller resources.');
- return {reference:{...reference},name:body.name,description:body.description,instructions:body.instructions,resources,current:artifact!.revisions.at(-1)===saved};
+ return {reference:{...reference},name:body.name,description:body.description,instructions:body.instructions,resources,...(body.directoryOrigin?{directoryOrigin:{...body.directoryOrigin}}:{}),current:artifact!.revisions.at(-1)===saved};
 }
 export function instructionSkillReference(ownerTaskId:string,artifactId:string,revision:ArtifactRevision):InstructionSkillReference{return {ownerTaskId,artifactId,revision:revision.revision,digest:revision.digest};}
 function activityName(tasks:readonly Task[],reference:InstructionSkillReference):string|null{
