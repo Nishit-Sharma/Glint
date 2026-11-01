@@ -43,6 +43,7 @@ import {encodeBrowserReviewNotesReceipt,findBrowserReviewNotesReceipt} from './b
 import {parseModuleAnswer} from './interactive-modules';
 import {assertRawModuleOperationAllowed} from '../shared/module-contract';
 import {readLocalTaskStart,type LocalTaskStartResult} from '../shared/local-task-start';
+import {readSuggestedTaskInput,resolveTaskStarter,taskStarterPayload,type SuggestedTaskResult} from '../shared/task-starters';
 import {encodeLocalStartReceipt,findLocalStartReceipt,type LocalStartReceipt} from './local-start-receipt';
 import {readSourceTextSave,readSourceTextSaveInspection,sourceTextSaveBindingText,SOURCE_TEXT_SAVE_BINDING_PREFIX,type SourceTextSaveConfirmed,type SourceTextSaveInspection,type SourceTextSaveInspectionInput} from '../shared/source-text-save';
 import {encodeSourceTextSaveReceipt,findSourceTextSaveReceipt,sourceTextSaveClaim,type SourceTextSaveReceipt} from './source-text-save-receipt';
@@ -902,6 +903,25 @@ export class Companion {
         // Preserve every ledger string through all ordinary writes, including old readers.
         state.usedRequestIds.push(encodeLocalStartReceipt(nextReceipt));
         state.tasks.push(task);return result(task,nextReceipt);
+      });
+    });
+  }
+  /** One ordinary unsent task per pinned Glint starter and originating task. */
+  async startSuggestedTask(input:unknown,assignedBotId:string,assertCurrent:()=>void=()=>{}):Promise<SuggestedTaskResult>{
+    const value=readSuggestedTaskInput(input),starter=resolveTaskStarter(value.starter);
+    if(hash(JSON.stringify(taskStarterPayload(starter)))!==starter.reference.digest)throw Error('This Glint starter changed or is unavailable. Choose it again.');
+    const payloadDigest=hash(JSON.stringify({operation:'suggested-task-start:v1',...value})),intentId='suggested-task:v1:'+payloadDigest,intentHash=hash(intentId);text(assignedBotId,'Companion ID',200);
+    return this.exclusive<SuggestedTaskResult>(()=>{
+      assertCurrent();const receipt=findLocalStartReceipt(this.state.usedRequestIds,intentHash);
+      if(receipt){
+        const task=this.state.tasks.find(task=>task.id===receipt.taskId);
+        if(receipt.kind!=='suggested'||receipt.payloadDigest!==payloadDigest||receipt.targetId!==receipt.taskId||!task)return reject('conflict','This starter was already used, but its saved task is no longer available. Your other tasks are kept.');
+        return clone({task,created:false});
+      }
+      return this.commit(state=>{
+        assertCurrent();if(value.originTaskId!==null)this.task(state,value.originTaskId);this.claimRequest(state,intentId);
+        const time=this.time(),task:Task={id:randomUUID(),title:starter.title,goal:starter.goal,assignedBotId,status:'active',createdAt:time,updatedAt:time,sources:[],artifacts:[],requests:[],procedures:[],checkpoints:[],actions:[],memory:{enabled:false},session:{...emptyTaskSession(),revision:1,draft:starter.prompt,draftKind:starter.kind,draftRevision:1}};
+        state.usedRequestIds.push(encodeLocalStartReceipt({intentHash,payloadDigest,taskId:task.id,kind:'suggested',targetId:task.id}));state.tasks.push(task);return {task,created:true};
       });
     });
   }

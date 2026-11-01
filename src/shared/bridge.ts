@@ -30,6 +30,7 @@ import type {RecordedTextRequest} from '../core/recorded-text-helper-host';
 import type {LearningDraftOwner,LearningDraftValue} from './learning-drafts'
 import type {ResponseBranchInput} from '../core/response-branch'
 import type {LocalTaskStartInput} from './local-task-start'
+import type {SuggestedTaskInput} from './task-starters';
 import type {WorkflowReview} from '../learning/workflow-review'
 import type {BotCommand} from './bot-catalog'
 import type {CharacterProfile} from './character-catalog'
@@ -92,6 +93,7 @@ export type Command =
   | {type:'preferences.get'} | {type:'preferences.update';expectedRevision:number;profile:CharacterProfile}
   | {type:'tasks.list'} | {type:'tasks.create';title:string;goal?:string}
   | ({type:'tasks.start-local'} & LocalTaskStartInput)
+  | ({type:'tasks.start-suggested'} & SuggestedTaskInput)
   | ({type:'tasks.branch'} & ResponseBranchInput)
   | {type:'tasks.update';taskId:string;title:string;goal?:string}
   | {type:'tasks.get';taskId:string} | {type:'tasks.delete';taskId:string}

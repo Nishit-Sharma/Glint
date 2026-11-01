@@ -7,7 +7,7 @@ const FAMILY='local-start:',PREFIX=`${FAMILY}v1:`;
 export const LOCAL_START_RECEIPT_LIMIT=1024;
 const digest=Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/));
 const uuid=Schema.String.pipe(Schema.pattern(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/));
-const receiptSchema=Schema.Struct({intentHash:digest,payloadDigest:digest,taskId:uuid,kind:Schema.Literal('text','draft'),targetId:uuid});
+const receiptSchema=Schema.Struct({intentHash:digest,payloadDigest:digest,taskId:uuid,kind:Schema.Literal('text','draft','suggested'),targetId:uuid});
 export type LocalStartReceipt=typeof receiptSchema.Type;
 const invalid=()=>Error('A local save record is unreadable or conflicting. Your saved tasks are unchanged.');
 function canonical(value:LocalStartReceipt):string{
