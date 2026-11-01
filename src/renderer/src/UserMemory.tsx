@@ -1,3 +1,4 @@
+import {readMemoryExportResult,MEMORY_EXPORT_CHANGED} from '../../shared/memory-export';
 import {useEffect,useRef,useState} from 'react';
 import {readUserMemory,readMemoryCommit,MEMORY_FACT_LIMIT,MEMORY_FACT_COUNT,type UserMemory,type MemoryFact,type MemoryChange,type MemoryUse} from '../../shared/user-memory';
 import {Button,Field,type RequestKind} from './ui';
@@ -22,6 +23,7 @@ export function MemorySettings(){
  return <MemoryForm initial={initial}/>;
 }
 function MemoryForm({initial}:{initial:UserMemory}){
+ const [exporting,setExporting]=useState(false),[selectedFactIds,setSelectedFactIds]=useState<string[]>([]);
  const [memory,setMemory]=useState(initial),[editing,setEditing]=useState<MemoryFact>(),[text,setText]=useState(''),[topics,setTopics]=useState(''),[saving,setSaving]=useState(false),[blocked,setBlocked]=useState(false),[message,setMessage]=useState('');
  const alive=useRef(true),lock=useRef(false),textInput=useRef<HTMLTextAreaElement>(null);
  useEffect(()=>{if(editing){textInput.current?.focus();textInput.current?.scrollIntoView({block:'nearest'});}},[editing?.id]);
@@ -36,7 +38,7 @@ function MemoryForm({initial}:{initial:UserMemory}){
    const result=readMemoryCommit(await window.companion.invoke({type:'memory.change',expectedRevision:memory.revision,change}));
    if(!alive.current)return;
    if(result.kind==='conflict'){setBlocked(true);setMessage('Memory changed elsewhere. Your edits are still here. Load saved memory before saving again.');return;}
-   setMemory(result.current);
+   setMemory(result.current);setSelectedFactIds(previous=>previous.filter(id=>result.current.facts.some(fact=>fact.id===id)));
    if(change.kind==='save'||change.kind==='forget'&&editing?.id===change.id)reset();
    setMessage(change.kind==='enabled'?(result.current.enabled?'Memory enabled for new text questions and drafts.':'Memory is off. Saved facts stay on this Mac.'):(change.kind==='forget'?'Fact forgotten. Earlier messages and sent requests are unchanged.':editing?'Memory fact updated.':'Memory fact saved.'));
   }catch(error){if(alive.current){setBlocked(true);setMessage(publicErrorMessage(error)+' Load saved memory to confirm the current state. Your edits are still here.');}}
@@ -44,16 +46,24 @@ function MemoryForm({initial}:{initial:UserMemory}){
  }
  async function load(){
   if(lock.current)return;lock.current=true;setSaving(true);
-  try{const current=readUserMemory(await window.companion.invoke({type:'memory.get'}));if(alive.current){setMemory(current);setBlocked(false);reset();setMessage('Saved memory loaded.');}}
+  try{const current=readUserMemory(await window.companion.invoke({type:'memory.get'}));if(alive.current){setMemory(current);setSelectedFactIds([]);setBlocked(false);reset();setMessage('Saved memory loaded.');}}
   catch{if(alive.current)setMessage('Saved memory could not be opened. Your edits are still here.');}
   finally{lock.current=false;if(alive.current)setSaving(false);}
+ }
+ async function exportFacts(){
+  if(lock.current||exporting||blocked)return;lock.current=true;setExporting(true);setMessage('');
+  try{const facts=memory.facts.filter(fact=>selectedFactIds.includes(fact.id)).map(({id,revision})=>({id,revision}));if(!facts.length)return;const result=readMemoryExportResult(await window.companion.invoke({type:'memory.export',expectedRevision:memory.revision,facts}));if(alive.current)setMessage(result.kind==='cancelled'?'Memory export cancelled. No file was saved.':`Exported ${result.count} saved ${result.count===1?'fact':'facts'} to ${result.path}. Memory is unchanged.`);}
+  catch(error){if(alive.current){const message=publicErrorMessage(error);setMessage(message);if(message===MEMORY_EXPORT_CHANGED)setBlocked(true);}}
+  finally{lock.current=false;if(alive.current)setExporting(false);}
  }
  return <section className="preference-area user-memory" aria-label="Memory across tasks">
   <div className="preference-row"><div><h3>Memory across tasks</h3><p>{memory.enabled?'On for text questions and drafts':'Off. Saved facts are not included in new requests.'}</p></div><Button disabled={saving||blocked||dirty} onClick={()=>void change({kind:'enabled',enabled:!memory.enabled})}>{memory.enabled?'Turn off memory':'Enable memory'}</Button></div>
   <p className="preference-explanation">Write the facts you want Glint to carry between tasks. Only what you save here becomes memory. There is no automatic collection or sync.</p>
   <p className="preference-explanation">Relevant facts are shown beside your question. After the initial provider approval, each Ask sends them to your selected AI service as guidance, with no permission to act. Memory does not apply to browser work, screen actions, revisions or experiments. Turning it off or forgetting a fact stops future inclusion; earlier messages and requests remain.</p>
   <div className="memory-saved-heading"><h3>Saved facts</h3><span className="tiny">{memory.facts.length} / {MEMORY_FACT_COUNT}</span></div>
-  {!memory.facts.length?<p className="memory-empty">No facts saved. Add something useful, such as your level of experience or how you prefer examples.</p>:<ul className="memory-facts">{memory.facts.map(fact=><li key={fact.id}><p>{fact.text}</p><small>{fact.topics.length?'Use for: '+fact.topics.join(', '):'Use for all text questions'}</small><div className="row"><Button kind="text" disabled={saving||blocked||dirty} onClick={()=>{setEditing(fact);setText(fact.text);setTopics(fact.topics.join(', '));setMessage('');}}>Edit</Button><Button kind="text danger" disabled={saving||blocked||dirty} onClick={()=>void change({kind:'forget',id:fact.id})}>Forget</Button></div></li>)}</ul>}
+  {!memory.facts.length?<p className="memory-empty">No facts saved. Add something useful, such as your level of experience or how you prefer examples.</p>:<ul className="memory-facts">{memory.facts.map(fact=><li key={fact.id}><p>{fact.text}</p><small>{fact.topics.length?'Use for: '+fact.topics.join(', '):'Use for all text questions'}</small><div className="row"><label className="dependency-option"><input type="checkbox" aria-label={'Include saved fact in export: '+fact.text} checked={selectedFactIds.includes(fact.id)} disabled={saving||exporting||blocked} onChange={event=>{const checked=event.target.checked;setSelectedFactIds(previous=>checked?[...previous.filter(id=>id!==fact.id),fact.id]:previous.filter(id=>id!==fact.id));}}/>Include in export</label><Button kind="text" disabled={saving||blocked||dirty} onClick={()=>{setEditing(fact);setText(fact.text);setTopics(fact.topics.join(', '));setMessage('');}}>Edit</Button><Button kind="text danger" disabled={saving||blocked||dirty} onClick={()=>void change({kind:'forget',id:fact.id})}>Forget</Button></div></li>)}</ul>}
+  <div className="row"><Button disabled={saving||exporting||blocked||!memory.facts.length} onClick={()=>setSelectedFactIds(memory.facts.map(fact=>fact.id))}>Select all saved facts</Button><Button disabled={saving||exporting||!selectedFactIds.length} onClick={()=>setSelectedFactIds([])}>Clear export selection</Button><Button disabled={saving||exporting||blocked||!selectedFactIds.length} onClick={()=>void exportFacts()}>{exporting?'Exporting…':'Export selected facts…'}</Button></div>
+  <p className="tiny">{selectedFactIds.length} saved {selectedFactIds.length===1?'fact':'facts'} selected. Export creates a Glint JSON file for backup or migration. It excludes unsaved edits and does not enable memory.</p>
   <form className="memory-fact-form" onSubmit={event=>{event.preventDefault();if(text.trim()&&!topicIssue)void change({kind:'save',...(editing?{id:editing.id}:{}),text,topics:terms});}}>
    <h3>{editing?'Edit fact':'Add a fact'}</h3>
    <Field label="Fact to remember"><textarea ref={textInput} rows={3} maxLength={MEMORY_FACT_LIMIT} value={text} disabled={saving||blocked} required onChange={event=>setText(event.target.value)} aria-describedby="memory-fact-help"/></Field>

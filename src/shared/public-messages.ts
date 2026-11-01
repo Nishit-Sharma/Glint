@@ -1,3 +1,4 @@
+import {MEMORY_EXPORT_MESSAGES} from './memory-export';
 import {STUDY_PUBLIC_MESSAGES} from './study-workbench';
 import {SPEECH_ERROR} from './document-speech';
 import {CODE_WORKSPACE_ERROR} from './code-workspace';
@@ -53,6 +54,7 @@ export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
  if(text.startsWith('Content backup: '))return text;
  if(text===SPEECH_ERROR)return text;
+ if(MEMORY_EXPORT_MESSAGES.some(message=>message===text))return text;
  if(STUDY_PUBLIC_MESSAGES.some(message=>message===text))return text;
  if(text===CODE_WORKSPACE_ERROR)return text;
  const attemptMessage=conversationAttemptPublicMessage(text);if(attemptMessage)return attemptMessage;

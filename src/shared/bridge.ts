@@ -1,3 +1,4 @@
+import type {MemoryExportCommand} from './memory-export';
 import type {RequestInferenceCommand} from './request-inference';
 import type {PdfPageCommand} from './pdf-page-import';
 import type {StudyCommand} from './study-workbench';
@@ -48,6 +49,7 @@ import type {TaskAttentionCommand} from './task-attention';
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command =
+  | MemoryExportCommand
   | CodeBlockCopyCommand
   | {type:'cli.preferences.get'}
   | ({type:'cli.preferences.update'} & CliPreferencesUpdate)
