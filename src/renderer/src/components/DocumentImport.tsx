@@ -4,6 +4,7 @@ import {DOCUMENT_IMPORT_TEXT_LIMIT,readDocumentCsv,type DocumentImportChoice,typ
 import './document-import.css';
 import {Button,Field,type Run} from '../ui';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
+import {MarkdownFileReview} from './MarkdownFileReview';
 
 export function CsvImportPreview({content}:{content:string}){
  let rows:string[][];try{rows=readDocumentCsv(content);}catch{return <p role="alert">This CSV cannot be added. Check its quotes or the displayed import limits. The complete text is kept below for correction.</p>;}
@@ -33,13 +34,13 @@ export function DocumentImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCanc
  }
  const disabled=busy||working;let csvIssue=false;if(preview?.format==='csv')try{readDocumentCsv(content);}catch{csvIssue=true;}
  return <section className="source-intake-editor" aria-label="Import document">
-  <h2>{preview?(preview.format==='csv'?'Review CSV context':'Review document text'):'Import a document'}</h2>
+  <h2>{preview?(preview.format==='csv'?'Review CSV context':preview.format==='md'?'Review Markdown file':'Review document text'):'Import a document'}</h2>
   {!preview?<><p className="muted">Choose a local PDF, Word (.docx or .doc), plain-text, Markdown or CSV file, up to 20 MiB. Review and correct its readable text before adding it to “{task.title}”.</p><p className="tiny">PDF and Word extraction runs on this Mac. Scanned pages and images need OCR elsewhere. Importing does not send anything to an AI service.</p><p className="tiny">CSV: UTF-8, up to 100,000 characters, 10,000 data rows, 100 columns and 10,000 characters per cell. The first row supplies preview headings; duplicate and empty headings are allowed. Formulas and scripts stay as text.</p><div className="row"><Button kind="primary" disabled={disabled||task.status!=='active'} onClick={()=>void choose()}>{working?'Reading document…':'Choose document…'}</Button><Button disabled={disabled} onClick={onCancel}>Back to Context</Button></div></>:<>
    <p className="muted">{preview.fileName} · {preview.format.toUpperCase()}{preview.pageCount===undefined?'':` · ${preview.pageCount} pages`}</p>
    <div role="note">{preview.warnings.map(warning=><p className="tiny" key={warning}>{warning}</p>)}</div>
    <form onSubmit={event=>{event.preventDefault();void add();}}>
     {preview.format==='csv'&&<CsvImportPreview content={content}/>}
-    <Field label={preview.format==='csv'?'Review and correct CSV text':'Review and correct extracted text'}><textarea autoFocus required rows={12} maxLength={DOCUMENT_IMPORT_TEXT_LIMIT} disabled={disabled} value={content} onChange={event=>setContent(event.target.value)}/></Field>
+    {preview.format==='md'?<MarkdownFileReview key={preview.attemptId} content={content} disabled={disabled} onChange={setContent}/>:<Field label={preview.format==='csv'?'Review and correct CSV text':'Review and correct extracted text'}><textarea autoFocus required rows={12} maxLength={DOCUMENT_IMPORT_TEXT_LIMIT} disabled={disabled} value={content} onChange={event=>setContent(event.target.value)}/></Field>}
     <p className="tiny">{content.length.toLocaleString()} / 100,000 characters</p>
     <Field label="Source name"><input required maxLength={200} disabled={disabled} value={label} onChange={event=>setLabel(event.target.value)}/></Field>
     <Field label="Use as"><select disabled={disabled} value={role} onChange={event=>{const value=event.target.value;if(value==='fact'||value==='style'||value==='inspiration')setRole(value);}}><option value="fact">Source material</option><option value="style">Style reference</option><option value="inspiration">Inspiration</option></select></Field>
