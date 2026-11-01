@@ -1,4 +1,5 @@
 import {codexInferenceModels,assertAdvertisedInference,buildCodexInferenceWire,readRequestInferenceSelection,type RequestInferenceSelection,type RequestInferenceModel,type RequestInferenceCatalog} from '../shared/request-inference';
+import {readProviderModelReceipt} from '../shared/response-model';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -344,6 +345,7 @@ export class CodexProvider {
       if (controller.signal.aborted) throw controller.signal.reason;
       this.verified = true; this.capabilityCache = { at: Date.now(), configured: true };
       this.update('ready', `Codex request completed with the exact selected model, ${selection.tier} tier and ${selection.effort} reasoning.`);
+      if(input.modelReceipt)input.modelReceipt.onConfirmed(readProviderModelReceipt({requestId:input.modelReceipt.requestId,provider:'codex',model:thread.model,effort:thread.reasoningEffort,tier:thread.serviceTier,confirmation:'accepted-thread-and-completed-turn'}));
       return text;
     } catch (error) {
       const safe = controller.signal.aborted ? controller.signal.reason as CodexProviderError : error instanceof CodexProviderError ? error : new CodexProviderError('PROTOCOL', 'Codex could not complete this request. No provider or model fallback was made.');

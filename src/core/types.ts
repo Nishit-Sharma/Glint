@@ -41,6 +41,7 @@ export interface ModuleStateRef { artifactId: string; artifactRevision: number; 
 export interface SessionCommitGuard { sourceRefs: SourceRef[]; artifactRefs: ArtifactRef[]; requireActive?:boolean }
 export type RequestStatus = 'running' | 'completed' | 'cancelled' | 'interrupted' | 'failed';
 export interface RequestRecord {
+  responseModel?:import('../shared/response-model').ResponseModelReceipt;
   inference?:RequestInferenceSelection;
   id: string; kind: string; prompt: string; digest: string; status: RequestStatus;
   sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
@@ -127,7 +128,7 @@ export interface RequestInput {
   expectedModuleStates?: ModuleStateRef[];
   artifactId?: string; expectedRevision?: number;
 }
-export interface RequestOutput { title: string; content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }
+export interface RequestOutput { title: string; content: string; mimeType?: string; encoding?: 'utf8' | 'base64';modelReceipt?:import('../shared/response-model').ProviderModelReceipt }
 export interface ResumeResult {
   task: Task; staleSourceIds: string[]; affectedArtifacts: { artifactId: string; revisions: number[] }[];
   interruptedRequestIds: string[];

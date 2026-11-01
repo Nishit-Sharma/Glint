@@ -2,6 +2,7 @@ import {canAttemptConversation,type ConversationAttemptSelection} from '../../..
 import {DESIGN_CANVAS_MIME,DESIGN_SVG_MIME} from '../../../shared/design-canvas';
 import {CONCEPT_MAP_MIME} from '../../../shared/concept-map';
 import {MemoryReceipt} from '../UserMemory';
+import {ResponseModelDetails} from './ResponseModelDetails';
 import type {UserMemory} from '../../../shared/user-memory';
 import {canPrepareBrowserContinuation,type BrowserContinuationSelection} from '../../../shared/browser-continuation';
 import {canPrepareRequestFollowup,type RequestFollowupSelection} from '../../../shared/request-followup';
@@ -51,6 +52,7 @@ export function Conversation({memory,task,pendingId,pendingKind,pendingPrompt,st
    {request.conversationAttempt&&<p className="conversation-attempt-link">{request.conversationAttempt.mode==='edit'?'Edited question':'Another answer'} · <button type="button" className="conversation-open" onClick={()=>{const node=document.getElementById('conversation-turn-'+request.conversationAttempt!.previousRequestId);node?.focus({preventScroll:true});node?.scrollIntoView({block:'start'});}}>View original question and answer</button> · Uses preceding text turns with current guidance.</p>}
    {onAttemptConversation&&canAttemptConversation(task,request)&&<button type="button" className="conversation-open" disabled={attemptDisabled} onClick={event=>onAttemptConversation({taskId:task.id,requestId:request.id,digest:request.digest,answer:request.answer!},event.currentTarget)}>Edit and ask again<ArrowUpRight size={14}/></button>}
    <MemoryReceipt receipt={request.memory} status={request.status} memory={memory}/>
+   {request.status!=='running'&&<ResponseModelDetails request={request}/>}
    {request.status==='completed'&&request.answer&&item&&revision&&request.answer.artifactId===item.id&&request.answer.revision===revision.revision&&request.answer.digest===revision.digest&&revision.mimeType.startsWith('text/')&&revision.encoding!=='base64'&&onBranchResponse&&<button type="button" className="conversation-open" disabled={branchDisabled} onClick={()=>onBranchResponse({taskId:task.id,requestId:request.id,answer:request.answer!})}>Start a new task from this answer<ArrowUpRight size={14}/></button>}
    {canPrepareRequestFollowup(request)&&onPrepareFollowup&&<button type="button" className="conversation-open" disabled={followupDisabled} onClick={()=>onPrepareFollowup({taskId:task.id,requestId:request.id,digest:request.digest})}>Prepare a follow-up<ArrowUpRight size={14}/></button>}
    {onPrepareBrowserContinuation&&!task.session?.browserContinuationAttempt&&canPrepareBrowserContinuation(task,request)&&<button type="button" className="conversation-open" disabled={browserContinuationDisabled} onClick={()=>onPrepareBrowserContinuation({taskId:task.id,requestId:request.id,digest:request.digest})}>Plan next browser steps<ArrowUpRight size={14}/></button>}

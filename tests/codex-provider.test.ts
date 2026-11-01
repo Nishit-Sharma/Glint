@@ -75,6 +75,24 @@ describe('temporary Codex provider — protocol fixtures', () => {
     expect(CODEX_ARGS).toContain('features.shell_tool=false');
   });
 
+  it('emits an invocation-local model receipt only after a completed authoritative answer',async()=>{
+    const f=fixture(),adapter=f.create(),first=vi.fn(),second=vi.fn();
+    await adapter.run({prompt:'Synthetic only',sources:[],signal:new AbortController().signal,modelReceipt:{requestId:'first-response',onConfirmed:first}});
+    expect(first).toHaveBeenCalledExactlyOnceWith({requestId:'first-response',provider:'codex',model:'gpt-6-luna',effort:'medium',tier:'priority',confirmation:'accepted-thread-and-completed-turn'});
+    await adapter.run({prompt:'Synthetic only',sources:[],signal:new AbortController().signal,modelReceipt:{requestId:'second-response',onConfirmed:second}});
+    expect(first).toHaveBeenCalledTimes(1);expect(second.mock.calls[0][0].requestId).toBe('second-response');
+    expect(JSON.stringify(first.mock.calls)).not.toMatch(/cliPath|account|threadId|turnId/);
+  });
+
+  it.each(['empty','interrupted','reroute'] as const)('does not issue a model receipt for %s output',async mode=>{
+    const onConfirmed=vi.fn();await expect(fixture({mode}).create().run({prompt:'Synthetic only',sources:[],signal:new AbortController().signal,modelReceipt:{requestId:'not-accepted',onConfirmed}})).rejects.toThrow();expect(onConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('does not issue a model receipt after cancellation',async()=>{
+    const controller=new AbortController(),onConfirmed=vi.fn();
+    await expect(fixture({mode:'partial'}).create().run({prompt:'Synthetic only',sources:[],signal:controller.signal,onChunk:()=>controller.abort(),modelReceipt:{requestId:'cancelled-response',onConfirmed}})).rejects.toMatchObject({code:'CANCELLED'});expect(onConfirmed).not.toHaveBeenCalled();
+  });
+
   it('stops before turn/start when existing instruction files could enter the synthetic request', async () => {
     const f = fixture({ instructionSources: ['/synthetic/private-instructions.md'] }); const adapter = f.create();
     await expect(adapter.run({ prompt: 'Synthetic only', sources: [], signal: new AbortController().signal })).rejects.toThrow('authorized user AGENTS.md allowlist');

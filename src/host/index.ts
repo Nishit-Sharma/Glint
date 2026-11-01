@@ -1,4 +1,5 @@
 import {queuedInferenceReview} from './queued-inference-review'
+import type {ProviderModelReceipt} from '../shared/response-model';
 import {readRequestInferenceCommand,requestInferenceSaved,resolveRequestInference,buildCodexInferenceWire,requestInferenceScopeFields,type RequestInferenceCatalog,type RequestInferenceSelection} from '../shared/request-inference'
 import {readCodeBlockCopy,writeCodeBlockCopy} from '../shared/code-block-copy';
 import {ContentBackups,ContentBackupGate,recoverContentRestore} from './content-backup';
@@ -70,7 +71,7 @@ import {join,resolve,basename} from 'node:path'
 import {createHash,randomUUID} from 'node:crypto'
 import {fileURLToPath} from 'node:url'
 import {createCompanion,evaluateExperiment,type Companion} from '../core/companion'
-import type {SourceInput,SourceVersion,SourceRef,Task} from '../core/types'
+import type {SourceInput,SourceVersion,SourceRef,Task,RequestOutput} from '../core/types'
 import {NativeSourceAdapter,placeCompanion,type NativeCapture} from './native'
 import type {NativeWindow} from './native'
 import {chooseContextTarget,chooseShortcutTarget,hasOnlyWindowBoundsChanged,isCompanionWindow,sameWindowIdentity} from './context-target'
@@ -1281,15 +1282,18 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
         let streamed=''
         const structured=kind==='experiment'||kind==='procedure'?kind:undefined
         if(reviewResponse)emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:reviewResponse.progress})
-        const content=await provider.run({...(inference?.selection?{inference:inference.selection}:{}),...((recurring?.grant.accountScope??accountScope)?{expectedAccountScope:recurring?.grant.accountScope??accountScope}:{}),...(!recurring&&ctx.projectInstructions?{projectInstructions:ctx.projectInstructions}:{}),...(['explain','create','revise'].includes(kind)?{taskContext}:{}),captureFence,prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,signal:AbortSignal.any([ctx.signal,...(recurring?[recurring.grant.controller.signal]:[]),...(windowSources.length?[privacySignal]:[]),...(preferences?[preferences.signal]:[]),...(memory?[memory.signal]:[])]),onChunk:delta=>{memory?.assertCurrent();preferences?.assertCurrent();if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}})
+        let modelReceipt:ProviderModelReceipt|undefined;
+        const content=await provider.run({modelReceipt:{requestId:request.requestId,onConfirmed:receipt=>{modelReceipt=receipt;}},...(inference?.selection?{inference:inference.selection}:{}),...((recurring?.grant.accountScope??accountScope)?{expectedAccountScope:recurring?.grant.accountScope??accountScope}:{}),...(!recurring&&ctx.projectInstructions?{projectInstructions:ctx.projectInstructions}:{}),...(['explain','create','revise'].includes(kind)?{taskContext}:{}),captureFence,prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,signal:AbortSignal.any([ctx.signal,...(recurring?[recurring.grant.controller.signal]:[]),...(windowSources.length?[privacySignal]:[]),...(preferences?[preferences.signal]:[]),...(memory?[memory.signal]:[])]),onChunk:delta=>{memory?.assertCurrent();preferences?.assertCurrent();if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}})
         await memory?.check();await preferences?.check();
         if(windowSources.length&&(privacy!==capturePrivacyEpoch||captureSettingsHealth!=='ready'))throw Error('Capture privacy changed during the request.');
         if(epoch!==keyEpoch)throw Error('Connection changed during request.')
         if(response?.kind==='window-workflow-proposal'||response?.kind==='concept-map'){await captureFence?.check();assertWindowUse();}
-        if(reviewResponse)return reviewResponse.finish(content)
-        if(structured){const draft=parseModelDraft(content,structured);return {title:draft.title,content:JSON.stringify(draft,null,2),mimeType:'application/json'}}
-        if(kind==='brief'){const brief=parseScreenBriefModel(content,ctx.sourceRefs);return {title:'Screen brief',content:JSON.stringify(brief),mimeType:'application/json'}}
-        return {title:targetRevision?.title||(kind==='explain'?'Explanation':'Draft'),content,mimeType:'text/markdown'}
+        let output:RequestOutput;
+        if(reviewResponse)output=reviewResponse.finish(content);
+        else if(structured){const draft=parseModelDraft(content,structured);output={title:draft.title,content:JSON.stringify(draft,null,2),mimeType:'application/json'};}
+        else if(kind==='brief'){const brief=parseScreenBriefModel(content,ctx.sourceRefs);output={title:'Screen brief',content:JSON.stringify(brief),mimeType:'application/json'};}
+        else output={title:targetRevision?.title||(kind==='explain'?'Explanation':'Draft'),content,mimeType:'text/markdown'};
+        return {...output,...(modelReceipt?{modelReceipt}:{})};
       },assertResultCurrent);changed(c.taskId);drainQueuedFollowups();if(result.status!=='completed')throw Error(result.error||`Request ${result.status}.`);return core.getTask(c.taskId)
     }
     case 'connection.status':return {connection:await activeProvider().status(),host:await hostStatus()}

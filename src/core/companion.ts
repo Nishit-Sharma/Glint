@@ -1,4 +1,5 @@
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
+import {readProviderModelReceipt} from '../shared/response-model';
 import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
 import {changeLocalContacts} from './local-contacts';
@@ -1228,9 +1229,12 @@ export class Companion {
           try {
             if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
             if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
-            const artifact = this.appendArtifact(task, { ...output, artifactId: input.artifactId, expectedRevision: input.expectedRevision, sourceRefs: request.sourceRefs });
+            const {modelReceipt,...answer}=output,receipt=modelReceipt===undefined?undefined:readProviderModelReceipt(modelReceipt);
+            if(receipt){const {provider,model,effort,tier}=receipt;if(receipt.requestId!==request.id||input.inference&&!sameRequestInference(input.inference,{provider,model,effort,tier}))throw Error('Provider model receipt does not match this request. No answer was accepted.');}
+            const artifact = this.appendArtifact(task, { ...answer, artifactId: input.artifactId, expectedRevision: input.expectedRevision, sourceRefs: request.sourceRefs });
             request.status = 'completed'; request.artifactId = artifact.artifactId;
             const saved=artifact.revision;request.answer={artifactId:artifact.artifactId,revision:saved.revision,digest:saved.digest};
+            if(receipt)request.responseModel={...receipt,answer:{...request.answer}};
             if(boundSubmittedDraft&&sameComposerDraft(readComposerDraft(task.session),boundSubmittedDraft)){
               // Consumption leaves the user-edit epoch available to a newer save already queued against it.
               const session=task.session??emptyTaskSession();task.session={...session,draft:'',draftKind:boundSubmittedDraft.kind,draftRevision:boundSubmittedDraft.revision,revision:session.revision+1};

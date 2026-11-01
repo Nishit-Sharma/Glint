@@ -1,4 +1,5 @@
 import type {RequestInferenceSelection} from '../shared/request-inference';
+import type {ProviderModelReceipt} from '../shared/response-model';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {createHash,randomUUID} from 'node:crypto';
 import { APICallError, streamText, type ModelMessage, type UserContent } from 'ai';
@@ -27,6 +28,7 @@ export type MetaProviderOptions = {
   stallMs?: number;
 };
 export type MetaRunInput = {
+  modelReceipt?:{requestId:string;onConfirmed:(receipt:ProviderModelReceipt)=>void};
   inference?:RequestInferenceSelection;
   /** Host-only recurring grant binding; never included in model input. */
   expectedAccountScope?:string;
