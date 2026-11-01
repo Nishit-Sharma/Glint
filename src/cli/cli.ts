@@ -4,6 +4,7 @@ import {homedir} from 'node:os';
 import {isAbsolute,join} from 'node:path';
 import {parseCurrentState,type State} from '../core/store';
 import {defaultCliPreferences,searchCliSettings,type CliPreferences} from '../shared/cli-preferences';
+import {isPresetCliCommand,runPresetCli} from './presets';
 
 export const CLI_FILE_LIMIT=32*1024*1024;
 export const CLI_OUTPUT_LIMIT=262144;
@@ -13,7 +14,7 @@ export type CliArguments={selection:Selection;dataDir?:string;overrides:Partial<
 type TaskSummary={id:string;title:string;status:'active'|'paused';archived:boolean;updatedAt:string;sourceCount:number};
 type SourceSummary={id:string;kind:'text'|'image'|'window';freshness:'fresh'|'refresh-required';label?:string;excerpt?:string};
 type Snapshot={preferences:CliPreferences;tasks:State['tasks']};
-export const CLI_HELP='Glint CLI · read saved tasks\n\nUsage: glint tasks [--limit 1..100]\n       glint task <task-id>\n       glint settings [--search <text>]\n       glint help\n\nOptions: --data-dir <absolute-path>  --format text|json\n         --source-labels true|false  --excerpt-chars 0..256\n\nPreferences → CLI saves defaults. Each invocation reads the saved values; no restart is needed.\nThis CLI reads a task snapshot. It cannot change tasks or run requests.\n';
+export const CLI_HELP='Glint CLI · read saved tasks\n\nUsage: glint tasks [--limit 1..100]\n       glint task <task-id>\n       glint settings [--search <text>]\n       glint help\n\nOptions: --data-dir <absolute-path>  --format text|json\n         --source-labels true|false  --excerpt-chars 0..256\n\nPreferences → CLI saves defaults. Each invocation reads the saved values; no restart is needed.\nThis CLI reads a task snapshot. It cannot change tasks or run requests.\n\nLocal prompt presets (separate cli-presets.json; tasks remain untouched):\n  glint presets list [--format json]\n  glint presets save <1..10> <name> --file <absolute-prompt.md>\n  glint presets save <1..10> <name> --text <literal-prompt>\n  glint presets edit <1..10> <name> --expect <catalog-revision> --file <path>\n  glint presets delete <1..10> --expect <catalog-revision>\n  glint presets show <slot-or-name>\n  glint presets recall <slot-or-name> [-- arguments]\n  glint /prompts:name [arguments]\n  glint prompt | glint /presets (interactive keyboard menu)\n\nMarkdown body is retained; an initial UTF-8 BOM is removed. No implicit imports.\nParameters: $1..$9, $ARGUMENTS (all positional), $NAME or NAME=value; $$ is literal $.\nQuote arguments containing spaces. Missing/unused arguments fail clearly.\nRecall expands text once: slash commands, shell text and control characters never execute.\nWorkbench recall stays an editable local draft, never submits, and ends with /quit.\nThe vendor Markdown-prompt mechanism was deprecated; this is a local Glint workflow.\n';
 export function parseCliArguments(args:readonly string[]):CliArguments{
  if(args.length>24||args.some(arg=>arg.length>4096||/[\u0000-\u001f\u007f-\u009f]/.test(arg)))throw Error('Invalid CLI arguments. Run glint help.');
  const positionals:string[]=[],flags=new Map<string,string>();
@@ -68,6 +69,7 @@ function sourceSummaries(task:State['tasks'][number],display:Display):SourceSumm
  return task.sources.slice(0,100).map(source=>{const version=source.versions.find(item=>item.version===source.currentVersion);if(!version)throw Error('The task source snapshot is incomplete.');return {id:bounded(source.id,200),kind:version.kind,freshness:source.freshness,...(display.includeSourceLabels?{label:bounded(version.label)}:{}),...(display.excerptChars>0&&version.kind==='text'?{excerpt:version.content.slice(0,display.excerptChars)}:{})};});
 }
 export async function runCli(args:readonly string[],defaultDirectory?:string):Promise<string>{
+ if(isPresetCliCommand(args))return runPresetCli(args,defaultDirectory??defaultCliDataDir());
  const parsed=parseCliArguments(args);if(parsed.selection.kind==='help')return CLI_HELP;
  const snapshot=await readSnapshot(parsed.dataDir??defaultDirectory??defaultCliDataDir()),display={...snapshot.preferences,...parsed.overrides};
  let result:unknown,lines:string[];
