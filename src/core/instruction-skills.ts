@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import type {Task,ArtifactRevision} from './types';
-import {INSTRUCTION_SKILL_MIME,INSTRUCTION_SKILL_ACTIVITY_LIMIT,readInstructionSkillBody,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillUnavailable,type InstructionSkillRequestActivity} from '../shared/instruction-skill';
+import {INSTRUCTION_SKILL_MIME,INSTRUCTION_SKILL_ACTIVITY_LIMIT,skillAvailability,readInstructionSkillBody,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillUnavailable,type InstructionSkillRequestActivity} from '../shared/instruction-skill';
 
 export function instructionSkillEntry(tasks:readonly Task[],reference:InstructionSkillReference):InstructionSkillEntry{
  const owner=tasks.find(task=>task.id===reference.ownerTaskId),artifact=owner?.artifacts.find(item=>item.id===reference.artifactId),saved=artifact?.revisions.find(item=>item.revision===reference.revision&&item.digest===reference.digest);
@@ -8,8 +8,9 @@ export function instructionSkillEntry(tasks:readonly Task[],reference:Instructio
  const body=readInstructionSkillBody(JSON.parse(saved.content));
  const resources=body.resources.map(ref=>{const source=owner.sources.find(source=>source.id===ref.sourceId),version=source?.versions.find(version=>version.version===ref.version&&version.digest===ref.digest);if(!version||version.kind!=='text')throw Error('A pinned skill resource is unavailable. Reattach a chosen saved text resource.');return {reference:{...ref},label:version.label,content:version.content};});
  if(body.instructions.length+resources.reduce((length,item)=>length+item.content.length,0)>32000)throw Error('Skill instructions and resources exceed the 32,000-character request limit. Choose smaller resources.');
- return {reference:{...reference},name:body.name,description:body.description,instructions:body.instructions,resources,...(body.directoryOrigin?{directoryOrigin:{...body.directoryOrigin}}:{}),current:artifact!.revisions.at(-1)===saved};
+ return {reference:{...reference},name:body.name,description:body.description,instructions:body.instructions,resources,availability:skillAvailability(artifact!.skillAvailability),...(body.directoryOrigin?{directoryOrigin:{...body.directoryOrigin}}:{}),current:artifact!.revisions.at(-1)===saved};
 }
+export function availableInstructionSkillEntry(tasks:readonly Task[],reference:InstructionSkillReference):InstructionSkillEntry{const entry=instructionSkillEntry(tasks,reference);if(!skillAvailability(entry.availability).enabled)throw Error('This instruction skill is disabled. Enable it in its owner task or clear the task skill before a new request.');return entry;}
 export function instructionSkillReference(ownerTaskId:string,artifactId:string,revision:ArtifactRevision):InstructionSkillReference{return {ownerTaskId,artifactId,revision:revision.revision,digest:revision.digest};}
 function activityName(tasks:readonly Task[],reference:InstructionSkillReference):string|null{
  const owner=tasks.find(task=>task.id===reference.ownerTaskId),artifact=owner?.artifacts.find(item=>item.id===reference.artifactId),saved=artifact?.revisions.find(item=>item.revision===reference.revision&&item.digest===reference.digest);

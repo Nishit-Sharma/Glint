@@ -4,8 +4,8 @@ import {studyMaterial,studyDeck,studyProgress,studyProgressEvents,updateStudySta
 import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferencePolicy,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
 import {readPdfPageImages,pdfPageMessages,type PdfPageAddResult} from '../shared/pdf-page-import';
 import {readProviderModelReceipt} from '../shared/response-model';
-import {INSTRUCTION_SKILL_MIME,InstructionSkillReferenceSchema,readInstructionSkillSave,readInstructionSkillCommand,readInstructionSkillBody,instructionSkillSelection,sameInstructionSkill,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillCatalog} from '../shared/instruction-skill';
-import {instructionSkillEntry,instructionSkillReference,instructionSkillCatalog} from './instruction-skills';
+import {INSTRUCTION_SKILL_MIME,skillAvailability,InstructionSkillReferenceSchema,readInstructionSkillSave,readInstructionSkillCommand,readInstructionSkillBody,instructionSkillSelection,sameInstructionSkill,type InstructionSkillReference,type InstructionSkillEntry,type InstructionSkillSelection,type InstructionSkillCatalog,type InstructionSkillAvailability} from '../shared/instruction-skill';
+import {instructionSkillEntry,availableInstructionSkillEntry,instructionSkillReference,instructionSkillCatalog} from './instruction-skills';
 import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
 import {changeLocalContacts} from './local-contacts';
@@ -703,22 +703,36 @@ export class Companion {
       return instructionSkillEntry(state.tasks,instructionSkillReference(task.id,saved.artifactId,saved.revision));
     }));
   }
+  setInstructionSkillAvailability(input:unknown,assertCurrent:()=>void=()=>{}):Promise<InstructionSkillAvailability>{
+    const command=readInstructionSkillCommand(input);if(command.type!=='skills.availability.set')throw Error('Choose an instruction skill availability action.');
+    return this.exclusive<InstructionSkillAvailability>(()=>{
+      assertCurrent();const task=this.task(this.state,command.taskId),artifact=task.artifacts.find(item=>item.id===command.artifactId),saved=artifact?.revisions.at(-1);
+      if(task.status!=='active'||task.archive||!artifact||saved?.mimeType!==INSTRUCTION_SKILL_MIME)throw Error('Open the active owner task and its saved instruction skill.');
+      readInstructionSkillBody(JSON.parse(saved.content));const current=skillAvailability(artifact.skillAvailability);
+      if(current.revision===command.expectedRevision+1&&current.enabled===command.enabled)return clone(current);
+      if(current.revision!==command.expectedRevision)throw Error('Skill availability changed. Reload skills before choosing again.');
+      if(current.enabled===command.enabled)return clone(current);if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('The skill availability revision limit was reached.');
+      return this.commit(state=>{assertCurrent();const owner=this.task(state,command.taskId),target=owner.artifacts.find(item=>item.id===command.artifactId)!;const next={revision:current.revision+1,enabled:command.enabled};target.skillAvailability=next;owner.updatedAt=this.time();return clone(next);});
+    });
+  }
   setInstructionSkill(taskId:string,expectedRevision:number,selection:InstructionSkillReference|null,assertCurrent:()=>void=()=>{}):Promise<InstructionSkillSelection>{
     return this.exclusive(()=>this.commit(state=>{
       assertCurrent();const task=this.task(state,taskId),session=task.session??emptyTaskSession(),current=instructionSkillSelection(session);
       if(task.status!=='active'||task.archive||session.browserContext)throw Error('Use skills in an active ordinary text task.');
       if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0||current.revision!==expectedRevision)throw Error('This task skill choice changed. Reload before choosing again.');
-      if(selection)instructionSkillEntry(state.tasks,selection);
+      if(selection)availableInstructionSkillEntry(state.tasks,selection);
       if(sameInstructionSkill(current.selection,selection))return clone(current);
       if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('The skill choice revision limit was reached.');
       const saved={revision:current.revision+1,selection:selection?{...selection}:null};task.session={...session,instructionSkill:saved,revision:session.revision+1};task.updatedAt=this.time();return clone(saved);
     }));
   }
-  instructionSkillContext(taskId:string,selection?:InstructionSkillReference|null):Promise<InstructionSkillEntry|undefined>{
-    return this.exclusive(()=>{const task=this.task(this.state,taskId),chosen=selection===undefined?instructionSkillSelection(task.session).selection:selection;return chosen?clone(instructionSkillEntry(this.state.tasks,chosen)):undefined;});
+  instructionSkillContext(taskId:string,selection?:InstructionSkillReference|null,reviewedQueue?:{id:string;revision:number}):Promise<InstructionSkillEntry|undefined>{
+    return this.exclusive(()=>{const task=this.task(this.state,taskId),chosen=selection===undefined?instructionSkillSelection(task.session).selection:selection;if(!chosen)return undefined;
+      if(reviewedQueue){const item=task.session?.queuedFollowups?.find(item=>item.id===reviewedQueue.id&&item.revision===reviewedQueue.revision&&sameInstructionSkill(item.instructionSkill,chosen));if(!item||item.status!=='queued'&&!(item.status==='dispatched'&&task.requests.some(request=>request.id===item.dispatchedRequestId&&request.status==='running')))throw Error('The original reviewed queued skill snapshot is unavailable.');return clone(instructionSkillEntry(this.state.tasks,chosen));}
+      return clone(availableInstructionSkillEntry(this.state.tasks,chosen));});
   }
   previewInstructionRequest(taskId:string,expectedRevision:number,sourceIds:string[]):Promise<Omit<RequestContext,'signal'>>{
-    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection,selected=new Set(sourceIds);return clone({task:{...task,sources:task.sources.filter(source=>selected.has(source.id)).map(source=>({...source,versions:[latest(source.versions)]}))},sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:instructionSkillEntry(this.state.tasks,chosen)}:{})});});
+    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection,selected=new Set(sourceIds);return clone({task:{...task,sources:task.sources.filter(source=>selected.has(source.id)).map(source=>({...source,versions:[latest(source.versions)]}))},sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:availableInstructionSkillEntry(this.state.tasks,chosen)}:{})});});
   }
   setRequestInference(taskId:string,expectedRevision:number,selection:RequestInferenceSelection|null,assertCurrent:()=>void=()=>{},policy:RequestInferencePolicy='fixed'):Promise<RequestInferenceState>{
     const chosen=selection===null?null:readRequestInferenceSelection(selection);
@@ -766,7 +780,7 @@ export class Companion {
       if(this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis)reject('conflict','The queued context changed before saving. Your text is kept.');
       this.validRefs(task,[...item.sourceRefs]);
       if(!sameInstructionSkill(existing?existing.instructionSkill:instructionSkillSelection(session).selection,item.instructionSkill))reject('conflict','The queued skill choice changed. Keep its original pinned selection.');
-      if(item.instructionSkill)instructionSkillEntry(state.tasks,item.instructionSkill);
+      if(item.instructionSkill)availableInstructionSkillEntry(state.tasks,item.instructionSkill);
       if(index<0){if(items.length>=100)reject('invalid','This task has reached its saved follow-up limit.');if(state.usedRequestIds.includes(item.id)||state.tasks.some(owner=>owner.id!==taskId&&owner.session?.queuedFollowups?.some(entry=>entry.id===item.id)))reject('conflict','This follow-up identity is already used.');items.push(item);}else{items[index]=item;for(let position=index+1;position<items.length;position++)if(items[position].status==='queued')items[position]={...items[position],status:'held',reason:'An earlier queued message changed. Review this follow-up before queueing it again.'};}
       const current=readComposerDraft(session),consume=submittedDraft&&sameComposerDraft(current,submittedDraft)&&submittedDraft.text.trim()===item.prompt.trim()&&submittedDraft.kind===item.kind;
       task.session={...session,queuedFollowups:items,revision:session.revision+1,...(consume?{draft:'',draftKind:current.kind,draftRevision:current.revision}:{})};task.updatedAt=this.time();return task;
@@ -1313,10 +1327,11 @@ export class Companion {
         if (existing.digest !== digest && !legacyReplay) reject('conflict', 'Request ID has a different payload or source scope.');
         return { existing: clone(existing) };
       }
+      if(input.instructionSkill&&!input.queuedFollowup)availableInstructionSkillEntry(this.state.tasks,input.instructionSkill);
       const context = await this.commit(state => {
         const task = this.task(state, input.taskId); if (task.status !== 'active') reject('conflict', 'Resume the task before starting a request.');
         if(ordinarySkill&&!input.queuedFollowup&&!sameInstructionSkill(instructionSkillSelection(task.session).selection,input.instructionSkill))throw Error('The selected skill changed before this request.');
-        if(input.instructionSkill)instructionSkillEntry(state.tasks,input.instructionSkill);
+        if(input.instructionSkill){if(input.queuedFollowup)instructionSkillEntry(state.tasks,input.instructionSkill);else availableInstructionSkillEntry(state.tasks,input.instructionSkill);}
         if(input.inference&&!input.queuedFollowup){const current=requestInferenceSaved(task.session);if(input.inferenceRevision!==current.revision||current.policy!=='automatic'&&current.selection&&!sameRequestInference(current.selection,input.inference))throw Error('The task model choice changed before this request. Ask again with its current choice.');}
         text(input.kind, 'Request kind', 100); text(input.prompt, 'Prompt', 50_000); this.claimRequest(state, input.requestId);
         if (input.executionScope !== undefined) text(input.executionScope, 'Execution scope', 2000);

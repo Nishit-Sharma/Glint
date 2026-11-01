@@ -1,5 +1,5 @@
 import type {RequestInferenceSelection} from '../shared/request-inference';
-import type {InstructionSkillReference,InstructionSkillSnapshot} from '../shared/instruction-skill';
+import type {InstructionSkillReference,InstructionSkillSnapshot,InstructionSkillAvailability} from '../shared/instruction-skill';
 import type {ConversationAttemptReceipt} from '../shared/conversation-attempt';
 import type {MemoryUse} from '../shared/user-memory';
 import type {BrowserContinuationReceipt} from '../shared/browser-continuation';
@@ -36,7 +36,7 @@ export interface ArtifactRevision {
   encoding?: 'utf8' | 'base64';
   sourceRefs: SourceRef[]; digest: string; createdAt: string;
 }
-export interface Artifact { id: string; revisions: ArtifactRevision[] }
+export interface Artifact { id: string; revisions: ArtifactRevision[];skillAvailability?:InstructionSkillAvailability }
 export interface ArtifactRef { artifactId: string; revision: number; digest: string }
 export interface ModuleStateRef { artifactId: string; artifactRevision: number; moduleId: string; stateRevision: number }
 /** Host-owned read dependencies, checked inside the atomic session commit. */

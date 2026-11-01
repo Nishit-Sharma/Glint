@@ -11,6 +11,10 @@ export const InstructionSkillReferenceSchema=Schema.Struct({ownerTaskId:id,artif
 export type InstructionSkillReference=typeof InstructionSkillReferenceSchema.Type;
 export const InstructionSkillSelectionSchema=Schema.Struct({revision:counter,selection:Schema.NullOr(InstructionSkillReferenceSchema)});
 export type InstructionSkillSelection=typeof InstructionSkillSelectionSchema.Type;
+export const InstructionSkillAvailabilitySchema=Schema.Struct({revision:counter,enabled:Schema.Boolean});
+export type InstructionSkillAvailability=typeof InstructionSkillAvailabilitySchema.Type;
+export const readInstructionSkillAvailability=Schema.decodeUnknownSync(InstructionSkillAvailabilitySchema,{onExcessProperty:'error'});
+export const skillAvailability=(value?:InstructionSkillAvailability):InstructionSkillAvailability=>value??{revision:0,enabled:true};
 export const InstructionSkillBodySchema=Schema.Struct({kind:Schema.Literal('instruction-skill'),schemaVersion:Schema.Literal(1),creationId:id,name:text(200),description:bounded(1000),instructions:text(16000),resources:Schema.Array(source).pipe(Schema.maxItems(8)),directoryOrigin:Schema.optional(DirectorySkillReferenceSchema)});
 export type InstructionSkillBody=typeof InstructionSkillBodySchema.Type;
 export const readInstructionSkillBody=Schema.decodeUnknownSync(InstructionSkillBodySchema,{onExcessProperty:'error'});
@@ -20,7 +24,7 @@ export type InstructionSkillSave=typeof save.Type;
 export const readInstructionSkillSave=Schema.decodeUnknownSync(save,{onExcessProperty:'error'});
 export type InstructionSkillResource={reference:SourceRef;label:string;content:string};
 export type InstructionSkillSnapshot={reference:InstructionSkillReference;name:string;description:string;instructions:string;resources:InstructionSkillResource[]};
-export type InstructionSkillEntry=InstructionSkillSnapshot&{current:boolean;directoryOrigin?:DirectorySkillReference};
+export type InstructionSkillEntry=InstructionSkillSnapshot&{current:boolean;availability?:InstructionSkillAvailability;directoryOrigin?:DirectorySkillReference};
 export type InstructionSkillUnavailable={reference:InstructionSkillReference;name:string;reason:string};
 export const INSTRUCTION_SKILL_ACTIVITY_LIMIT=50;
 export type InstructionSkillRequestActivity={reference:InstructionSkillReference;name:string|null;taskId:string;taskTitle:string;requestId:string;status:RequestStatus;startedAt:string|null;finishedAt:string|null};
@@ -29,6 +33,7 @@ export const instructionSkillSelection=(session?:{instructionSkill?:InstructionS
 export const sameInstructionSkill=(a:InstructionSkillReference|null|undefined,b:InstructionSkillReference|null|undefined)=>JSON.stringify(a??null)===JSON.stringify(b??null);
 const commands=Schema.Union(
  Schema.Struct({type:Schema.Literal('skills.list'),taskId:id}),
+ Schema.Struct({type:Schema.Literal('skills.availability.set'),taskId:id,artifactId:id,expectedRevision:counter,enabled:Schema.Boolean}),
  Schema.Struct({type:Schema.Literal('skills.directory.copy'),taskId:id,reference:DirectorySkillReferenceSchema}),
  Schema.Struct({type:Schema.Literal('skills.save'),...saveFields}),
  Schema.Struct({type:Schema.Literal('skills.use'),taskId:id,expectedRevision:counter,selection:Schema.NullOr(InstructionSkillReferenceSchema)}),
