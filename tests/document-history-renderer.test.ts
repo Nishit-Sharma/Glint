@@ -22,14 +22,13 @@ import {SavedDocumentDraftStatus} from '../src/renderer/src/components/SavedDocu
 import {SourceLinks} from '../src/renderer/src/components/SourceLinks';
 import {RevisionCompare} from '../src/renderer/src/components/RevisionCompare';
 import {createControlledRenderer} from './controlled-renderer.fixture';
-import {OpenViewFind} from '../src/host/open-view-find';
 import type {ArtifactInput,Task} from '../src/core/types';
 
 const cleanup:Array<()=>Promise<void>>=[];
 afterEach(async()=>{for(const close of cleanup.splice(0))await close();});
 const text=(node:{type:string;props:Record<string,any>;children:any[]}):string=>node.type==='#text'?node.props.text:node.children.map(text).join('');
 
-async function fixture(onDisplayedRevision?:(identity:string)=>void){
+async function fixture(){
  const directory=await mkdtemp(join(tmpdir(),'document-history-renderer-')),core=await createCompanion({dataDir:directory});
  cleanup.push(async()=>{await core.close();await rm(directory,{recursive:true,force:true});});
  const owner=await core.createTask({title:'Synthetic history owner'}),first=await core.saveArtifact(owner.id,{title:'Earlier saved document',content:'Synthetic V23 task saved work.',mimeType:'text/plain',sourceRefs:[]});
@@ -47,7 +46,7 @@ async function fixture(onDisplayedRevision?:(identity:string)=>void){
  };
  const javascript=ts.transpileModule(declaration.getText(file),{fileName:'ArtifactEditor.tsx',compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText;
  const ArtifactEditor=Function('require','exports',...Object.keys(bindings),javascript+'\nreturn ArtifactEditor;')((id:string)=>{if(id==='react/jsx-runtime')return jsx;throw Error('Unexpected extracted editor dependency '+id);},{},...Object.values(bindings));
- const view=createControlledRenderer(()=>React.createElement(ArtifactEditor,{task,artifact:task.artifacts[0],onDisplayedRevision,cache,scope:'owned-history',isCurrent:()=>true,busy:false,run:async(command:any)=>{commands.push(command);return undefined;},saveDocument:async(input:ArtifactInput)=>{commands.push({type:'artifact.save',artifact:input});await core.saveArtifact(task.id,input);task=await core.getTask(task.id);return task;},back:()=>{},onModel:async()=>undefined,running:false,onStop:()=>{},onConfigure:()=>{},onWorkflowCreated:()=>{},workflowReviewScope:'owned-history',workflowReviewCurrent:()=>true}));
+ const view=createControlledRenderer(()=>React.createElement(ArtifactEditor,{task,artifact:task.artifacts[0],cache,scope:'owned-history',isCurrent:()=>true,busy:false,run:async(command:any)=>{commands.push(command);return undefined;},saveDocument:async(input:ArtifactInput)=>{commands.push({type:'artifact.save',artifact:input});await core.saveArtifact(task.id,input);task=await core.getTask(task.id);return task;},back:()=>{},onModel:async()=>undefined,running:false,onStop:()=>{},onConfigure:()=>{},onWorkflowCreated:()=>{},workflowReviewScope:'owned-history',workflowReviewCurrent:()=>true}));
  const button=(label:string)=>view.find(node=>node.type==='button'&&text(node)===label);
  view.render();button('Sources & versions').props.onClick();view.render();
  return {core,cache,store,view,button,commands,before,rawBefore,directory,setup,get task(){return task;},async select(revision:number){view.find(node=>node.type==='select'&&node.children.some(child=>text(child).startsWith('Revision '))).props.onChange({target:{value:String(revision)}});await Promise.resolve();view.render();},async raw(){await cache.flush();return readFile(join(directory,'learning-drafts.json'),'utf8');},async advance(){await core.saveArtifact(task.id,{artifactId:first.artifactId,expectedRevision:task.artifacts[0].revisions.at(-1)!.revision,title:'New current document',content:'Newly saved third body.',mimeType:'text/plain',sourceRefs:[]});task=await core.getTask(task.id);view.render();}};
@@ -73,12 +72,4 @@ it('keeps an exact historical read through a newer saved revision, then stages i
  f.button('Edit document').props.onClick();await vi.waitFor(()=>{f.view.render();expect(f.view.nodes().some(node=>node.type==='textarea'&&node.props['aria-label']==='Draft content')).toBe(true);});
  const body=f.view.find(node=>node.type==='textarea'&&node.props['aria-label']==='Draft content');expect(body.props.value).toBe('Synthetic V23 task saved work.');expect(body.props.readOnly).toBe(false);expect(f.button('Save revision').props.disabled).toBe(false);
  const record=(await f.store.read());if(record.kind!=='available')throw Error('Expected readable fixture draft.');const saved=record.records.find(entry=>'kind' in entry.owner&&entry.owner.kind==='saved-document-edit');expect(saved?.value?.basis).toBe(savedDocumentDraftBasis(f.task,f.task.artifacts[0].id,f.task.artifacts[0].revisions[2]));expect(JSON.parse(saved!.value!.value)).toMatchObject({present:true,content:'Synthetic V23 task saved work.'});expect(f.commands).toEqual([]);expect(f.task.artifacts[0].revisions).toHaveLength(3);expect(f.task.session?.draft).toBe('UNSENT keep original\n');
-});
-
-
-it('retires native Find on the actual normal document revision dropdown in both directions',async()=>{
- const displayed:string[]=[],events:unknown[]=[];let requestId=0,clears=0;const find=new OpenViewFind({findInPage:()=>++requestId,stopFindInPage:()=>{clears++;}},event=>events.push(event)),f=await fixture(identity=>{displayed.push(identity);find.handle({type:'view.find',scope:identity,action:'bind'});});
- const current=f.task.artifacts[0].revisions[1],older=f.task.artifacts[0].revisions[0],identity=(revision:typeof current)=>JSON.stringify([f.task.id,f.task.artifacts[0].id,revision.revision,revision.digest]);
- expect(displayed.at(-1)).toBe(identity(current));find.handle({type:'view.find',scope:identity(current),action:'query',query:'Synthetic'});const oldId=requestId;find.found({requestId:oldId,activeMatchOrdinal:1,matches:2,finalUpdate:true});const eventCount=events.length;await f.select(1);expect(displayed.at(-1)).toBe(identity(older));find.found({requestId:oldId,activeMatchOrdinal:2,matches:2,finalUpdate:true});expect(events).toHaveLength(eventCount);
- find.handle({type:'view.find',scope:identity(older),action:'query',query:'Synthetic'});const earlierId=requestId;await f.select(2);expect(displayed.at(-1)).toBe(identity(current));find.found({requestId:earlierId,activeMatchOrdinal:1,matches:1,finalUpdate:true});expect(events).toHaveLength(eventCount);expect(clears).toBeGreaterThanOrEqual(3);expect(await f.core.getTask(f.task.id)).toEqual(f.before);expect(await f.raw()).toBe(f.rawBefore);
 });

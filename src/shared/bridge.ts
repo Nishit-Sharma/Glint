@@ -1,4 +1,3 @@
-import type {OpenViewFindCommand,OpenViewFindEvent} from './open-view-find';
 import type {CsvWorkbookCommand} from './csv-workbook';
 import type {RecurringInferenceCommand} from './recurring-work';
 import type {CsvStatisticsCommand} from './csv-statistics';
@@ -60,7 +59,6 @@ import type {CsvChartCommand} from './csv-chart';
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command =
-  | OpenViewFindCommand
   | CsvWorkbookCommand
   | RecurringInferenceCommand
   | CsvStatisticsCommand
@@ -224,7 +222,6 @@ export interface ContextActivation {activationId:string;tucked:boolean;target?:W
 export type ContextPending={kind:'none'}|{kind:'ready';activation:ContextActivation}|{kind:'busy'}
 export type ContextCapture = {activationId:string;tucked:boolean}&({state:'captured';task:Task;sourceId:string}|{state:'no-room';task?:Task})
 export type CompanionEvent =
-  | OpenViewFindEvent
   | {type:'system.gpu-info';runtime:HardwareAccelerationRuntime}
   | {type:'schedules.changed'}
   | {type:'source.drag';state:SourceDragState}
