@@ -1,3 +1,4 @@
+import {TaskMemoryPolicySchema} from '../shared/task-memory-policy';
 import {RequestInferenceSavedSchema} from '../shared/request-inference';
 import {SpeechSelectionSchema} from '../shared/document-speech';
 import {ReadingPreferencesSchema} from '../shared/reading-view';
@@ -37,6 +38,7 @@ export const BrowserOperationSchema = Schema.Struct({
   error: Schema.optional(text),
 });
 export const TaskSessionSchema = Schema.Struct({
+  memoryPolicy:Schema.optional(TaskMemoryPolicySchema),
   instructionSkill:Schema.optional(InstructionSkillSelectionSchema),
   readingPreferences:Schema.optional(ReadingPreferencesSchema),
   requestInference:Schema.optional(RequestInferenceSavedSchema),

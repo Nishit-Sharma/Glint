@@ -1,3 +1,4 @@
+import {TaskMemorySettings} from './TaskMemorySettings';
 import {RequestInferenceSettings} from './RequestInferenceSettings';
 import {InstructionSkills} from './InstructionSkills';
 import {PdfRequestInspector} from './PdfRequestInspector';
@@ -20,6 +21,7 @@ export function RequestContext({task,selectedSourceIds,connection,onReview,kind=
    {sources.length>0&&<ul>{sources.map(source=>{const version=source.versions.at(-1)!;return <li key={source.id}>{version.label} · {version.kind==='window'?'frozen snapshot':version.kind} · {source.freshness==='fresh'?`version ${version.version}`:'refresh required'}{source.projectOrigin&&<> · project snapshot of shared saved version {source.projectOrigin.reference.version} · {sourceRoleLabel(version.role)}{source.currentVersion!==source.projectOrigin.copiedVersion||version.digest!==source.projectOrigin.copiedDigest?' · locally changed copy':' · pinned copy'}</>}</li>;})}</ul>}
   </details>:<span>Context · Your message</span>}
   {task&&history&&<RequestInferenceSettings key={task.id} task={task} prompt={prompt} kind={kind==='create'?'create':'explain'} connectionKey={JSON.stringify([connection?.provider,connection?.endpoint,connection?.configured])}/>}
+  {task&&history&&<TaskMemorySettings key={'memory:'+task.id} task={task} prompt={prompt??''}/>}
   {task&&history&&<InstructionSkills key={'skills:'+task.id} task={task} prompt={prompt} sourceIds={sources.map(source=>source.id)} onManageSources={onReview}/>}
   {task&&history&&sources.some(source=>source.versions.at(-1)?.pdfPage)&&<PdfRequestInspector key={'visual:'+task.id} task={task} prompt={prompt??''} kind={kind==='create'?'create':'explain'} sourceIds={sources.map(source=>source.id)} connectionKey={JSON.stringify([connection?.provider,connection?.endpoint,connection?.configured])}/>}
   {destination&&<span className="request-destination">To {destination}</span>}

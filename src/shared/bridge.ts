@@ -1,3 +1,4 @@
+import type {TaskMemoryPolicyCommand} from './task-memory-policy';
 import type {MemoryExportCommand} from './memory-export';
 import type {SystemSettingsCommand,HardwareAccelerationRuntime} from './system-settings';
 import type {FallbackShortcutCommand} from './fallback-shortcut';
@@ -75,6 +76,7 @@ export type Command =
   | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}
   | {type:'contacts.get'}
   | ({type:'contacts.change'} & LocalContactsChange)
+  | TaskMemoryPolicyCommand
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
   | ({type:'memory.preview'} & MemoryPreviewInput)
   | ProjectCommand

@@ -1,0 +1,10 @@
+import {Schema} from 'effect';
+const revision=Schema.Int.pipe(Schema.between(0,Number.MAX_SAFE_INTEGER));
+export const TaskMemoryPolicySchema=Schema.Struct({revision,mode:Schema.Literal('inherit','off')});
+export type TaskMemoryPolicy=typeof TaskMemoryPolicySchema.Type;
+export const taskMemoryPolicy=(session?:{memoryPolicy?:TaskMemoryPolicy}):TaskMemoryPolicy=>session?.memoryPolicy??{revision:0,mode:'inherit'};
+const command=Schema.Struct({type:Schema.Literal('memory.task.set'),taskId:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200)),expectedRevision:revision,mode:Schema.Literal('inherit','off')});
+export type TaskMemoryPolicyCommand=typeof command.Type;
+export const readTaskMemoryPolicyCommand=Schema.decodeUnknownSync(command,{onExcessProperty:'error'});
+const state=Schema.Struct({taskId:Schema.String,revision,mode:Schema.Literal('inherit','off')});
+export const readTaskMemoryPolicyState=Schema.decodeUnknownSync(state,{onExcessProperty:'error'});

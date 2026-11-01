@@ -11,6 +11,7 @@ import {changeLocalContacts} from './local-contacts';
 import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
+import {taskMemoryPolicy,readTaskMemoryPolicyCommand} from '../shared/task-memory-policy';
 import {MEMORY_HISTORY_LIMIT,type MemoryHistoryEvent,emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
 import {selectTaskMemory as selectScopedTaskMemory,taskMemoryConsent,readMemoryPreviewInput} from '../shared/project-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
@@ -71,7 +72,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {memoryPolicy:_memoryPolicy,instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -94,6 +95,7 @@ export class Companion {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly controllers = new Map<string, AbortController>();
   private memoryChanges = new AbortController();
+  private readonly taskMemoryChanges = new Map<string,AbortController>();
   private readonly projectMemoryChanges = new Map<string,AbortController>();
   private closed = false;
   private persistenceFailed = false;
@@ -318,7 +320,24 @@ export class Companion {
     });
   }
 
-  private selectTaskMemory(task:Task,prompt:string){return selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined);}
+  setTaskMemoryPolicy(input:unknown,assertCurrent:()=>void=()=>{}){
+    const command=readTaskMemoryPolicyCommand(input);
+    return this.exclusive(async()=>{
+      let changed=false;
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,command.taskId),session=task.session??emptyTaskSession(),current=taskMemoryPolicy(session);
+        if(task.status!=='active'||task.archive)throw Error('Open and resume this task before changing its memory choice.');
+        if(current.revision!==command.expectedRevision)throw Error('The task memory choice changed. Reload it before saving.');
+        if(current.mode===command.mode)return {taskId:task.id,...current};
+        if(current.revision===Number.MAX_SAFE_INTEGER||(session.contextRevision??0)===Number.MAX_SAFE_INTEGER)throw Error('The task memory revision limit was reached.');
+        const saved={revision:current.revision+1,mode:command.mode};
+        task.session={...session,memoryPolicy:saved,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1,...(session.queuedFollowups?{queuedFollowups:session.queuedFollowups.map(item=>item.status==='queued'?{...item,status:'held' as const,reason:'Task memory choice changed. Review this exact follow-up before queueing it again.'}:item)}:{})};task.updatedAt=this.time();changed=true;return {taskId:task.id,...saved};
+      });
+      if(changed){this.taskMemoryChanges.get(command.taskId)?.abort(Error(MEMORY_CHANGED));this.taskMemoryChanges.set(command.taskId,new AbortController());}
+      return result;
+    });
+  }
+  private selectTaskMemory(task:Task,prompt:string){return selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined,taskMemoryPolicy(task.session));}
   previewUserMemory(input:unknown){
     const value=readMemoryPreviewInput(input);
     return this.exclusive(()=>clone(value.taskId?this.selectTaskMemory(this.task(this.state,value.taskId),value.prompt):selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:'',goal:'',prompt:value.prompt})));
@@ -327,8 +346,10 @@ export class Companion {
     return this.exclusive(()=>{
       const task=this.task(this.state,taskId),memory=this.state.userMemory??emptyUserMemory(),project=task.projectId?this.project(this.state,task.projectId):undefined,projectId=task.projectId,projectRevision=project?.revision,projectMemoryRevision=project?.memory?.revision??0;
       if(project&&!this.projectMemoryChanges.has(project.id))this.projectMemoryChanges.set(project.id,new AbortController());
-      const selected=clone(this.selectTaskMemory(task,prompt)),projectSignal=project?this.projectMemoryChanges.get(project.id)!.signal:undefined,signal=projectSignal?AbortSignal.any([this.memoryChanges.signal,projectSignal]):this.memoryChanges.signal;
-      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||current.projectId!==projectId||currentProject?.revision!==projectRevision||(currentProject?.memory?.revision??0)!==projectMemoryRevision)throw Error(MEMORY_CHANGED);};
+      if(!this.taskMemoryChanges.has(taskId))this.taskMemoryChanges.set(taskId,new AbortController());
+      const policyRevision=taskMemoryPolicy(task.session).revision,taskSignal=this.taskMemoryChanges.get(taskId)!.signal;
+      const selected=clone(this.selectTaskMemory(task,prompt)),projectSignal=project?this.projectMemoryChanges.get(project.id)!.signal:undefined,signal=AbortSignal.any([this.memoryChanges.signal,taskSignal,...(projectSignal?[projectSignal]:[])]);
+      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||taskMemoryPolicy(current.session).revision!==policyRevision||current.projectId!==projectId||currentProject?.revision!==projectRevision||(currentProject?.memory?.revision??0)!==projectMemoryRevision)throw Error(MEMORY_CHANGED);};
       return {...selected,signal,assertCurrent,consent:taskMemoryConsent(selected),check:async()=>{assertCurrent();}};
     });
   }
