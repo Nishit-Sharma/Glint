@@ -13,7 +13,7 @@ import {assertConversationAttempt,readConversationAttemptReceipt} from '../share
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
 import {taskMemoryPolicy,readTaskMemoryPolicyCommand} from '../shared/task-memory-policy';
-import {MEMORY_HISTORY_LIMIT,type MemoryHistoryEvent,emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
+import {MEMORY_HISTORY_LIMIT,memoryUndoRetention,memoryUndoReason,memoryValueText,type MemoryHistoryEvent,emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
 import {selectTaskMemory as selectScopedTaskMemory,taskMemoryConsent,readMemoryPreviewInput} from '../shared/project-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
@@ -294,10 +294,13 @@ export class Companion {
     return this.exclusive(async()=>{
       const current=this.state.userMemory??emptyUserMemory();
       if(value.expectedRevision!==current.revision)return {kind:'conflict',current:clone(current)};
-      const requested=value.change,previous=requested.kind==='save'&&requested.id?current.facts.find(fact=>fact.id===requested.id):undefined;
-      const savedTopics=requested.kind==='save'?[...new Set(requested.topics.map(topic=>topic.trim()).filter(Boolean))]:[];
-      const changedFields:MemoryHistoryEvent['fields']=requested.kind==='save'?(previous?([...((previous.text!==requested.text)?['text' as const]:[]),...((JSON.stringify(previous.topics)!==JSON.stringify(savedTopics))?['topics' as const]:[])]):['text','topics']):[];
-      if(requested.kind==='save'&&previous&&!changedFields.length)return {kind:'saved' as const,current:clone(current)};
+      const requested=value.change;let update:{id?:string;text:string;topics:string[]}|undefined,undoOfRevision:number|undefined;
+      if(requested.kind==='save')update=requested;
+      else if(requested.kind==='undo'){const event=current.history?.find(event=>event.factId===requested.id&&event.revision===requested.historyRevision),payload=event?.undo,fact=current.facts.find(fact=>fact.id===requested.id);if(!event||!payload||!fact||memoryUndoReason(current,event)||fact.revision!==requested.expectedFactRevision||event.factRevision!==requested.expectedFactRevision||payload.afterHash!==requested.expectedAfterHash||hash(memoryValueText(fact))!==payload.afterHash||hash(memoryValueText(payload.before))!==payload.beforeHash)return reject('conflict','This recorded edit is no longer eligible for Undo. Load current memory; nothing was restored.');update={id:fact.id,text:payload.before.text,topics:[...payload.before.topics]};undoOfRevision=event.revision;}
+      const previous=update?.id?current.facts.find(fact=>fact.id===update.id):undefined;
+      const savedTopics=update?(requested.kind==='undo'?[...update.topics]:[...new Set(update.topics.map(topic=>topic.trim()).filter(Boolean))]):[];
+      const changedFields:MemoryHistoryEvent['fields']=update?(previous?([...((previous.text!==update.text)?['text' as const]:[]),...((JSON.stringify(previous.topics)!==JSON.stringify(savedTopics))?['topics' as const]:[])]):['text','topics']):[];
+      if(update&&previous&&!changedFields.length)return {kind:'saved' as const,current:clone(current)};
       if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Memory revision limit reached. Saved memory is preserved.');
       const result=await this.commit(state=>{
         assertCurrent();const next={...clone(current),revision:current.revision+1},change=value.change;
@@ -307,12 +310,13 @@ export class Companion {
           next.facts=next.facts.filter(fact=>fact.id!==change.id);
           if(next.history)next.history=next.history.filter(event=>event.factId!==change.id);
         }else{
-          const previous=change.id?next.facts.find(fact=>fact.id===change.id):undefined;
-          if(change.id&&!previous)reject('not-found','This memory fact was already forgotten.');
+          const changed=update!,previous=changed.id?next.facts.find(fact=>fact.id===changed.id):undefined;
+          if(changed.id&&!previous)reject('not-found','This memory fact was already forgotten.');
           if(!previous&&next.facts.length>=MEMORY_FACT_COUNT)reject('invalid',`Keep at most ${MEMORY_FACT_COUNT} memory facts. Forget a fact before adding another.`);
-          const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:savedTopics};
+          const fact={id:previous?.id??randomUUID(),revision:next.revision,text:changed.text,topics:savedTopics};
           if(previous)next.facts[next.facts.indexOf(previous)]=fact;else next.facts.push(fact);
-          next.history=[...(next.history??[]),{factId:fact.id,revision:next.revision,factRevision:fact.revision,at:this.time(),kind:previous?'modified' as const:'added' as const,fields:changedFields}].slice(-MEMORY_HISTORY_LIMIT);
+          const retention=previous?memoryUndoRetention(previous,fact):undefined,undo=previous&&!retention?{before:{revision:previous.revision,text:previous.text,topics:[...previous.topics]},beforeHash:hash(memoryValueText(previous)),afterHash:hash(memoryValueText(fact))}:undefined;
+          next.history=[...(next.history??[]),{factId:fact.id,revision:next.revision,factRevision:fact.revision,at:this.time(),kind:previous?'modified' as const:'added' as const,fields:changedFields,...(undo?{undo}:{}),...(retention?{undoUnavailable:retention}:{}),...(undoOfRevision?{undoOfRevision}:{})}].slice(-MEMORY_HISTORY_LIMIT);
         }
         state.userMemory=next;return {kind:'saved' as const,current:next};
       });

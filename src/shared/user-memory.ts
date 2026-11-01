@@ -4,6 +4,7 @@ import type {Project} from './projects';
 export const MEMORY_FACT_LIMIT=800;
 export const MEMORY_FACT_COUNT=40;
 export const MEMORY_HISTORY_LIMIT=1000;
+export const MEMORY_UNDO_BYTES=2048;
 export const MEMORY_REQUEST_FACTS=8;
 export const MEMORY_REQUEST_CHARACTERS=4_000;
 export const MEMORY_CHANGED='Memory changed. Send a new question using the current memory. An earlier request may already have reached the service.';
@@ -15,7 +16,18 @@ const topics=Schema.mutable(Schema.Array(topic).pipe(Schema.maxItems(8)));
 export const MemoryFactSchema=Schema.Struct({id,revision,text,topics});
 const positiveRevision=revision.pipe(Schema.positive());
 const utc=Schema.String.pipe(Schema.filter(value=>{try{return new Date(value).toISOString()===value;}catch{return false;}}));
-export const MemoryHistoryEventSchema=Schema.Struct({factId:id,revision:positiveRevision,factRevision:positiveRevision,at:utc,kind:Schema.Literal('added','modified'),fields:Schema.mutable(Schema.Array(Schema.Literal('text','topics')).pipe(Schema.minItems(1),Schema.maxItems(2),Schema.filter(fields=>new Set(fields).size===fields.length)))}).pipe(Schema.filter(event=>event.factRevision===event.revision&&(event.kind!=='added'||event.fields.length===2)));
+const digest=Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/));
+const undoBefore=Schema.Struct({revision,text,topics});
+const undoPayload=Schema.Struct({before:undoBefore,beforeHash:digest,afterHash:digest});
+export const memoryValueText=(value:{text:string;topics:readonly string[]})=>JSON.stringify({text:value.text,topics:[...value.topics]});
+/** Conservative local eligibility only, not a comprehensive secret detector. */
+export function memoryUndoRetention(before:{revision:number;text:string;topics:readonly string[]},after?:{text:string;topics:readonly string[]}):'protected'|'too-large'|undefined{
+ const sensitive=(value:{text:string;topics:readonly string[]})=>/\b(?:password|passwd|passphrase|secret|credential|token|api[ _-]?key|authorization|bearer|private[ _-]?key)\b|-----BEGIN [^-]*PRIVATE KEY-----|[A-Za-z0-9_+/=-]{32,}/i.test(value.text+'\n'+value.topics.join(' '));
+ if(sensitive(before)||after&&sensitive(after))return 'protected';
+ if(new TextEncoder().encode(JSON.stringify({revision:before.revision,text:before.text,topics:[...before.topics]})).length>MEMORY_UNDO_BYTES)return 'too-large';
+}
+export const MemoryHistoryEventSchema=Schema.Struct({factId:id,revision:positiveRevision,factRevision:positiveRevision,at:utc,kind:Schema.Literal('added','modified'),fields:Schema.mutable(Schema.Array(Schema.Literal('text','topics')).pipe(Schema.minItems(1),Schema.maxItems(2),Schema.filter(fields=>new Set(fields).size===fields.length))),undo:Schema.optional(undoPayload),undoUnavailable:Schema.optional(Schema.Literal('protected','too-large')),undoOfRevision:Schema.optional(positiveRevision)}).pipe(Schema.filter(event=>event.factRevision===event.revision&&(event.kind!=='added'||event.fields.length===2&&!event.undo&&!event.undoUnavailable&&!event.undoOfRevision)&&(!event.undo||!event.undoUnavailable&&event.undo.before.revision<event.factRevision&&event.undo.beforeHash!==event.undo.afterHash&&!memoryUndoRetention(event.undo.before))&&(!event.undoOfRevision||event.undoOfRevision<event.revision)));
+
 export type MemoryHistoryEvent=typeof MemoryHistoryEventSchema.Type;
 export const UserMemorySchema=Schema.Struct({revision,enabled:Schema.Boolean,facts:Schema.mutable(Schema.Array(MemoryFactSchema).pipe(Schema.maxItems(MEMORY_FACT_COUNT))),history:Schema.optional(Schema.mutable(Schema.Array(MemoryHistoryEventSchema).pipe(Schema.maxItems(MEMORY_HISTORY_LIMIT))))}).pipe(Schema.filter(value=>new Set(value.facts.map(fact=>fact.id)).size===value.facts.length&&value.facts.every(fact=>fact.revision<=value.revision)&&(value.history??[]).every((event,index,events)=>event.revision<=value.revision&&(!index||events[index-1].revision<event.revision)&&value.facts.some(fact=>fact.id===event.factId&&event.factRevision<=fact.revision))));
 const ref=Schema.Struct({id,revision});
@@ -27,6 +39,7 @@ export const MemoryChangeSchema=Schema.Struct({expectedRevision:revision,change:
  Schema.Struct({kind:Schema.Literal('enabled'),enabled:Schema.Boolean}),
  Schema.Struct({kind:Schema.Literal('save'),id:Schema.optional(id),text,topics}),
  Schema.Struct({kind:Schema.Literal('forget'),id}),
+ Schema.Struct({kind:Schema.Literal('undo'),id,historyRevision:positiveRevision,expectedFactRevision:positiveRevision,expectedAfterHash:digest}),
 )});
 export type UserMemory=typeof UserMemorySchema.Type;
 export type MemoryFact=typeof MemoryFactSchema.Type;
@@ -38,6 +51,12 @@ export const readMemoryUse=Schema.decodeUnknownSync(MemoryUseSchema,{onExcessPro
 export const readMemoryChange=Schema.decodeUnknownSync(MemoryChangeSchema,{onExcessProperty:'error'});
 export const readMemoryCommit=Schema.decodeUnknownSync(Schema.Struct({kind:Schema.Literal('saved','conflict'),current:UserMemorySchema}),{onExcessProperty:'error'});
 export const emptyUserMemory=():UserMemory=>({revision:0,enabled:false,facts:[]});
+export function memoryUndoReason(memory:UserMemory,event:MemoryHistoryEvent):string|undefined{
+ if(event.kind==='added')return 'Only recorded edits can be undone; additions and Forget are not undone here.';
+ if(!event.undo)return event.undoUnavailable==='protected'?'Previous values were not retained for credential-like content.':event.undoUnavailable==='too-large'?'Previous values exceeded the 2,048-byte undo limit.':'Previous values were not recorded for this earlier change.';
+ const fact=memory.facts.find(fact=>fact.id===event.factId);if(!fact)return 'This fact is unavailable. Undo never restores forgotten facts.';
+ if(fact.revision!==event.factRevision)return 'This fact changed after the recorded edit. Choose its latest eligible edit.';
+}
 const words=(value:string)=>value.normalize('NFKC').toLocaleLowerCase('en-US').replace(/[\s\p{Cc}\p{Cf}()\[\]{},;:!?“”"'`<>\/\\]+/gu,' ').split(' ').map(token=>token.replace(/\.+$/u,'')).filter(Boolean).join(' ');
 
 export function selectUserMemory(memory:UserMemory,question:{title:string;goal:string;prompt:string},project?:Pick<Project,'useAccountMemory'>):{facts:MemoryFact[];receipt:MemoryUse}{
