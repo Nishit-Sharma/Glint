@@ -1,3 +1,4 @@
+import type {RequestInferenceSelection} from '../shared/request-inference';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import {createHash,randomUUID} from 'node:crypto';
 import { APICallError, streamText, type ModelMessage, type UserContent } from 'ai';
@@ -26,6 +27,7 @@ export type MetaProviderOptions = {
   stallMs?: number;
 };
 export type MetaRunInput = {
+  inference?:RequestInferenceSelection;
   /** Host-only recurring grant binding; never included in model input. */
   expectedAccountScope?:string;
   prompt: string;
@@ -101,6 +103,7 @@ export class MetaProvider {
   }
 
   async run(input: MetaRunInput): Promise<string> {
+    if(input.inference)throw new MetaProviderError('INVALID_INPUT','The saved Codex model choice cannot be sent to Meta. Choose the connection default first.');
     if (this.running) throw new MetaProviderError('BUSY', 'A Meta request is already running. Stop it or wait for completion.');
     if (input.signal.aborted) throw new MetaProviderError('CANCELLED', 'Request cancelled before transmission.');
     const messages = buildMetaMessages(input.prompt, input.sources, input.taskContext,input.projectInstructions);

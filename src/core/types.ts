@@ -1,3 +1,4 @@
+import type {RequestInferenceSelection} from '../shared/request-inference';
 import type {ConversationAttemptReceipt} from '../shared/conversation-attempt';
 import type {MemoryUse} from '../shared/user-memory';
 import type {BrowserContinuationReceipt} from '../shared/browser-continuation';
@@ -40,6 +41,7 @@ export interface ModuleStateRef { artifactId: string; artifactRevision: number; 
 export interface SessionCommitGuard { sourceRefs: SourceRef[]; artifactRefs: ArtifactRef[]; requireActive?:boolean }
 export type RequestStatus = 'running' | 'completed' | 'cancelled' | 'interrupted' | 'failed';
 export interface RequestRecord {
+  inference?:RequestInferenceSelection;
   id: string; kind: string; prompt: string; digest: string; status: RequestStatus;
   sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
   answer?: { artifactId: string; revision: number; digest: string };
@@ -105,6 +107,8 @@ export interface ProcedureInput {
 /** The detached task's sources contain only the request's selected current versions. */
 export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; signal: AbortSignal }
 export interface RequestInput {
+  inference?:RequestInferenceSelection;
+  inferenceRevision?:number;
   conversationAttempt?:ConversationAttemptReceipt;
   queuedFollowup?:{id:string;revision:number;basis:string;scope:string};
   browserContinuation?:BrowserContinuationReceipt;

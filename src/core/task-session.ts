@@ -1,3 +1,4 @@
+import {RequestInferenceSavedSchema} from '../shared/request-inference';
 import {SpeechSelectionSchema} from '../shared/document-speech';
 import {ReadingPreferencesSchema} from '../shared/reading-view';
 import {QueuedFollowupSchema} from '../shared/queued-followup';
@@ -36,6 +37,7 @@ export const BrowserOperationSchema = Schema.Struct({
 });
 export const TaskSessionSchema = Schema.Struct({
   readingPreferences:Schema.optional(ReadingPreferencesSchema),
+  requestInference:Schema.optional(RequestInferenceSavedSchema),
   speech:Schema.optional(SpeechSelectionSchema),
   /** Local pending input only; never restores browser execution authority. */
   browserContinuationAttempt:Schema.optional(BrowserContinuationAttemptSchema),

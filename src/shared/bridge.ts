@@ -1,3 +1,4 @@
+import type {RequestInferenceCommand} from './request-inference';
 import type {CliPreferencesUpdate} from './cli-preferences';
 import type {LocalContactsChange} from './local-contacts';
 import type {PublicGithubCommand} from './public-github';
@@ -54,6 +55,7 @@ export type Command =
   | {type:'canvas.create';taskId:string;requestId:string}
   | ({type:'canvas.save'} & CanvasSave)
   | ({type:'canvas.svg'} & CanvasSvg)
+  | RequestInferenceCommand
   | TaskAttentionCommand
   | ConversationExportCommand
   | {type:'schedules.get'} | {type:'schedules.change';change:RecurringWorkChange}

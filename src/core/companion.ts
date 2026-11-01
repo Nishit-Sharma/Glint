@@ -1,3 +1,4 @@
+import {readRequestInferenceSelection,requestInferenceSaved,sameRequestInference,type RequestInferenceSelection,type RequestInferenceState} from '../shared/request-inference';
 import {defaultCliPreferences,readCliPreferencesUpdate,type CliPreferences,type CliPreferencesCommit} from '../shared/cli-preferences';
 import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type LocalContactsCommit} from '../shared/local-contacts';
 import {changeLocalContacts} from './local-contacts';
@@ -64,7 +65,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -604,6 +605,18 @@ export class Companion {
       return result;
     });
   }
+  setRequestInference(taskId:string,expectedRevision:number,selection:RequestInferenceSelection|null,assertCurrent:()=>void=()=>{}):Promise<RequestInferenceState>{
+    const chosen=selection===null?null:readRequestInferenceSelection(selection);
+    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)return Promise.reject(Error('The model choice revision is invalid.'));
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();const task=this.task(state,taskId),session=task.session??emptyTaskSession(),current=requestInferenceSaved(session);
+      if(task.status!=='active'||task.archive)throw Error('Open and resume the task before changing its model choice.');
+      if(current.revision!==expectedRevision)throw Error('The task model choice changed. Reopen its settings before changing it.');
+      if(sameRequestInference(current.selection,chosen))return {taskId,...current};
+      if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('The model choice revision limit was reached.');
+      const saved={revision:current.revision+1,selection:chosen};task.session={...session,requestInference:saved,revision:session.revision+1};task.updatedAt=this.time();return {taskId,...saved};
+    }));
+  }
   saveComposerDraft(taskId:string,expectedDraftRevision:number,value:{text:string;kind:ComposerKind}):Promise<ComposerDraft>{
     let next:typeof ComposerValueSchema.Type;
     try{next=Schema.decodeUnknownSync(ComposerValueSchema,{onExcessProperty:'error'})(value);}catch{return Promise.reject(new CompanionError('invalid','Composer draft needs bounded text and a supported request type.'));}
@@ -1132,6 +1145,8 @@ export class Companion {
 
   async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
     input = clone(input);
+    if(input.inference!==undefined)input.inference=readRequestInferenceSelection(input.inference);
+    if(input.inferenceRevision!==undefined&&(!Number.isSafeInteger(input.inferenceRevision)||input.inferenceRevision<0))throw Error('The request model choice revision is invalid.');
     if(input.submittedDraft!==undefined){try{input.submittedDraft=Schema.decodeUnknownSync(SubmittedComposerDraftSchema,{onExcessProperty:'error'})(input.submittedDraft);if(!Number.isSafeInteger(input.submittedDraft.revision))throw Error('Invalid revision.');}catch{return reject('invalid','Submitted composer draft is invalid.');}}
     if(input.browserContinuation!==undefined){try{input.browserContinuation=readBrowserContinuationReceipt(input.browserContinuation);if(input.kind!=='browser'||input.submittedDraft||input.artifactId)throw Error();}catch{return reject('invalid','The browser continuation receipt is invalid. Existing work is kept.');}}
     if(input.conversationAttempt!==undefined)input.conversationAttempt=readConversationAttemptReceipt(input.conversationAttempt);
@@ -1157,6 +1172,7 @@ export class Companion {
       }
       const context = await this.commit(state => {
         const task = this.task(state, input.taskId); if (task.status !== 'active') reject('conflict', 'Resume the task before starting a request.');
+        if(input.inference&&!input.queuedFollowup){const current=requestInferenceSaved(task.session);if(input.inferenceRevision!==current.revision||current.selection&&!sameRequestInference(current.selection,input.inference))throw Error('The task model choice changed before this request. Ask again with its current choice.');}
         text(input.kind, 'Request kind', 100); text(input.prompt, 'Prompt', 50_000); this.claimRequest(state, input.requestId);
         if (input.executionScope !== undefined) text(input.executionScope, 'Execution scope', 2000);
         if (input.artifactId) {
@@ -1176,8 +1192,8 @@ export class Companion {
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
-        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
-        task.requests.push({ id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||!sameRequestInference(item.inference,input.inference)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
+        task.requests.push({ ...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
         const {publicGithub:_publicGithub,...requestTask}=task;
