@@ -1,3 +1,4 @@
+import {CSV_STATISTICS_MIME,readCsvStatisticsCommand,readCsvStatistics,csvStatistics,type CsvStatisticsData,type CsvStatisticsSave,type CsvStatisticsSaved} from '../shared/csv-statistics';
 import {bundledDirectorySkill,directorySkillPayload,directoryReference} from '../shared/skill-directory';
 import {CSV_CHART_MIME,CSV_CHART_SVG_MIME,readCsvChartCommand,readCsvChart,csvChartPoints,csvChartSvg,type CsvChartData,type CsvChartSave,type CsvChartSaved} from '../shared/csv-chart';
 import {csvChartSource} from './csv-chart-source';
@@ -435,6 +436,26 @@ export class Companion {
 
   listTasks(): Promise<Task[]> { return this.exclusive(() => clone(this.state.tasks)); }
   getTask(taskId: string): Promise<Task> { return this.exclusive(() => clone(this.task(this.state, taskId))); }
+  previewCsvStatistics(taskId:string,reference:SourceRef):Promise<CsvStatisticsData>{return this.exclusive(()=>clone(csvChartSource(this.task(this.state,taskId),reference)));}
+  saveCsvStatistics(input:CsvStatisticsSave,assertCurrent:()=>void=()=>{}):Promise<CsvStatisticsSaved>{
+    const command=readCsvStatisticsCommand(input);if(command.type!=='statistics.save')throw Error('Choose a statistics save.');
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,command.taskId);if(task.status!=='active'||task.archive)throw Error('Resume the owner task before saving statistics.');
+      const data=csvChartSource(task,command.source,true);if(data.dataDigest!==command.dataDigest)throw Error('The statistics data basis changed. Review its exact CSV source.');
+      const body=readCsvStatistics({kind:'csv-statistics',schemaVersion:1,method:'compensated-centered-v1',creationId:command.creationId,source:command.source,dataDigest:data.dataDigest,settings:command.settings,results:csvStatistics(data.csv,command.settings)}),content=JSON.stringify(body);
+      const result=(owner:Task,artifact:Artifact):CsvStatisticsSaved=>{const revision=latest(artifact.revisions);return clone({task:owner,artifactId:artifact.id,revision:revision.revision,digest:revision.digest});};
+      if(!command.artifact){
+        const prior=task.artifacts.filter(artifact=>{try{return artifact.revisions[0]?.mimeType===CSV_STATISTICS_MIME&&readCsvStatistics(JSON.parse(artifact.revisions[0].content)).creationId===command.creationId;}catch{return false;}});
+        if(prior.length>1)throw Error('This statistics creation is ambiguous. Existing files are kept.');
+        if(prior.length){if(prior[0].revisions[0].content!==content)throw Error('This statistics creation was already submitted with different settings. Check the original save.');return result(task,prior[0]);}
+      }else{
+        const artifact=task.artifacts.find(item=>item.id===command.artifact!.artifactId),revision=artifact?.revisions.at(-1);if(!artifact||revision?.mimeType!==CSV_STATISTICS_MIME)throw Error('The saved statistics are unavailable.');
+        const previous=readCsvStatistics(JSON.parse(revision.content));if(previous.creationId!==body.creationId||JSON.stringify(previous.source)!==JSON.stringify(body.source)||previous.dataDigest!==body.dataDigest)throw Error('Saved statistics keep their exact CSV source. Start new statistics for different data.');
+        if(revision.content===content)return result(task,artifact);this.validArtifacts(task,[command.artifact]);
+      }
+      return this.commit(state=>{assertCurrent();const owner=this.task(state,command.taskId),saved=this.appendArtifact(owner,{...(command.artifact?{artifactId:command.artifact.artifactId,expectedRevision:command.artifact.revision}:{}),title:body.settings.title,content,mimeType:CSV_STATISTICS_MIME,sourceRefs:[{...command.source}]});return clone({task:owner,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest});});
+    });
+  }
   previewCsvChart(taskId:string,reference:SourceRef):Promise<CsvChartData>{return this.exclusive(()=>clone(csvChartSource(this.task(this.state,taskId),reference)));}
   saveCsvChart(input:CsvChartSave,assertCurrent:()=>void=()=>{}):Promise<CsvChartSaved>{
     const command=readCsvChartCommand(input);if(command.type!=='chart.save')throw Error('Choose a chart save.');

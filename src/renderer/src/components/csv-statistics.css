@@ -1,0 +1,13 @@
+.csv-statistics{display:flex;flex-direction:column;gap:14px;min-width:0}
+.csv-statistics>p{margin:0;line-height:1.55}
+.csv-statistics-columns{display:flex;flex-direction:column;gap:8px;min-width:0;max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:12px}
+.csv-statistics-columns label{display:flex;align-items:baseline;gap:9px;overflow-wrap:anywhere}
+.csv-statistics-columns input{flex:none;width:auto}
+.csv-statistics-results{display:grid;gap:18px}
+.csv-statistics-results section{border:1px solid var(--border);border-radius:10px;padding:14px;min-width:0}
+.csv-statistics-results h3{margin:0 0 12px;overflow-wrap:anywhere}
+.csv-statistics-results dl{margin:0}
+.csv-statistics-results dl>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid var(--border)}
+.csv-statistics-results dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.csv-statistics details p{line-height:1.55;overflow-wrap:anywhere}
+.csv-statistics code{overflow-wrap:anywhere}

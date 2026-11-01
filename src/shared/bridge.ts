@@ -1,3 +1,4 @@
+import type {CsvStatisticsCommand} from './csv-statistics';
 import type {ImageCopyCommand} from './image-copy';
 import type {TaskMemoryPolicyCommand} from './task-memory-policy';
 import type {MemoryExportCommand} from './memory-export';
@@ -56,6 +57,7 @@ import type {CsvChartCommand} from './csv-chart';
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command =
+  | CsvStatisticsCommand
   | CsvChartCommand
   | FileFavoritesCommand
   | MemoryExportCommand
