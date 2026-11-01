@@ -3,6 +3,7 @@ import type {LocalContactsChange} from './local-contacts';
 import type {PublicGithubCommand} from './public-github';
 import type {ContentBackupCommand} from './content-backup';
 import type {SpeechCommand} from './document-speech';
+import type {ReadingCommand} from './reading-view';
 import type {CodeCommand} from './code-workspace';
 import type {ConversationAttemptReceipt} from './conversation-attempt';
 import type {QueueCommand} from './queued-followup';
@@ -48,6 +49,7 @@ export type Command =
   | PublicGithubCommand
   | ContentBackupCommand
   | SpeechCommand
+  | ReadingCommand
   | CodeCommand
   | {type:'canvas.create';taskId:string;requestId:string}
   | ({type:'canvas.save'} & CanvasSave)

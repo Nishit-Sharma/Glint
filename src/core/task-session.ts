@@ -1,4 +1,5 @@
 import {SpeechSelectionSchema} from '../shared/document-speech';
+import {ReadingPreferencesSchema} from '../shared/reading-view';
 import {QueuedFollowupSchema} from '../shared/queued-followup';
 import { Schema } from 'effect';
 import {BrowserContinuationAttemptSchema} from '../shared/browser-continuation';
@@ -34,6 +35,7 @@ export const BrowserOperationSchema = Schema.Struct({
   error: Schema.optional(text),
 });
 export const TaskSessionSchema = Schema.Struct({
+  readingPreferences:Schema.optional(ReadingPreferencesSchema),
   speech:Schema.optional(SpeechSelectionSchema),
   /** Local pending input only; never restores browser execution authority. */
   browserContinuationAttempt:Schema.optional(BrowserContinuationAttemptSchema),

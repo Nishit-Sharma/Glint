@@ -3,6 +3,7 @@ import {ContentBackups,ContentBackupGate,recoverContentRestore} from './content-
 import {isContentBackupCommand,readContentBackupCommand} from '../shared/content-backup';
 import {DocumentSpeech} from './document-speech';
 import {isSpeechCommand,readSpeechCommand} from '../shared/document-speech';
+import {isReadingCommand,readReadingCommand} from '../shared/reading-view';
 import {CodeWorkspaces} from './code-workspace';
 import {isCodeCommand,readCodeCommand,CODE_WORKSPACE_ERROR} from '../shared/code-workspace';
 import {readConversationAttemptReceipt} from '../shared/conversation-attempt';
@@ -205,6 +206,7 @@ function validate(value:unknown):Command{
   if(String(c.type).startsWith('github.'))return readPublicGithubCommand(c);
   if(String(c.type).startsWith('content-backup.'))return readContentBackupCommand(c);
   if(String(c.type).startsWith('speech.'))return readSpeechCommand(c);
+  if(String(c.type).startsWith('reading.preferences.'))return readReadingCommand(c);
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
@@ -915,6 +917,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     const saved=await publicGithub.read(c.taskId,c.operationId,c.repository,guard,(read,current)=>core.savePublicGithubSnapshot(c,read.snapshot,read.content,current));changed(c.taskId);return saved;
   }
   if(c.type.startsWith('surface.')&&c.type!=='surface.fit'||c.type==='context.start'||c.type==='context.capture'||c.type==='source.follow.enable'||c.type==='source.follow.stop'||c.type==='connection.configure'||c.type==='connection.select'||c.type==='connection.disconnect'||c.type==='tasks.delete'||c.type==='tasks.pause'||c.type==='bots.assign'||c.type==='bots.change'){publicGithub.cancel();sourceDrag?.cancel();if(c.type!=='context.capture')sourceContextEpoch++;}
+  if(isReadingCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Reading task changed.');};guard();return c.type==='reading.preferences.get'?core.getReadingPreferences(c.taskId):core.changeReadingPreferences(c,guard);}
   if(isSpeechCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Listening selection changed.');};const result=await documentSpeech.command(c,guard);if(c.type==='speech.select'||c.type==='speech.generate')changed(c.taskId);return result;}
   if(isCodeCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error(CODE_WORKSPACE_ERROR);};const result=await codeWorkspaces.command(c,guard);if(['code.file.open','code.file.reload','code.file.save'].includes(c.type))changed(c.taskId);return result;}
   switch(c.type){

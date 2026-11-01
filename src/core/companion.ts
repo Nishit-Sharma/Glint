@@ -21,6 +21,7 @@ import { projectTaskDialogue, projectConversationAttemptDialogue } from './task-
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
+import {defaultReadingPreferences,readReadingCommand,type ReadingPreferences,type ReadingCommit} from '../shared/reading-view';
 import {readProjectCommand,projectSourceMatches,projectSourceVersion,projectSourceInTask,projectSourceCopyExists,type ProjectCommand,type ProjectReply,type Project,type ProjectSource,type ProjectPins,type ProjectSidebar,type ProjectInstructions} from '../shared/projects';
 import {taskDeletionBlocker,type ProjectDeletePreview,type ProjectDeleteResult} from '../shared/project-deletion';
 import {encodeProjectDeletion,findProjectDeletion} from './project-deletion-receipt';
@@ -63,7 +64,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {speech:_speech,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -242,6 +243,16 @@ export class Companion {
   }
 
   getCliPreferences():Promise<CliPreferences>{return this.exclusive(()=>clone(this.state.cliPreferences??defaultCliPreferences()));}
+  getReadingPreferences(taskId:string):Promise<ReadingPreferences>{return this.exclusive(()=>clone(this.task(this.state,taskId).session?.readingPreferences??defaultReadingPreferences()));}
+  changeReadingPreferences(input:unknown,assertCurrent:()=>void=()=>{}):Promise<ReadingCommit>{
+    const value=readReadingCommand(input);if(value.type!=='reading.preferences.set')throw Error('Invalid reading preference change.');
+    return this.exclusive<ReadingCommit>(()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),current=task.session?.readingPreferences??defaultReadingPreferences();
+      if(value.expectedRevision!==current.revision)return {kind:'conflict',current:clone(current)};
+      if(current.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Reading preference revision limit reached. Saved work was preserved.');
+      return this.commit(state=>{assertCurrent();const owner=this.task(state,value.taskId),session=owner.session??emptyTaskSession(),next={...value.preferences,revision:current.revision+1};owner.session={...session,revision:session.revision+1,readingPreferences:next};return {kind:'saved' as const,current:next};});
+    });
+  }
   changeCliPreferences(input:unknown,assertCurrent:()=>void=()=>{}):Promise<CliPreferencesCommit>{
     const value=readCliPreferencesUpdate(input);
     return this.exclusive<CliPreferencesCommit>(()=>{
