@@ -6,7 +6,7 @@ import {createCompanion,type Companion} from '../src/core/companion';
 import {BotPreferences} from '../src/host/bot-preferences';
 import {editModule,saveModuleDocument} from '../src/core/module-state';
 import {DEFAULT_CHARACTER} from '../src/shared/character-catalog';
-import {assignedBot,pickForMe,type ReadyBots} from '../src/shared/bot-catalog';
+import {assignedBot,pickForMe,startupConversation,visibleBots,fitFloatingBounds,type ReadyBots} from '../src/shared/bot-catalog';
 const roots:string[]=[],cores:Companion[]=[];
 afterEach(async()=>{for(const core of cores.splice(0))await core.close();for(const root of roots.splice(0))await rm(root,{recursive:true,force:true});});
 async function setup(){const dir=await mkdtemp(join(tmpdir(),'bot-identity-'));roots.push(dir);const core=await createCompanion({dataDir:dir});cores.push(core);return {dir,core,bots:await BotPreferences.open(dir,core)};}
@@ -85,4 +85,34 @@ it('saves the local checklist as an editable document without inventing page obs
  await editModule(core,{taskId:task.id,artifactId:artifact.id,artifactRevision:1,moduleId:'visit-plan',action:{kind:'check',itemId:'arrival',checked:true,expectedRevision:0}});const current=await core.getTask(task.id);
  const saved=await saveModuleDocument(core,{taskId:task.id,artifactId:artifact.id,artifactRevision:1,sessionRevision:current.session?.revision??0}),document=(await core.getTask(task.id)).artifacts.find(item=>item.id===saved.artifactId)?.revisions[0];
  expect(document?.content).toContain('- [x] Arrive by 17:50');expect(document?.content).not.toContain('Observed pages');expect(document?.sourceRefs).toEqual(artifact.revisions[0].sourceRefs);expect((await core.getTask(task.id)).requests).toEqual([]);
+});
+it('duplicates identity settings without copying work, and keeps display details, hidden and pinned choices through reopen',async()=>{
+ const {dir,core,bots}=await setup();await bots.command({type:'complete',expectedRevision:0,profile:{...DEFAULT_CHARACTER,personalName:'Original',look:{...DEFAULT_CHARACTER.look,motion:false}}});let state=await ready(bots);const original=state.bots[0];
+ const task=await core.createTask({title:'Original work',assignedBotId:original.id});await core.saveComposerDraft(task.id,0,{text:'Keep only here',kind:'explain'});const before=await core.getTask(task.id);
+ await bots.command({type:'duplicate',expectedRevision:state.revision,botId:original.id});state=await ready(bots);expect(state.bots).toHaveLength(2);const copy=state.bots[1];expect(copy.id).not.toBe(original.id);expect(copy.profile).toEqual(original.profile);expect(state.defaultBotId).toBe(original.id);expect(await core.getTask(task.id)).toEqual(before);expect(await core.listTasks()).toHaveLength(1);
+ await bots.command({type:'details',expectedRevision:state.revision,botId:copy.id,title:'Study partner',tagline:'A small local companion'});state=await ready(bots);
+ await bots.command({type:'visibility',expectedRevision:state.revision,botId:copy.id,hidden:true});state=await ready(bots);
+ await bots.command({type:'pin',expectedRevision:state.revision,botId:copy.id,pinned:true});state=await ready(await BotPreferences.open(dir,core));expect(state.bots[1]).toMatchObject({id:copy.id,title:'Study partner',tagline:'A small local companion',hidden:true,pinned:true});
+ await bots.command({type:'visibility',expectedRevision:state.revision,botId:copy.id,hidden:false});expect((await ready(bots)).bots[1].hidden).toBe(false);expect(await core.getTask(task.id)).toEqual(before);
+});
+it('opens only the explicitly chosen companion-owned startup conversation and rejects foreign or archived tasks',async()=>{
+ const {dir,core,bots}=await setup();await bots.command({type:'complete',expectedRevision:0,profile:DEFAULT_CHARACTER});let state=await ready(bots);const first=state.bots[0];await bots.command({type:'duplicate',expectedRevision:state.revision,botId:first.id});state=await ready(bots);const second=state.bots[1];const own=await core.createTask({title:'Chosen conversation',assignedBotId:second.id}),foreign=await core.createTask({title:'Foreign',assignedBotId:first.id});
+ await expect(bots.command({type:'startup',expectedRevision:state.revision,selection:{botId:second.id,taskId:foreign.id}})).rejects.toThrow('existing');
+ await bots.command({type:'startup',expectedRevision:state.revision,selection:{botId:second.id,taskId:own.id}});state=await ready(await BotPreferences.open(dir,core));expect(startupConversation(state,[foreign,own])?.id).toBe(own.id);expect(startupConversation(state,[foreign])).toBeUndefined();expect(startupConversation(state,[{...own,assignedBotId:first.id}])).toBeUndefined();expect(startupConversation(state,[{...own,archive:{}}])).toBeUndefined();
+ await bots.command({type:'visibility',expectedRevision:state.revision,botId:second.id,hidden:true});state=await ready(bots);expect(state.startup).toBeNull();expect(visibleBots(state).map(bot=>bot.id)).not.toContain(second.id);expect(await core.getTask(own.id)).toEqual(own);
+});
+it('persists the actual selected floating identity and bounds, preserves other identity settings, and clamps moved displays',async()=>{
+ const {dir,core,bots}=await setup();await bots.command({type:'complete',expectedRevision:0,profile:DEFAULT_CHARACTER});let state=await ready(bots);await bots.command({type:'floating-selection',expectedRevision:state.revision,botId:state.bots[0].id});state=await ready(bots);const identities=state.bots,bounds={x:720,y:80,width:420,height:560};await bots.saveFloatingState({floatingBounds:bounds,floatingVisible:true});state=await ready(await BotPreferences.open(dir,core));expect(state).toMatchObject({floatingBotId:identities[0].id,floatingBounds:bounds,floatingVisible:true});expect(state.bots).toEqual(identities);await bots.saveFloatingState({floatingVisible:false});expect((await ready(bots)).floatingBounds).toEqual(bounds);
+ expect(fitFloatingBounds({...bounds,x:9999,y:-9999},{x:0,y:0,width:1000,height:800})).toEqual({...bounds,x:580,y:0});
+ await expect(bots.saveFloatingState({floatingBounds:{...bounds,width:12}})).rejects.toThrow();expect((await ready(bots)).floatingBounds).toEqual(bounds);
+});
+it('saves optional glasses and accessory with motion off, reopens legacy shapes, and rejects unknown cosmetic fields',async()=>{
+ const {dir,core,bots}=await setup();await bots.command({type:'complete',expectedRevision:0,profile:DEFAULT_CHARACTER});const state=await ready(bots),bot=state.bots[0],profile={...bot.profile,look:{...bot.profile.look,motion:false,glasses:'round',accessory:'scarf'}};
+ await bots.command({type:'update',expectedRevision:state.revision,botId:bot.id,profile});expect((await ready(await BotPreferences.open(dir,core))).bots[0].profile).toEqual(profile);expect(()=>bots.command({type:'update',expectedRevision:state.revision+1,botId:bot.id,profile:{...profile,look:{...profile.look,behavior:'new'}}})).toThrow();
+});
+it('keeps expanded floating placement when a collapsed anchor is reopened or returned to workspace',async()=>{
+ const {dir,core,bots}=await setup();await bots.command({type:'complete',expectedRevision:0,profile:DEFAULT_CHARACTER});const bounds={x:700,y:80,width:420,height:560};await bots.saveFloatingState({floatingBounds:bounds,floatingVisible:true});
+ // surface.expand / surface.standalone retire a floating window after collapse has made the native panel an anchor.
+ await bots.saveFloatingState({floatingBounds:{x:700,y:80,width:74,height:64},floatingVisible:false});let state=await ready(await BotPreferences.open(dir,core));expect(state.floatingBounds).toEqual(bounds);expect(state.floatingVisible).toBe(false);
+ await bots.saveFloatingState({floatingBounds:state.floatingBounds,floatingVisible:true});const resized={...bounds,width:460,height:600};await bots.saveFloatingState({floatingBounds:resized,floatingVisible:false});state=await ready(bots);expect(state.floatingBounds).toEqual(resized);
 });

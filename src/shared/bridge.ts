@@ -164,7 +164,7 @@ export type Command =
   | {type:'model.cancel';taskId:string;requestId:string}
   | {type:'connection.status'} | {type:'connection.configure'} | {type:'connection.disconnect'}
   | {type:'connection.select';provider:'meta'|'codex'}
-  | {type:'surface.collapse'} | {type:'surface.expand'} | {type:'surface.companion'} | {type:'surface.workspace'} | {type:'surface.standalone'} | {type:'surface.attach';windowId:string}
+  | {type:'surface.collapse'} | {type:'surface.expand'} | {type:'surface.companion'} | {type:'surface.floating'} | {type:'surface.hide'} | {type:'surface.workspace'} | {type:'surface.standalone'} | {type:'surface.attach';windowId:string}
   | {type:'surface.fit';fitId:string;height:number;phase:'preparing'|'running'|'settled'}
   | {type:'shortcut.set';accelerator:string}
   | {type:'presentation.finish';exitId:string}

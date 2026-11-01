@@ -1,7 +1,7 @@
 import {MemoryReceipt} from '../UserMemory';
 import type {UserMemory} from '../../../shared/user-memory';
 import {useEffect,useLayoutEffect,useRef,useState,type ReactNode} from 'react';
-import {ArrowUpRight,ChevronDown,FileText,Layers,Minus,RefreshCw,Square,AppWindow} from 'lucide-react';
+import {ArrowUpRight,ChevronDown,FileText,Layers,Minus,RefreshCw,Square,AppWindow,EyeOff} from 'lucide-react';
 import type {Artifact,Source,SourceRef,Task} from '../../../core/types';
 import type {AttachedWindow,ConnectionStatus,CompactFit,CompactFitBounds} from '../../../shared/bridge';
 import {StreamingText} from './StreamingText';
@@ -22,11 +22,11 @@ interface Props {
  running:boolean;anyRunning:boolean;requestId?:string;stream?:string;error:string;notice:string;composer:ReactNode;draftText?:string;
  onWorkspace:(page?:'work'|'sources'|'tasks'|'roster'|'settings')=>void;onReviewSource:(reference:SourceRef,isCurrent?:()=>boolean)=>void;sourceReviewCurrent?:()=>boolean;
  onArtifact:(artifact:Artifact)=>void;onRefresh:(source:Source)=>void;onCaptureAttached:()=>void;
- onCollapse:()=>void;onStop:()=>void;onDismissError:()=>void;
+ onHide?:()=>void;onCollapse:()=>void;onStop:()=>void;onDismissError:()=>void;
  contextContent?:ReactNode;renderBrief?:(artifact:Artifact)=>ReactNode;onStartContext:()=>void;
  selectedSourceIds?:string[];onSourceSelection:(id:string)=>void;
 }
-export function CompactCompanion({memory,character,active,compactFit,task,loaded,busy,attachedWindow,running,anyRunning,requestId,stream,error,notice,composer,draftText='',onWorkspace,onReviewSource,sourceReviewCurrent,onArtifact,onRefresh,onCaptureAttached,onCollapse,onStop,onDismissError,contextContent,renderBrief,onStartContext,selectedSourceIds,onSourceSelection}:Props){
+export function CompactCompanion({memory,character,active,compactFit,task,loaded,busy,attachedWindow,running,anyRunning,requestId,stream,error,notice,composer,draftText='',onWorkspace,onReviewSource,sourceReviewCurrent,onArtifact,onRefresh,onCaptureAttached,onHide,onCollapse,onStop,onDismissError,contextContent,renderBrief,onStartContext,selectedSourceIds,onSourceSelection}:Props){
  const presentation=usePresentationSession();
  const [preparedFitId,setPreparedFitId]=useState<string>(),[failedFitId,setFailedFitId]=useState<string>(),[selectedId,setSelectedId]=useState<string>(),main=useRef<HTMLElement>(null),content=useRef<HTMLDivElement>(null);
  const fitFailed=!!compactFit&&failedFitId===compactFit.id;
@@ -77,7 +77,7 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
     const parts=[...body.children].filter(node=>node!==main.current).reduce((sum,node)=>sum+(node as HTMLElement).offsetHeight,0);
     const style=getComputedStyle(main.current),padding=parseFloat(style.paddingTop)+parseFloat(style.paddingBottom);
     const natural=Math.min(100000,Math.ceil(Math.max(220,chrome+8+parts+content.current.scrollHeight+padding+2)));
-    if(!compactFit){size(Math.min(innerHeight,natural));return;}
+    if(!compactFit){size(innerHeight);return;}
     const key=state+':'+natural+':'+compactFit.maxHeight;if(key===lastSent)return;lastSent=key;const at=++request;
     if(state==='preparing')preparing=true;else reserved=false;
     try{const result=await window.companion.invoke<CompactFitBounds|null>({type:'surface.fit',fitId:compactFit.id,height:natural,phase:state});if(disposed||presentation.exiting||at!==request||phase()!==state)return;if(!result){preparing=false;fail();return;}size(result.height);}
@@ -97,7 +97,7 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
   return()=>{disposed=true;request++;cancelAnimationFrame(frame);resize.disconnect();state.disconnect();unsubscribe();window.removeEventListener('resize',fit);};
  },[active,loaded,compactFit?.id,compactFit?.maxHeight,presentation]);
  return <GeneratedSurface className="app compact-companion" active={active} ready={loaded&&(fitFailed||!compactFit||preparedFitId===compactFit.id)} skipReason={fitFailed?'native bounds could not be reserved':undefined} label="Attached companion" identity={presentationIdentity(task,attachedWindow)+':'+selected?.id+':'+loaded} live={busy||running}>
-  <header className="chrome compact-chrome" data-generation-live-region>{character}<button className="compact-task" onClick={()=>onWorkspace(task?'roster':'tasks')} aria-label={task?'Choose task: '+task.title:'Start a task'}><strong>{task?.title||'Companion'}</strong><ChevronDown size={12}/></button><div className="chrome-actions">{anyRunning&&!running&&<Button kind="icon" title="Stop current request" onClick={onStop}><Square size={13}/></Button>}<Button kind="icon" title="Open task workspace" onClick={()=>onWorkspace(task?undefined:'tasks')}><AppWindow size={15}/></Button><Button data-presentation-exit-control kind="icon" title="Collapse to edge anchor" onClick={onCollapse}><Minus size={15}/></Button></div></header>
+  <header className="chrome compact-chrome" data-generation-live-region>{character}<button className="compact-task" onClick={()=>onWorkspace(task?'roster':'tasks')} aria-label={task?'Choose task: '+task.title:'Start a task'}><strong>{task?.title||'Companion'}</strong><ChevronDown size={12}/></button><div className="chrome-actions">{anyRunning&&!running&&<Button kind="icon" title="Stop current request" onClick={onStop}><Square size={13}/></Button>}<Button kind="icon" title="Open task workspace" onClick={()=>onWorkspace(task?undefined:'tasks')}><AppWindow size={15}/></Button><Button kind="icon" title="Hide floating companion" onClick={onHide} disabled={!onHide}><EyeOff size={15}/></Button><Button data-presentation-exit-control kind="icon" title="Collapse to edge anchor" onClick={onCollapse}><Minus size={15}/></Button></div></header>
   <div className="compact-body" data-generation-live-region>
   {notice&&<p className="compact-notice" role="status">{notice}</p>}
   {!contextContent&&(uncaptured||(scopeIds.length>0&&!currentRequest&&!revision&&!currentStream&&!currentRunning))&&<div className="compact-source">

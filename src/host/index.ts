@@ -1,3 +1,4 @@
+import {fitFloatingBounds,type FloatingBounds} from '../shared/bot-catalog';
 import {PdfPageImports} from './pdf-page-import';
 import {inspectPdfRequest} from './pdf-request-inspection';
 import {isPdfPageCommand,readPdfPageCommand} from '../shared/pdf-page-import';
@@ -130,7 +131,9 @@ const contentBackupGate=new ContentBackupGate()
 let core:Companion,panel:BrowserWindow,credentialWindow:BrowserWindow|undefined,contentBackups:ContentBackups
 let shortcut='Control+Shift+Space',panelBounds:Electron.Rectangle|undefined,attachedWindowId:string|undefined,monitor:ReturnType<typeof setInterval>|undefined
 let placementMode:'attached'|'edge'|'detached'='detached'
-let viewMode:'companion'|'workspace'='workspace'
+let viewMode:'companion'|'workspace'='workspace',floatingWindow=false
+let floatingBounds:FloatingBounds|undefined
+let floatingSave:Promise<void>=Promise.resolve()
 let attachedSourceInfo:AttachedWindow|undefined
 let attachedOwnerProcessId:number|undefined
 let sourceDrag:ReturnType<typeof createNativeSourceDrag>|undefined,sourceDragPreview:ReturnType<typeof createSourceDragPreview>|undefined,sourceContextEpoch=0
@@ -222,7 +225,7 @@ function validate(value:unknown):Command{
   if(String(c.type).startsWith('code.'))return readCodeCommand(c);
   if(String(c.type).startsWith('conversation.export.'))return readConversationExportCommand(c);
   if(String(c.type).startsWith('projects.'))return readProjectCommand(c);
-  const allowed=['inference.catalog','inference.preview','inference.select','canvas.create','canvas.save','canvas.svg','task-attention.get','task-attention.change','queue.submit','queue.edit','queue.cancel','queue.hold','schedules.get','schedules.change','memory.get','memory.change','memory.preview','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
+  const allowed=['inference.catalog','inference.preview','inference.select','canvas.create','canvas.save','canvas.svg','task-attention.get','task-attention.change','queue.submit','queue.edit','queue.cancel','queue.hold','schedules.get','schedules.change','memory.get','memory.change','memory.preview','source.drag.cancel','source.choose','bots.get','bots.change','bots.assign','capture.settings.get','capture.settings.revoke','capture.settings.private','preferences.get','preferences.update','response-preferences.get','response-preferences.update','tasks.list','tasks.create','tasks.start-local','tasks.branch','tasks.update','tasks.archive','tasks.get','tasks.delete','tasks.pause','tasks.resume','tasks.checkpoint','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save','learning-drafts.recover','learning-drafts.cleanup','source.text','source.text.inspect','source.document','source.import.choose','source.import.add','source.import.cancel','source.image','source.follow.get','source.follow.enable','source.follow.stop','source.invalidate','source.preview','windows.list','windows.capture','context.start','context.pending','context.capture','context.cancel','context.view','task-view.get','task-pins.get','task-pins.set','artifact.save','artifact.handoff','module.edit','module.document','helper.document.create','helper.document.preview','helper.document.save','helper.document.inspect','helper.create','helper.recorded.inspect','helper.recorded.create','helper.source-batch.preview','helper.source-batch.save','helper.source-batch.inspect','workflow.example','workflow.prepare','truth.review','truth.inspect','packing.practice','packing.practice.inspect','experiment.target.inspect','experiment.target.inspect-original','experiment.target.submit','experiment.source.save','experiment.source.inspect','experiment.practice','experiment.practice.inspect','packing.review','packing.inspect','signal.review','signal.inspect','signal.practice','signal.practice.inspect','signal.overwrite','signal.overwrite.inspect','workflow.review','workflow.contextual.review','workflow.window.review','browser.workflow.save','browser.workflow.run','browser.run','browser.control.status','browser.control','browser.continue','browser.continue.prepare','browser.continue.release','browser.inspect','browser.inspect.cancel','browser.review.notes','browser.detach','procedure.save','procedure.check','experiment.evaluate','export.propose','export.approve','export.inspect','model.run','model.cancel','connection.status','connection.configure','connection.disconnect','connection.select','surface.collapse','surface.expand','surface.companion','surface.floating','surface.hide','surface.workspace','surface.standalone','surface.attach','surface.fit','shortcut.set','presentation.capture','presentation.finish','presentation.reveal','presentation.show']
   if(c.type==='browser.workflow.save'){const {type,...input}=c;return {type,...readBrowserWorkflowSave(input)};}
   if(c.type==='browser.workflow.run'){const {type,...input}=c;return {type,...readBrowserWorkflowRun(input)};}
   if(c.type==='browser.continue'||c.type==='browser.continue.prepare'||c.type==='browser.continue.release'){const {type,...input}=c;return {type:c.type,...readBrowserContinuationInput(input)};}
@@ -361,7 +364,7 @@ function surfacePlacement(mode:typeof viewMode,source:Electron.Rectangle,work:El
 function showSurface(mode:typeof viewMode,bounds:Electron.Rectangle,placement?:string,activate=true,entrance?:Electron.Rectangle,maxHeight=screen.getDisplayMatching(bounds).workArea.height){
   if(entrance)panel.hide()
   panel.setMinimumSize(mode==='companion'?320:360,mode==='companion'?compactMinimumHeight:500);panel.setBounds(bounds);viewMode=mode
-  if(mode==='companion'){
+  if(mode==='companion'&&!floatingWindow){
     if(!compactFit||compactFit.epoch!==surfaceEpoch)compactFit={id:randomUUID(),epoch:surfaceEpoch,maxHeight,phase:'preparing',request:0}
     compactFit.maxHeight=maxHeight
   }
@@ -413,6 +416,7 @@ async function fitCompact(c:Extract<Command,{type:'surface.fit'}>):Promise<Compa
   return {height:bounds.height,maxHeight}
 }
 async function expand(mode:typeof viewMode=viewMode){
+  await floatingSave;if(floatingWindow&&viewMode==='companion')await botPreferences.saveFloatingState({floatingBounds:panel.getBounds(),floatingVisible:false});floatingWindow=false
   sourceDrag?.cancel()
   if(entrancePresentation&&viewMode===mode)return
   const entrance=entrancePresentation?.anchor??(panel.getSize()[0]<=100?panel.getBounds():undefined);cancelEntrancePresentation(false)
@@ -440,6 +444,22 @@ async function expand(mode:typeof viewMode=viewMode){
   const work=screen.getDisplayMatching(panel.getBounds()).workArea
   const maxHeight=work.height,bounds=mode==='workspace'&&panelBounds?panelBounds:{x:work.x+work.width-preferred.width-20,y:work.y+20,...preferred,height:Math.min(preferred.height,maxHeight)}
   showSurface(mode,bounds,undefined,true,entrance,maxHeight)
+}
+async function openFloatingCompanion(){
+ await floatingSave;const state=await botPreferences.read();if(state.kind!=='available'||state.current.kind!=='ready')throw Error('Open your saved companions before showing the floating window.');
+ const catalog=state.current;if(!catalog.bots.some(bot=>bot.id===(catalog.floatingBotId??catalog.defaultBotId)&&!bot.hidden))throw Error('Restore or choose a visible companion before showing the floating window.');
+ const saved=catalog.floatingBounds??floatingBounds,work=screen.getDisplayMatching(saved??panel.getBounds()).workArea;
+ if(work.width<320||work.height<220)throw Error('This display has no room for a readable floating companion.');
+ const bounds=fitFloatingBounds(saved,work);await botPreferences.saveFloatingState({floatingBounds:bounds,floatingVisible:true});
+ sourceDrag?.cancel();cancelEntrancePresentation(false);cancelCollapsePresentation();surfaceEpoch++;
+ retireDocumentFollow('Floating companion opened. Choose a window explicitly to follow it again.');
+ if(viewMode==='workspace'&&panel.getSize()[0]>100)panelBounds=panel.getBounds();
+ attachedWindowId=undefined;attachedSourceInfo=undefined;attachedOwnerProcessId=undefined;placementMode='detached';floatingWindow=true;compactFit=undefined;floatingBounds=bounds;
+ panel.setAlwaysOnTop(true);showSurface('companion',bounds);
+}
+async function hideFloatingCompanion(){
+ if(!floatingWindow||viewMode!=='companion')throw Error('Open the floating companion before hiding it.');
+ floatingBounds=panel.getBounds();await botPreferences.saveFloatingState({floatingBounds,floatingVisible:false});panel.hide();
 }
 function collapse(bounds?:Electron.Rectangle,expectedEpoch?:number,show=true){if(expectedEpoch!==undefined){if(expectedEpoch!==surfaceEpoch)return}else surfaceEpoch++;if(panel.getSize()[0]>100&&viewMode==='workspace')panelBounds=panel.getBounds();panel.setMinimumSize(28,36);panel.setBounds(bounds||{x:panel.getBounds().x,y:panel.getBounds().y,width:74,height:64});emit({type:'surface',mode:'anchor',attachedWindow:attachedSourceInfo});if(show)panel.showInactive()}
 function cancelCollapsePresentation(restore=true){
@@ -629,13 +649,16 @@ async function activateSourcePicker(){
  }catch(error){if(contextIntake===intake)contextIntake=undefined;throw error;}
 }
 function installNativeWindowMove(){
+ const saveFloating=(bounds:Electron.Rectangle)=>{if(!floatingWindow||viewMode!=='companion'||quitting||panel.getSize()[0]<=100)return;if(bounds.width<320||bounds.height<220||bounds.width>16000||bounds.height>16000)return;floatingBounds=bounds;floatingSave=floatingSave.then(()=>botPreferences.saveFloatingState({floatingBounds:bounds})).catch(error=>{console.error('Floating placement could not be saved:',publicErrorMessage(error));});};
+ panel.on('will-resize',(_event,bounds)=>saveFloating(bounds));
+
  // Electron emits will-move only for manual native moves, not setBounds or
  // setPosition. The anchor retains its separate character-to-source gesture.
  panel.on('will-move',(_event,bounds)=>{
   if(quitting||panel.getSize()[0]<=100||collapsePresentation||entrancePresentation)return
   // Free placement applies to this open panel only. Keep the selected source,
   // document-follow authority and polling; an explicit reopen repositions it.
-  placementMode='detached'
+  placementMode='detached';saveFloating(bounds)
   if(viewMode==='workspace')panelBounds={...bounds}
  })
 }
@@ -1365,8 +1388,10 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     case 'surface.collapse':return requestCollapse()
     case 'surface.fit':return fitCompact(c)
     case 'surface.expand':await expand(attachedWindowId?'companion':viewMode);return null
+    case 'surface.floating':await openFloatingCompanion();return null
+    case 'surface.hide':await hideFloatingCompanion();return null
     case 'surface.companion':panel.setAlwaysOnTop(true);await expand('companion');return null
-    case 'surface.standalone':{retireDocumentFollow('The task was detached from its window.');if(contextIntake?.selectedWindowId)contextIntake.detachedFor=contextIntake.selectedWindowId;const entrance=entrancePresentation?.anchor??(panel.getSize()[0]<=100?panel.getBounds():undefined);cancelEntrancePresentation(false);cancelCollapsePresentation();surfaceEpoch++;const work=screen.getDisplayMatching(panel.getBounds()).workArea,width=Math.min(1080,work.width-32),height=Math.min(720,work.height-32);placementMode='detached';panel.setAlwaysOnTop(false);panelBounds={x:work.x+Math.round((work.width-width)/2),y:work.y+Math.round((work.height-height)/2),width,height};showSurface('workspace',panelBounds,'standalone',true,entrance);return null;}
+    case 'surface.standalone':{await floatingSave;if(floatingWindow&&viewMode==='companion')await botPreferences.saveFloatingState({floatingBounds:panel.getBounds(),floatingVisible:false});floatingWindow=false;retireDocumentFollow('The task was detached from its window.');if(contextIntake?.selectedWindowId)contextIntake.detachedFor=contextIntake.selectedWindowId;const entrance=entrancePresentation?.anchor??(panel.getSize()[0]<=100?panel.getBounds():undefined);cancelEntrancePresentation(false);cancelCollapsePresentation();surfaceEpoch++;const work=screen.getDisplayMatching(panel.getBounds()).workArea,width=Math.min(1080,work.width-32),height=Math.min(720,work.height-32);placementMode='detached';panel.setAlwaysOnTop(false);panelBounds={x:work.x+Math.round((work.width-width)/2),y:work.y+Math.round((work.height-height)/2),width,height};showSurface('workspace',panelBounds,'standalone',true,entrance);return null;}
     case 'surface.workspace':await expand('workspace');return null
     case 'surface.attach':return attach(str(c.windowId,'window ID',100))
     case 'shortcut.set':{
@@ -1426,11 +1451,11 @@ app.whenReady().then(async()=>{
   })
   if(process.env.ELECTRON_RENDERER_URL)await panel.loadURL(process.env.ELECTRON_RENDERER_URL);else await panel.loadFile(join(here,'../renderer/index.html'))
   if(quitting||quitApproved)return
-  panel.show();if(!testNoGlobalInput)shortcutRegistered=globalShortcut.register(shortcut,()=>void activateShortcut())
+  const floatingState=await botPreferences.read();if(floatingState.kind==='available'&&floatingState.current.kind==='ready'&&floatingState.current.floatingVisible)await openFloatingCompanion();else panel.show();if(!testNoGlobalInput)shortcutRegistered=globalShortcut.register(shortcut,()=>void activateShortcut())
   if(!testNoGlobalInput)await modifierShortcut.start()
   if(quitting||quitApproved)return
   const trayImage=nativeImage.createFromDataURL(trayImageDataUrl).resize({width:18,height:18});if(process.platform==='darwin')trayImage.setTemplateImage(true)
-  if(!testNoGlobalInput){tray=new Tray(trayImage);tray.setToolTip('Glint');tray.setContextMenu(Menu.buildFromTemplate([{label:'Use screen context',click:()=>void activateContext()},{label:'Open Glint',click:()=>void expand()},{type:'separator'},{label:'Follow selected window this session…',click:()=>void command({type:'source.follow.enable'}).catch(error=>dialog.showMessageBox(panel,{type:'info',message:'Document following is paused',detail:publicErrorMessage(error)}))},{label:'Stop document following',click:()=>{retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');}},{label:'Document follow status…',click:()=>{const state=documentFollow.read();void dialog.showMessageBox(panel,{type:'info',message:state.kind==='off'?'Document following is off':state.automaticSnapshots==='on'?'Selected-window snapshots are on':state.automaticSnapshots==='paused'?'Selected-window snapshots are paused':'Document metadata only',detail:state.reason});}},{type:'separator'},{label:'Quit Glint',click:()=>app.quit()}]));tray.on('click',()=>void expand())}
+  if(!testNoGlobalInput){tray=new Tray(trayImage);tray.setToolTip('Glint');tray.setContextMenu(Menu.buildFromTemplate([{label:'Use screen context',click:()=>void activateContext()},{label:'Open Glint',click:()=>void expand('workspace')},{label:'Show floating companion',click:()=>void openFloatingCompanion().catch(error=>dialog.showMessageBox(panel,{type:'info',message:publicErrorMessage(error)}))},{label:'Hide floating companion',click:()=>void hideFloatingCompanion().catch(()=>{})},{type:'separator'},{label:'Follow selected window this session…',click:()=>void command({type:'source.follow.enable'}).catch(error=>dialog.showMessageBox(panel,{type:'info',message:'Document following is paused',detail:publicErrorMessage(error)}))},{label:'Stop document following',click:()=>{retireDocumentFollow('Stopped by you. Use a new gesture to choose a window.');}},{label:'Document follow status…',click:()=>{const state=documentFollow.read();void dialog.showMessageBox(panel,{type:'info',message:state.kind==='off'?'Document following is off':state.automaticSnapshots==='on'?'Selected-window snapshots are on':state.automaticSnapshots==='paused'?'Selected-window snapshots are paused':'Document metadata only',detail:state.reason});}},{type:'separator'},{label:'Quit Glint',click:()=>app.quit()}]));tray.on('click',()=>void expand())}
   monitor=setInterval(()=>{void monitorAttached().catch(()=>{})},2000)
   recurringWorkRunner.start()
 }).catch(error=>{if(quitting||quitApproved)return;console.error('Companion startup failed:',error.message);dialog.showErrorBox('Glint could not open',publicErrorMessage(error));app.quit()})
@@ -1440,6 +1465,7 @@ const quitDrafts=createQuitDraftBarrier({
  confirmDiscard:async reason=>{const options={type:'warning',message:'Quit without saving unfinished work?',detail:reason+'\n\nKeep the app open to retain your unsent messages and practice edits, or quit without saving the unconfirmed edits.',buttons:['Keep app open','Quit without saving'],defaultId:0,cancelId:0} as const;const result=await (panel&&!panel.isDestroyed()?dialog.showMessageBox(panel,{...options,buttons:[...options.buttons]}):dialog.showMessageBox({...options,buttons:[...options.buttons]}));return result.response===1;},
 })
 async function stopForQuit(){
+ await floatingSave;
  await pdfPageImports.close();
  publicGithub.cancel();
  await documentSpeech.close();

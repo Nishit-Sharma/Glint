@@ -15,8 +15,7 @@ export function BotImage({profile,className='',label='',animate=true}:{profile:C
  const ref=useRef<HTMLImageElement>(null),id=useId(),seed=phaseSeed(id+profile.look.shape),moving=animate&&profile.look.motion;
  useLayoutEffect(()=>{if(moving&&ref.current)return observeThumbnail(ref.current);},[moving]);
  const timing={'--companion-duration':`${6800+seed%4300}ms`,'--companion-delay':`${-(seed%11000)}ms`} as CSSProperties;
- if(!animate)return <img className={className+' character-slot'} data-character-render="static" data-t-generate-skip data-bot-look={appearanceKey(profile.look)} src={characterStill(profile.look)} alt={label} draggable={false}/>;
- return <span className={className+' bot-image character-slot'} data-character-render="static" data-t-generate-skip data-bot-look={appearanceKey(profile.look)}><img ref={ref} data-companion-motion={moving?'quiet':'off'} style={timing} src={characterStill(profile.look)} alt={label} draggable={false}/></span>;
+ return <span className={className+' bot-image character-slot'} data-character-render="static" data-t-generate-skip data-bot-look={appearanceKey(profile.look)}><img ref={ref} data-companion-motion={moving?'quiet':'off'} style={timing} src={characterStill(profile.look)} alt={label} draggable={false}/><CharacterAdornment look={profile.look}/></span>;
 }
 export function BotActor({profile,selected=false,seed=0}:{profile:CharacterProfile;selected?:boolean;seed?:number}){
  const frameRef=useRef<HTMLSpanElement>(null),ref=useRef<HTMLSpanElement>(null),actor=useRef<ReturnType<typeof mountOriginal>|undefined>(undefined),latest=useRef(profile.look),wasSelected=useRef(selected),[status,setStatus]=useState<'loading'|'live'|'fallback'>('loading');latest.current=profile.look;
@@ -42,5 +41,10 @@ export function BotActor({profile,selected=false,seed=0}:{profile:CharacterProfi
  useLayoutEffect(()=>{actor.current?.setColor(profile.look.color);},[profile.look.shape,profile.look.face,profile.look.color,seed]);
  useLayoutEffect(()=>{if(profile.look.motion)actor.current?.resume();else actor.current?.pause();},[profile.look.shape,profile.look.face,profile.look.motion,seed]);
  useLayoutEffect(()=>{if(selected&&!wasSelected.current)actor.current?.acknowledge();wasSelected.current=selected;},[selected]);
- return <span ref={frameRef} className="bot-art character-slot" data-character-render={status==='live'?'live':'static'} data-character-state={status} data-t-generate-skip aria-hidden="true"><BotImage profile={profile} animate={status!=='live'}/><span ref={ref} className="bot-live" hidden={status==='fallback'}/></span>;
+ return <span ref={frameRef} className="bot-art character-slot" data-character-render={status==='live'?'live':'static'} data-character-state={status} data-t-generate-skip aria-hidden="true"><BotImage profile={profile} animate={status!=='live'}/><span ref={ref} className="bot-live" hidden={status==='fallback'}/><CharacterAdornment look={profile.look}/></span>;
+}
+
+export function CharacterAdornment({look}:{look:CharacterProfile['look']}){
+ if((look.glasses??'none')==='none'&&(look.accessory??'none')==='none')return null;
+ return <svg className="character-adornment" viewBox="0 0 100 100" aria-hidden="true" data-glasses={look.glasses??'none'} data-accessory={look.accessory??'none'}>{look.glasses==='round'&&<g fill="none" stroke="#302d29" strokeWidth="2.2"><circle cx="40" cy="46" r="8"/><circle cx="61" cy="46" r="8"/><path d="M48 45Q50.5 42 53 45M32 44L27 42M69 44L74 42"/></g>}{look.accessory==='scarf'&&<g fill="#96536a" stroke="#673749" strokeWidth="1"><path d="M29 67Q50 76 72 67L69 74Q50 82 32 74Z"/><path d="M57 75L68 77L65 92L56 87Z"/></g>}</svg>;
 }

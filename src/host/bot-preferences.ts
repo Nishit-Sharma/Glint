@@ -5,17 +5,17 @@ import {Schema} from 'effect';
 import {CharacterPreferences} from './character-preferences';
 import {isCode} from '../core/store';
 import type {Companion} from '../core/companion';
-import {BotSnapshotSchema,botNameOptions,freshBotChoice,newCharacterProfile,readBotCommand,readBotSnapshot,type BotState,type BotSnapshot,type BotCommit} from '../shared/bot-catalog';
+import {BotSnapshotSchema,botNameOptions,freshBotChoice,newCharacterProfile,readBotCommand,readBotSnapshot,type BotState,type BotSnapshot,type BotCommit,type FloatingBounds} from '../shared/bot-catalog';
 
 const FileSchema=Schema.Struct({schemaVersion:Schema.Literal(2),current:BotSnapshotSchema});
 const unavailable:Extract<BotState,{kind:'unavailable'}>={kind:'unavailable',message:'Your companions could not be opened. Saved appearances and tasks have not been replaced.'};
 function creationProfile(input:Parameters<typeof newCharacterProfile>[0]){const profile=newCharacterProfile(input),names=botNameOptions(profile.look.shape);return {...profile,personalName:profile.personalName??names[randomInt(names.length)]};}
 export class BotPreferences{
  private queue:Promise<unknown>=Promise.resolve();
- private constructor(private readonly directory:string){}
+ private constructor(private readonly directory:string,private readonly core:Companion){}
  private serialize<T>(operation:()=>Promise<T>):Promise<T>{const result=this.queue.then(operation);this.queue=result.catch(()=>{});return result;}
  static async open(directory:string,core:Companion){
-  const store=new BotPreferences(directory);
+  const store=new BotPreferences(directory,core);
   await store.serialize(async()=>{
    let current:BotSnapshot;
    try{current=await store.load();}catch(error){if(!isCode(error,'ENOENT'))return store;const tasks=await core.listTasks();let hasLegacy=true;try{await readFile(join(directory,'character-preferences.json'));}catch(error){if(isCode(error,'ENOENT'))hasLegacy=false;else return store;}
@@ -34,6 +34,13 @@ export class BotPreferences{
   try{const file=await open(temporary,'wx',0o600);try{await file.writeFile(JSON.stringify({schemaVersion:2,current}));await file.sync();}finally{await file.close();}await rename(temporary,join(this.directory,'bot-catalog.json'));const directory=await open(this.directory,'r');try{await directory.sync();}finally{await directory.close();}}
   finally{await rm(temporary,{force:true});}
  }
+ saveFloatingState(change:{floatingBounds?:FloatingBounds;floatingVisible?:boolean}){return this.serialize(async()=>{const current=await this.load();if(current.kind!=='ready')return;
+  // Collapse has already reduced the same native panel to an anchor. Retiring
+  // floating visibility must keep the last expanded placement, never save it as a tiny window.
+  const anchor=change.floatingVisible===false&&change.floatingBounds&&change.floatingBounds.width<=100&&change.floatingBounds.height<=100;
+  const saved=anchor?{floatingVisible:false}:change;
+  await this.save({...current,revision:current.revision+1,...saved});
+ });}
  finishExample(core:Companion){return this.serialize(async()=>{let current:BotSnapshot;try{current=await this.load();}catch{return;}if(current.kind!=='ready'||!current.examplePending)return;await core.ensureLocalExample(current.defaultBotId);await this.save({...current,revision:current.revision+1,examplePending:false});});}
  read():Promise<BotState>{return this.serialize(async()=>{try{return {kind:'available',current:await this.load()};}catch{return unavailable;}});}
  command(input:unknown):Promise<BotCommit>{
@@ -50,9 +57,19 @@ export class BotPreferences{
     else{const botId=randomUUID();next={kind:'ready',revision:current.revision+1,defaultBotId:botId,legacyBotId:botId,examplePending:true,bots:[{id:botId,revision:0,profile}]};}
    }else{
     if(command.type==='draft'||command.type==='complete')return {kind:'conflict',current};
-    if(command.type==='add'){if(current.bots.length>=40)throw Error('Keep up to 40 companions.');next={...current,revision:current.revision+1,bots:[...current.bots,{id:randomUUID(),revision:0,profile:creationProfile(command.profile)}]};}
+    if(command.type==='startup'){
+     if(command.selection){const bot=current.bots.find(bot=>bot.id===command.selection!.botId&&!bot.hidden);const task=await this.core.getTask(command.selection.taskId);if(!bot||task.assignedBotId!==bot.id||task.archive)throw Error('Choose a visible companion and one of its existing, unarchived tasks.');}
+     next={...current,revision:current.revision+1,startup:command.selection};
+    }else if(command.type==='add'){if(current.bots.length>=40)throw Error('Keep up to 40 companions.');next={...current,revision:current.revision+1,bots:[...current.bots,{id:randomUUID(),revision:0,profile:creationProfile(command.profile)}]};}
     else{const bot=current.bots.find(bot=>bot.id===command.botId);if(!bot)throw Error('This companion is unavailable. Its tasks are kept.');
-     next=command.type==='default'?{...current,revision:current.revision+1,defaultBotId:bot.id}:{...current,revision:current.revision+1,bots:current.bots.map(item=>item.id===bot.id?{...bot,revision:bot.revision+1,profile:newCharacterProfile(command.profile,bot.profile)}:item)};
+     if(command.type==='duplicate'){
+      if(current.bots.length>=40)throw Error('Keep up to 40 companions.');
+      next={...current,revision:current.revision+1,bots:[...current.bots,{...bot,id:randomUUID(),revision:0,hidden:false,pinned:false}]};
+     }else if(command.type==='floating-selection'){if(bot.hidden)throw Error('Restore this companion before showing it.');next={...current,revision:current.revision+1,floatingBotId:bot.id};}else if(command.type==='default'){if(bot.hidden)throw Error('Restore this companion before making it the default.');next={...current,revision:current.revision+1,defaultBotId:bot.id};}
+     else{
+      const changed=command.type==='update'?{profile:newCharacterProfile(command.profile,bot.profile)}:command.type==='details'?{title:command.title.normalize('NFC').trim(),tagline:command.tagline.normalize('NFC').trim()}:command.type==='visibility'?{hidden:command.hidden}:{pinned:command.pinned};
+      next={...current,revision:current.revision+1,...((command.type==='visibility'&&command.hidden)&&current.startup?.botId===bot.id?{startup:null}:{}),...(command.type==='visibility'&&command.hidden&&(current.floatingBotId??current.defaultBotId)===bot.id?{floatingVisible:false}:{}),bots:current.bots.map(item=>item.id===bot.id?{...bot,...changed,revision:bot.revision+1}:item)};
+     }
     }
    }
    await this.save(next);return {kind:'saved',current:next};

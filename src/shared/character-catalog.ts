@@ -16,7 +16,7 @@ const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_
 const personalName=Schema.NullOr(Schema.String.pipe(Schema.filter(value=>[...value].length<=40&&!/[\p{Cc}\p{Cf}]/u.test(value))));
 export const CharacterProfileSchema=Schema.Struct({
  personalName,
- look:Schema.Struct({shape:Schema.Literal(...CHARACTER_SHAPES.map(value=>value.id)),color:Schema.Literal(...CHARACTER_COLORS.map(value=>value.id)),face:Schema.Literal(...CHARACTER_FACES.map(value=>value.id)),motion:Schema.Boolean}),
+ look:Schema.Struct({shape:Schema.Literal(...CHARACTER_SHAPES.map(value=>value.id)),color:Schema.Literal(...CHARACTER_COLORS.map(value=>value.id)),face:Schema.Literal(...CHARACTER_FACES.map(value=>value.id)),motion:Schema.Boolean,glasses:Schema.optional(Schema.Literal('none','round')),accessory:Schema.optional(Schema.Literal('none','scarf'))}),
 });
 export const CharacterSnapshotSchema=Schema.Struct({revision,profile:CharacterProfileSchema});
 export const CharacterUpdateSchema=Schema.Struct({expectedRevision:revision,profile:CharacterProfileSchema});
@@ -31,7 +31,7 @@ export function readCharacterUpdate(input:unknown):CharacterUpdate {
  return {...value,profile:{...value.profile,personalName:value.profile.personalName?.normalize('NFC').trim()||null}};
 }
 export const characterLabel=(profile:CharacterProfile)=>profile.personalName??'Companion';
-export const sameCharacter=(left:CharacterProfile,right:CharacterProfile)=>left.personalName===right.personalName&&left.look.shape===right.look.shape&&left.look.color===right.look.color&&left.look.face===right.look.face&&left.look.motion===right.look.motion;
+export const sameCharacter=(left:CharacterProfile,right:CharacterProfile)=>left.personalName===right.personalName&&left.look.shape===right.look.shape&&left.look.color===right.look.color&&left.look.face===right.look.face&&left.look.motion===right.look.motion&&(left.look.glasses??'none')===(right.look.glasses??'none')&&(left.look.accessory??'none')===(right.look.accessory??'none');
 const UnavailableSchema=Schema.Struct({kind:Schema.Literal('unavailable'),message:Schema.String});
 export const readCharacterState=Schema.decodeUnknownSync(Schema.Union(Schema.Struct({kind:Schema.Literal('available'),current:CharacterSnapshotSchema}),UnavailableSchema),{onExcessProperty:'error'});
 export const readCharacterCommit=Schema.decodeUnknownSync(Schema.Union(Schema.Struct({kind:Schema.Literal('saved','conflict'),current:CharacterSnapshotSchema}),UnavailableSchema),{onExcessProperty:'error'});
