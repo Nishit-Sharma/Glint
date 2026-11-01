@@ -5,11 +5,12 @@ import './document-import.css';
 import {Button,Field,type Run} from '../ui';
 import {useGuardedAction,useNavigationDraft} from '../draft-navigation';
 import {MarkdownFileReview} from './MarkdownFileReview';
+import {CsvCellGrid} from './CsvCellGrid';
 
-export function CsvImportPreview({content}:{content:string}){
+export function CsvImportPreview({content,disabled=false}:{content:string;disabled?:boolean}){
  let rows:string[][];try{rows=readDocumentCsv(content);}catch{return <p role="alert">This CSV cannot be added. Check its quotes or the displayed import limits. The complete text is kept below for correction.</p>;}
- const headers=rows[0],records=rows.slice(1),maximum=rows.reduce((width,row)=>Math.max(width,row.length),0),minimum=rows.reduce((width,row)=>Math.min(width,row.length),maximum),columns=Array.from({length:Math.min(maximum,12)},(_,index)=>index),short=(value:string)=>value.length>200?value.slice(0,200)+'…':value;
- return <section aria-label="CSV table preview"><p className="tiny">{records.length.toLocaleString()} data {records.length===1?'row':'rows'} · {maximum} {maximum===1?'column':'columns'}{minimum!==maximum?' maximum':''}. Preview shows the first 20 data rows and 12 columns, up to 200 characters per cell. All CSV text is retained.</p>{minimum!==maximum&&<p className="tiny">Record widths vary from {minimum} to {maximum} cells. Missing cells are marked in this preview; retained CSV is unchanged.</p>}<div className="csv-import-scroll" tabIndex={0} role="region" aria-label="CSV rows"><table><caption>First CSV row shown as column headings</caption><thead><tr>{columns.map(index=><th scope="col" key={index}>{headers[index]===undefined?<span className="muted">Column {index+1} (no heading)</span>:short(headers[index])||<span className="muted">Empty heading</span>}</th>)}</tr></thead><tbody>{records.slice(0,20).map((row,index)=><tr key={index}>{columns.map(column=><td key={column}>{row[column]===undefined?<span className="muted">Missing cell</span>:short(row[column])}</td>)}</tr>)}</tbody></table></div></section>;
+ const records=rows.slice(1),maximum=rows.reduce((width,row)=>Math.max(width,row.length),0),minimum=rows.reduce((width,row)=>Math.min(width,row.length),maximum);
+ return <section aria-label="CSV table preview"><p className="tiny">{records.length.toLocaleString()} data {records.length===1?'row':'rows'} · {maximum} {maximum===1?'column':'columns'}{minimum!==maximum?' maximum':''}. All CSV text and full cell values are retained.</p>{minimum!==maximum&&<p className="tiny">Record widths vary from {minimum} to {maximum} cells. Missing cells are marked in this preview; retained CSV is unchanged.</p>}<CsvCellGrid key={content} rows={rows} disabled={disabled}/></section>;
 }
 
 export function DocumentImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void;onAdded:(reference:SourceRef)=>void;onCancel:()=>void}){
@@ -39,7 +40,7 @@ export function DocumentImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCanc
    <p className="muted">{preview.fileName} · {preview.format.toUpperCase()}{preview.pageCount===undefined?'':` · ${preview.pageCount} pages`}</p>
    <div role="note">{preview.warnings.map(warning=><p className="tiny" key={warning}>{warning}</p>)}</div>
    <form onSubmit={event=>{event.preventDefault();void add();}}>
-    {preview.format==='csv'&&<CsvImportPreview content={content}/>}
+    {preview.format==='csv'&&<CsvImportPreview content={content} disabled={disabled}/>}
     {preview.format==='md'?<MarkdownFileReview key={preview.attemptId} content={content} disabled={disabled} onChange={setContent}/>:<Field label={preview.format==='csv'?'Review and correct CSV text':'Review and correct extracted text'}><textarea autoFocus required rows={12} maxLength={DOCUMENT_IMPORT_TEXT_LIMIT} disabled={disabled} value={content} onChange={event=>setContent(event.target.value)}/></Field>}
     <p className="tiny">{content.length.toLocaleString()} / 100,000 characters</p>
     <Field label="Source name"><input required maxLength={200} disabled={disabled} value={label} onChange={event=>setLabel(event.target.value)}/></Field>

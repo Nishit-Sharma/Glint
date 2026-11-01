@@ -48,7 +48,7 @@ it('adds only reviewed CSV to its original task, persists exact provenance, retr
 it('accepts ordinary CSV independently of teaching-helper header and tiny-table policies without dropping retained data',async()=>withFile(async file=>{
  const headings=['',' Duplicate ',' Duplicate ','Long heading '+ 'x'.repeat(200),...Array.from({length:96},(_,i)=>'Column '+i)],row=headings.map((_,i)=>i===3?'x'.repeat(600):'value'),wide=[headings,row].map(cells=>cells.join(',')).join('\n');await writeFile(file,wide);expect((await extractDocument(file,new AbortController().signal)).text).toBe(wide);expect(readDocumentCsv(wide)[0]).toEqual(headings);
  const many='Name\n'+Array.from({length:10_000},(_,i)=>'R'+i).join('\n');await writeFile(file,many);expect((await extractDocument(file,new AbortController().signal)).text).toBe(many);expect(readDocumentCsv(many)).toHaveLength(10_001);
- const html=renderToStaticMarkup(createElement(CsvImportPreview,{content:many}));expect(html).toContain('10,000');expect(html).toContain('first 20');expect(html).toContain('R19');expect(html).not.toContain('R9999');expect(readDocumentCsv('Header only\n')).toEqual([['Header only']]);
+ const html=renderToStaticMarkup(createElement(CsvImportPreview,{content:many}));expect(html).toContain('10,000');expect(html).toContain('pages of 20');expect(html).toContain('R19');expect(html).not.toContain('R9999');expect(html).toContain('Go to CSV record');expect(readDocumentCsv('Header only\n')).toEqual([['Header only']]);
 }));
 
 it('keeps syntactically valid ragged records exact and marks missing preview cells without padding retained text',async()=>withFile(async file=>{
