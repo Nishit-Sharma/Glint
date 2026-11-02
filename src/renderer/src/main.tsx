@@ -8,5 +8,6 @@ import './vendor/transitions/text-image-generation.css';
 import './style.css';
 import './app-surface.css';
 import './window-drag.css';
+import './minimized-anchor.css';
 import {WindowDragGrip} from './components/WindowDragGrip';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><WindowDragGrip/><App/></React.StrictMode>);

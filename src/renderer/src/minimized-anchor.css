@@ -1,0 +1,13 @@
+/* Both native anchor footprints need room around the same centered shell. */
+.anchor-wrap .anchor{
+ --anchor-size:clamp(24px,min(calc(100vw - 8px),calc(100dvh - 8px)),64px);
+ width:var(--anchor-size);
+ height:var(--anchor-size);
+ min-width:0;
+ min-height:0;
+ padding:3px;
+ border-radius:35%;
+ box-shadow:none;
+}
+.anchor-wrap .anchor .character-portrait,.anchor-wrap .anchor .character-slot{width:100%;height:100%}
+.anchor-wrap .anchor:focus-visible{outline-offset:-3px}
