@@ -2,6 +2,7 @@ import {readTaskResponseModeCommand,taskResponseMode,PLAN_RESPONSE_GUIDANCE,type
 import {readAiAttributionInput} from '../shared/ai-attribution';
 import {createConversationMentionValidation} from './conversation-mention-validation';
 import {readSavedWorkLibraryCommand} from '../shared/saved-work-library';
+import {installSpellingMenu} from './spelling-menu';
 import {readTaskSectionsCommand} from '../shared/task-sections';
 import {readOutputArchiveCommand} from '../shared/task-output-archive';
 import {TaskOutputArchives} from './task-output-archive';
@@ -171,6 +172,7 @@ let attachedSourceInfo:AttachedWindow|undefined
 let attachedOwnerProcessId:number|undefined
 let sourceDrag:ReturnType<typeof createNativeSourceDrag>|undefined,sourceDragPreview:ReturnType<typeof createSourceDragPreview>|undefined,sourceContextEpoch=0
 let surfaceEpoch=0
+let nativeSpellingMenu:ReturnType<typeof installSpellingMenu>|undefined
 const compactMinimumHeight=220
 let compactHeight=440
 type CompactFitState={id:string;epoch:number;maxHeight:number;phase:'preparing'|'running'|'settled';request:number}
@@ -1013,6 +1015,7 @@ function drainQueuedFollowups(){
  }})().catch(()=>{}).finally(()=>{queueDrain=undefined;});
 }
 async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFollowup,mentionsReviewed=false):Promise<unknown>{
+  if(c.type==='context.view'||c.type.startsWith('surface.'))nativeSpellingMenu?.retire()
   if(contentBackupGate.busy&&!['draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('Content backup: Content is frozen. Finish the backup or restart Glint after restore.')
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
@@ -1562,6 +1565,7 @@ app.whenReady().then(async()=>{
   panel=new BrowserWindow({width:430,height:760,x:screen.getPrimaryDisplay().workArea.x+screen.getPrimaryDisplay().workArea.width-450,y:screen.getPrimaryDisplay().workArea.y+20,frame:false,show:false,alwaysOnTop:true,title:'Glint',backgroundColor:process.platform==='darwin'?'#00000000':'#f6f7f9',...(process.platform==='darwin'?{transparent:true,hasShadow:false}:{}),webPreferences:{preload:join(here,'../preload/index.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}})
   if(process.platform==='darwin'||process.platform==='win32')panel.setContentProtection(true)
   panel.webContents.setWindowOpenHandler(()=>({action:'deny'}));panel.webContents.on('will-navigate',e=>e.preventDefault());panel.on('close',e=>{if(!quitApproved){e.preventDefault();if(!quitting)void requestCollapse()}})
+  nativeSpellingMenu=installSpellingMenu(panel,Menu,()=>quitting||quitApproved?undefined:JSON.stringify([currentViewTaskId??null,requestedViewTaskId??null,sourceContextEpoch,surfaceEpoch,documentSelectionEpoch,viewMode,quitEpoch]))
   installNativeSourceDrag()
   installNativeWindowMove()
   ipcMain.handle('companion:command',dispatchCompanionCommand)
@@ -1590,6 +1594,7 @@ const quitDrafts=createQuitDraftBarrier({
  confirmDiscard:async reason=>{const options={type:'warning',message:'Quit without saving unfinished work?',detail:reason+'\n\nKeep the app open to retain your unsent messages and practice edits, or quit without saving the unconfirmed edits.',buttons:['Keep app open','Quit without saving'],defaultId:0,cancelId:0} as const;const result=await (panel&&!panel.isDestroyed()?dialog.showMessageBox(panel,{...options,buttons:[...options.buttons]}):dialog.showMessageBox({...options,buttons:[...options.buttons]}));return result.response===1;},
 })
 async function stopForQuit(){
+ nativeSpellingMenu?.retire();
  await floatingSave;
  await taskNotifications.close();await notificationToast.close();
  await pdfPageImports.close();
