@@ -1,4 +1,5 @@
 import type {SavedWorkLibraryCommand} from './saved-work-library';
+import type {TaskSectionsCommand} from './task-sections';
 import type {OutputArchiveCommand} from './task-output-archive';
 import type {CsvWorkbookCommand} from './csv-workbook';
 import type {RecurringInferenceCommand} from './recurring-work';
@@ -61,6 +62,7 @@ import type {CsvChartCommand} from './csv-chart';
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command =
+  | TaskSectionsCommand
   | OutputArchiveCommand
   | SavedWorkLibraryCommand
   | CsvWorkbookCommand

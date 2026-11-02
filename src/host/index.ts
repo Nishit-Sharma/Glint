@@ -1,4 +1,5 @@
 import {readSavedWorkLibraryCommand} from '../shared/saved-work-library';
+import {readTaskSectionsCommand} from '../shared/task-sections';
 import {readOutputArchiveCommand} from '../shared/task-output-archive';
 import {TaskOutputArchives} from './task-output-archive';
 import {CsvWorkbooks} from './csv-workbook';
@@ -200,7 +201,7 @@ const publicGithub=new PublicGithubReader()
 const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSource:(...args)=>core.putSource(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import document',properties:['openFile'],filters:[{name:'Readable documents',extensions:['pdf','docx','doc','txt','md','csv','xlsx','pptx']}]});return choice.canceled?undefined:choice.filePaths[0];})
 const pdfPageImports=new PdfPageImports({getTask:id=>core.getTask(id),addPdfPageSources:(...args)=>core.addPdfPageSources(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import visual PDF pages',properties:['openFile'],filters:[{name:'PDF document',extensions:['pdf']}]});return choice.canceled?undefined:choice.filePaths[0];});
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
-const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id))
+const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id),async()=>(await core.listTasks()).map(task=>task.id))
 const taskNotifications=new TaskNotifications({readNotifications:()=>taskViewPreferences.readNotifications(),mutateNotifications:update=>contentBackupGate.run('notifications.poll',()=>taskViewPreferences.mutateNotifications(update))},()=>core.listTasks(),async()=>({focused:!!panel&&!panel.isDestroyed()&&panel.isVisible()&&panel.isFocused(),mutedBotIds:notificationMuteScope(await botPreferences.read())}),()=>emit({type:'notifications.changed'}),Date.now,(notice,event)=>notificationToast.show(notice.id,event?.kind==='needs-input'?'Your study input is needed':event?.kind==='completed'?'Study attempt complete':notice.kind==='break'?'Time for a break?':'Your quiet hours',event?.summary??(notice.kind==='break'?'Your daily active-use reminder threshold was reached. You can continue whenever you choose.':'You asked for a reminder on opening Glint during this time. You can continue.')))
 const documentSpeech=new DocumentSpeech({directory:dataDir,core:{getTask:id=>core.getTask(id),replaceSession:(...args)=>core.replaceSession(...args)}})
 const codeWorkspaces=new CodeWorkspaces({directory:dataDir,core:{getTask:id=>core.getTask(id),saveArtifact:(...args)=>core.saveArtifact(...args)},choose:async()=>{const selected=await dialog.showOpenDialog(panel,{title:'Choose local code folder',message:'Browse supported text and code files locally. Each file write needs its own review.',properties:['openDirectory','dontAddToRecent']});return selected.canceled?undefined:selected.filePaths[0];}})
@@ -244,6 +245,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('task-sections.'))return readTaskSectionsCommand(c);
   if(String(c.type).startsWith('library.'))return readSavedWorkLibraryCommand(c);
   if(String(c.type).startsWith('outputs.'))return readOutputArchiveCommand(c);
   if(c.type==='image.copy')return readImageCopyCommand(c);
@@ -1268,6 +1270,8 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     case 'task-view.get':return taskViewPreferences.read()
     case 'file-favorites.get':return taskViewPreferences.readFileFavorites()
     case 'file-favorites.change':{const {type,...change}=c;return taskViewPreferences.changeFileFavorites(change,()=>assertCurrentWork(lifecycle));}
+    case 'task-sections.get':return taskViewPreferences.readTaskSections()
+    case 'task-sections.change':{const {type,...change}=c;return taskViewPreferences.changeTaskSections(change,()=>assertCurrentWork(lifecycle));}
     case 'task-pins.get':return taskViewPreferences.readPins()
     case 'task-pins.set':return taskViewPreferences.setPinned(c.taskId,c.pinned)
     case 'context.pending':{

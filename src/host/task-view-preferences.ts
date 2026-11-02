@@ -1,4 +1,5 @@
 import {readLibraryPinChange,libraryPinKey,type LibraryPinChange,type LibraryPinState} from '../shared/saved-work-library';
+import {changeTaskSections,emptyTaskSections,readTaskSectionChange,TASK_SECTIONS_UNAVAILABLE,type TaskSectionChange,type TaskSectionsSaved,type TaskSectionsState} from '../shared/task-sections';
 import {randomUUID} from 'node:crypto';
 import {mkdir,open,readFile,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -15,7 +16,25 @@ const Pins=Schema.Struct({schemaVersion:Schema.Literal(1),taskIds:Schema.Array(S
 
 export class TaskViewPreferences{
  private queue:Promise<unknown>=Promise.resolve();
- constructor(private readonly directory:string,private readonly exists:(taskId:string)=>Promise<boolean>,private readonly getTask?:(taskId:string)=>Promise<Task>){}
+ constructor(private readonly directory:string,private readonly exists:(taskId:string)=>Promise<boolean>,private readonly getTask?:(taskId:string)=>Promise<Task>,private readonly listTaskIds?:()=>Promise<readonly string[]>){}
+ private async sectionsView(current:TaskSectionsSaved):Promise<TaskSectionsState>{
+  const savedIds=current.sections.flatMap(item=>item.taskIds),present=this.listTaskIds?new Set(await this.listTaskIds()):new Set((await Promise.all(savedIds.map(async id=>await this.exists(id)?id:undefined))).filter((id):id is string=>id!==undefined));
+  return {kind:'available',...current,unavailableTaskIds:savedIds.filter(id=>!present.has(id))};
+ }
+ readTaskSections():Promise<TaskSectionsState>{return this.serialize(async()=>{try{return await this.sectionsView((await this.loadDocument()).sidebarSections??emptyTaskSections());}catch{return {kind:'unavailable',message:TASK_SECTIONS_UNAVAILABLE};}});}
+ changeTaskSections(input:TaskSectionChange,assertCurrent:()=>void=()=>{}):Promise<TaskSectionsState>{
+  const value=readTaskSectionChange(input);
+  return this.serialize(async()=>{
+   assertCurrent();let saved:TaskViewSaved;try{saved=await this.loadDocument();}catch{return {kind:'unavailable',message:TASK_SECTIONS_UNAVAILABLE};}
+   const current=saved.sidebarSections??emptyTaskSections();
+   if(value.expectedRevision!==current.revision)throw Error('Sidebar sections changed elsewhere. Reload before saving.');
+   const taskId=value.change.kind==='move'||value.change.kind==='create'?value.change.taskId:undefined;
+   if(taskId){if(!await this.exists(taskId))throw Error('This task is no longer available. Reload sections.');const task=await this.getTask?.(taskId);if(task?.archive)throw Error('Open an active task before changing its section.');}
+   const next=changeTaskSections(current,value.change);assertCurrent();
+   if(next!==current)await this.writeView({...saved,sidebarSections:next},assertCurrent);
+   return this.sectionsView(next);
+  });
+ }
  readAttention(){return this.serialize(()=>readTaskAttention(this.directory,this.exists));}
  changeAttention(change:TaskAttentionChange){return this.serialize(()=>changeTaskAttention(this.directory,this.exists,this.getTask,change));}
  readNotifications():Promise<NotificationState>{return this.serialize(async()=>{const current=await readTaskAttention(this.directory,this.exists);return current.kind==='unavailable'?current:{kind:'available',current:current.notifications??freshNotifications()};});}
