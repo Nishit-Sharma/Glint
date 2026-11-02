@@ -1,0 +1,8 @@
+.composer-completion{margin:5px 0 0;font-size:12px;line-height:18px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.composer-completion kbd{font:inherit;color:var(--ink)}
+.prompt-suggestions{font-size:12px;color:var(--muted);margin-top:5px}
+.prompt-suggestions>label{display:flex;align-items:center;gap:6px;width:fit-content;min-height:28px}
+.prompt-suggestions input{width:auto;min-height:0}
+.prompt-suggestion-actions{display:flex;flex-wrap:wrap;gap:4px}
+.app .prompt-suggestion-actions>button{height:auto;min-height:28px;width:auto;max-width:100%;padding:4px 7px;text-align:left;white-space:normal;overflow-wrap:anywhere;font-size:12px;background:transparent;color:var(--ink)}
+.prompt-suggestions .tiny{margin:3px 0;line-height:17px}
