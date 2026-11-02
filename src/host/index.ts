@@ -1,5 +1,6 @@
 import {readTaskResponseModeCommand,taskResponseMode,PLAN_RESPONSE_GUIDANCE,type ResponseMode} from '../shared/task-response-mode';
 import {readAiAttributionInput} from '../shared/ai-attribution';
+import {createConversationMentionValidation} from './conversation-mention-validation';
 import {readSavedWorkLibraryCommand} from '../shared/saved-work-library';
 import {readTaskSectionsCommand} from '../shared/task-sections';
 import {readOutputArchiveCommand} from '../shared/task-output-archive';
@@ -964,7 +965,9 @@ async function queuedScope(taskId:string,prompt:string,basis:string,inference?:R
  const chosenSkill=await core.instructionSkillContext(taskId,skill,reviewedQueue),folderGuidance=await codeWorkspaces.guidanceLease(taskId);await preferences.check();await memory.check();await folderGuidance.check();if(epoch!==keyEpoch||route!==selectedProvider||quitting)throw Error('The connection changed before the follow-up was queued.');
  return {scope:createHash('sha256').update(JSON.stringify([basis,epoch,route,account,preferences.current,memory.receipt,...requestInferenceScopeFields(inference),...(skill?['instruction-skill:v1',skill]:[]),...(folderGuidance.scope?[folderGuidance.scope]:[]),...(responseMode==='plan'?['response-mode:v1','plan']:[])])).digest('hex'),grant:JSON.stringify([epoch,route,account]),consent:memory.consent+'\n\n'+preferences.consent+'\n\n'+instructionSkillReview(chosenSkill)+folderGuidance.consent+(responseMode==='plan'?'\n\n'+PLAN_RESPONSE_GUIDANCE:'')};
 }
+const conversationMentions=createConversationMentionValidation({bots:()=>botPreferences.read(),routines:()=>core.getRecurringWork(),skills:()=>core.listInstructionSkills()});
 async function saveQueuedCommand(c:Extract<QueueCommand,{type:'queue.submit'|'queue.edit'}>){
+ await conversationMentions.check(c.prompt);
  const lifecycle=quitEpoch,task=await core.getTask(c.taskId),items=task.session?.queuedFollowups??[],existing=items.find(item=>item.id===c.id),active=pendingFollowups(items);
  if(task.session?.browserContext||task.requests.some(request=>request.status==='running'&&!['explain','create'].includes(request.kind)))throw Error('Only ordinary text follow-ups can be queued. Browser and external actions need their own review.');
  if(c.type==='queue.submit'&&!existing&&!task.requests.some(request=>request.status==='running')&&!active.length)throw Error('Ask directly when no response is running.');
@@ -986,6 +989,7 @@ async function saveQueuedCommand(c:Extract<QueueCommand,{type:'queue.submit'|'qu
   ordinaryTransmissionConsent=snapshot.grant;authorized=true;
  }
  const item:QueuedFollowup={responseMode,id:c.id,revision:(existing?.revision??0)+1,prompt:c.prompt,kind:c.kind,createdAt:existing?.createdAt??new Date().toISOString(),sourceRefs:refs,precedingRequestIds,basis,...(skill?{instructionSkill:skill}:{}),...(inference?{inference}:{}),scope:snapshot.scope,status:authorized?'queued':'held',...(!authorized?{reason:'Approve an initial Ask for this provider session, then review and queue this follow-up again.'}:{})};
+ await conversationMentions.check(c.prompt);
  const result=await core.saveQueuedFollowup(c.taskId,item,existing?.revision??0,c.type==='queue.submit'?c.submittedDraft:undefined);changed(c.taskId);return result;
 }
 function drainQueuedFollowups(){
@@ -1004,10 +1008,15 @@ function drainQueuedFollowups(){
   }catch(error){await core.holdQueuedFollowups(taskId,error instanceof Error?error.message:'Queued follow-up needs review.');changed(taskId);}
  }})().catch(()=>{}).finally(()=>{queueDrain=undefined;});
 }
-async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFollowup):Promise<unknown>{
+async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFollowup,mentionsReviewed=false):Promise<unknown>{
   if(contentBackupGate.busy&&!['draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('Content backup: Content is frozen. Finish the backup or restart Glint after restore.')
   if(quitting&&!['presentation.capture','presentation.finish','draft.save','draft.flushed','learning-drafts.read','learning-drafts.save'].includes(c.type))throw Error('The app is closing.')
   const lifecycle=quitEpoch
+  if(!mentionsReviewed&&(c.type==='skills.preview'||c.type==='memory.preview'||c.type==='inference.preview'||c.type==='source.pdf.inspect')){
+    const mentionPrompt=c.type==='inference.preview'?(c.prompt??(await core.getTask(c.taskId)).session?.draft??''):c.prompt;
+    const mentionPreview=c.type==='inference.preview'?{...c,prompt:mentionPrompt}:c;
+    return conversationMentions.review(mentionPrompt,()=>command(mentionPreview,recurring,queued,true));
+  }
   if(isStudyCommand(c)){
     const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The study owner task changed. Your saved work is kept.');};guard();
     if(c.type==='study.preview'){const result=await core.previewStudyNotes(c.taskId,c.reference);guard();return result;}
@@ -1379,6 +1388,7 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
       const plan=prepareBriefActionPlan(before,c),kind=plan?.request.kind??c.kind,prompt=plan?.request.prompt??str(c.prompt,'request',16000)
       const ordinary=!plan&&!target&&['explain','create'].includes(kind);
       const responseMode=ordinary&&!recurring?(queued?queued.responseMode??'ordinary':taskResponseMode(before.session).mode):undefined;
+      if(ordinary&&!recurring)await conversationMentions.check(prompt);
       const inference=recurring?recurringRequestInference(recurring.grant,before):ordinary?await resolveTaskRequestInference(before,prompt,kind==='create'?'create':'explain',queued):undefined;
       const skillChoice=ordinary&&!recurring?instructionSkillSelection(before.session):undefined,skill=queued?queued.instructionSkill??null:skillChoice?.selection??null;
       const preferences=ordinary?await responsePreferences.lease():undefined,memory=ordinary&&!recurring?await core.leaseUserMemory(c.taskId,prompt):undefined,folderGuidance=ordinary&&!recurring?await codeWorkspaces.guidanceLease(c.taskId):undefined;assertCurrentWork(lifecycle);
@@ -1444,13 +1454,14 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
           await documentFollow.poll();assertWindowUse();
           await checkCaptureTarget(windowSources.map(({capture})=>capture!.source),undefined,assertWindowUse);assertWindowUse();
         }}:undefined;
-        const captureFence=preferences||memory||folderGuidance?{assertCurrent:()=>{memory?.assertCurrent();preferences?.assertCurrent();folderGuidance?.assertCurrent();assertWindowUse();},check:async()=>{await memory?.check();await preferences?.check();await folderGuidance?.check();await windowFence?.check();memory?.assertCurrent();preferences?.assertCurrent();folderGuidance?.assertCurrent();}}:windowFence;
+        const captureFence=preferences||memory||folderGuidance||ordinary&&!recurring?{assertCurrent:()=>{memory?.assertCurrent();preferences?.assertCurrent();folderGuidance?.assertCurrent();assertWindowUse();},check:async()=>{await memory?.check();await preferences?.check();await folderGuidance?.check();await windowFence?.check();if(ordinary&&!recurring)await conversationMentions.check(prompt);memory?.assertCurrent();preferences?.assertCurrent();folderGuidance?.assertCurrent();}}:windowFence;
         await captureFence?.check();assertWindowUse();
         if(response?.kind==='window-workflow-proposal'||response?.kind==='concept-map')assertWindowPublication=assertWindowUse;
         let streamed=''
         const structured=kind==='experiment'||kind==='procedure'?kind:undefined
         if(reviewResponse)emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:reviewResponse.progress})
         let modelReceipt:ProviderModelReceipt|undefined;
+        if(ordinary&&!recurring)await conversationMentions.check(prompt);
         const composed=ordinary&&!recurring?composeOrdinaryRequest({prompt,sources,taskHistory:ctx.taskHistory,responseMode:ctx.responseMode,projectInstructions:ctx.projectInstructions,preferences:preferences?.current,memory,instructionSkill:ctx.instructionSkill,folderGuidance:folderGuidance?.current}):{prompt:reviewResponse?reviewResponse.prompt:kind==='brief'?screenBriefPrompt(ctx.sourceRefs):structured?structuredPrompt(structured,prompt):prompt,sources,...(!recurring&&ctx.projectInstructions?{projectInstructions:ctx.projectInstructions}:{}),...(['explain','create','revise'].includes(kind)?{taskContext}:{})};
         const options={modelReceipt:{requestId:request.requestId,onConfirmed:(receipt:ProviderModelReceipt)=>{modelReceipt=receipt;}},...(inference?.selection?{inference:inference.selection}:{}),...((recurring?.grant.accountScope??accountScope)?{expectedAccountScope:recurring?.grant.accountScope??accountScope}:{}),captureFence,signal:AbortSignal.any([ctx.signal,...(recurring?[recurring.grant.controller.signal]:[]),...(windowSources.length?[privacySignal]:[]),...(preferences?[preferences.signal]:[]),...(memory?[memory.signal]:[]),...(folderGuidance?[folderGuidance.signal]:[])]),onChunk:(delta:string)=>{memory?.assertCurrent();preferences?.assertCurrent();folderGuidance?.assertCurrent();if(reviewResponse)return;const first=streamed.length===0;streamed+=delta;if(epoch===keyEpoch&&(!windowSources.length||privacy===capturePrivacyEpoch)&&(!structured||first))emit({type:'stream',taskId:c.taskId,requestId:c.requestId,text:kind==='brief'?screenBriefInsight(streamed):structured?(structured==='experiment'?'Preparing your experiment…':'Preparing your procedure…'):streamed})}};
         const content=ordinary&&!recurring?await dispatchOrdinaryRequest(provider,{prompt,sources,taskHistory:ctx.taskHistory,responseMode:ctx.responseMode,projectInstructions:ctx.projectInstructions,preferences:preferences?.current,memory,instructionSkill:ctx.instructionSkill,folderGuidance:folderGuidance?.current},options):await provider.run({...composed,...options});

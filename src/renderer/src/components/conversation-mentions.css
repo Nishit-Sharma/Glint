@@ -1,0 +1,6 @@
+.conversation-mentions{margin-top:6px;padding:7px 0;color:var(--muted);font-size:12px}
+.conversation-mentions .tiny{margin:0 0 5px;line-height:17px}
+.conversation-mentions>div{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow:auto}
+.app .conversation-mentions>div>button{height:auto;min-height:36px;padding:5px 8px;width:100%;text-align:left;display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px;background:transparent;color:var(--ink);font-size:12px}
+.app .conversation-mentions button[aria-pressed=true]{background:var(--soft)}
+.conversation-mentions small{overflow-wrap:anywhere;color:var(--muted);font-size:11px}

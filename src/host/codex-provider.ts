@@ -342,6 +342,7 @@ export class CodexProvider {
       input.captureFence?.assertCurrent();
       if(controller.signal.aborted)throw controller.signal.reason;
       if(input.expectedAccountScope){const current=await connection.request('account/read',{refreshToken:false});if(await this.accountFingerprint(current.account)!==input.expectedAccountScope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in or instructions changed before generation. Resume the schedule to authorize its current scope.');}
+      await input.captureFence?.check();
       input.captureFence?.assertCurrent();if(controller.signal.aborted)throw controller.signal.reason;
       const turn = await connection.request('turn/start', { threadId: evidence.threadId, input: parts, ...wire.turn, environments: [], sandboxPolicy: { type: 'readOnly', networkAccess: false }, approvalPolicy: 'on-request' });
       evidence.turnId = turn.turn?.id ?? evidence.turnId;
