@@ -1,4 +1,6 @@
 import {readSavedWorkLibraryCommand} from '../shared/saved-work-library';
+import {readOutputArchiveCommand} from '../shared/task-output-archive';
+import {TaskOutputArchives} from './task-output-archive';
 import {CsvWorkbooks} from './csv-workbook';
 import {readCsvWorkbookCommand} from '../shared/csv-workbook';
 import {readCsvStatisticsCommand} from '../shared/csv-statistics';
@@ -148,6 +150,7 @@ const characterPreferences=CharacterPreferences.open(dataDir)
 const responsePreferences=new ResponsePreferences(dataDir)
 const memoryExports=new MemoryExports(()=>core.getUserMemory(),async info=>{const selected=await dialog.showSaveDialog(panel,{title:`Export ${info.count} saved memory ${info.count===1?'fact':'facts'}`,defaultPath:'glint-memory.json',filters:[{name:'Glint memory JSON',extensions:['json']}],properties:['createDirectory','dontAddToRecent']});return selected.canceled?null:selected.filePath??null;})
 const csvWorkbooks=new CsvWorkbooks(id=>core.getTask(id),async preview=>{const selected=await dialog.showSaveDialog(panel,{title:'Create spreadsheet workbook',defaultPath:(preview.originalFile?.name.replace(/\.[^.]+$/,'')??preview.label).replace(/[\\/:]/g,'-').slice(0,100)+'.xlsx',filters:[{name:'Excel workbook',extensions:['xlsx']}],properties:['createDirectory','dontAddToRecent']});return selected.canceled?null:selected.filePath??null;})
+const outputArchives=new TaskOutputArchives(id=>core.getTask(id),async preview=>{const selected=await dialog.showSaveDialog(panel,{title:`Download ${preview.entries.length} task outputs as ZIP`,defaultPath:(preview.taskTitle.replace(/[^A-Za-z0-9_-]+/g,'-').slice(0,70)||'glint-task')+'-outputs.zip',filters:[{name:'ZIP archive',extensions:['zip']}],properties:['createDirectory','dontAddToRecent']});return selected.canceled?null:selected.filePath??null;},(receipt,guard)=>core.recordOutputArchive(receipt,guard),(pending,guard)=>core.prepareOutputArchive(pending,guard),(taskId,operationId,guard)=>core.clearOutputArchivePending(taskId,operationId,guard));
 const native=new NativeSourceAdapter()
 // Disposable integration instances must not compete with the user's running app for input.
 const testNoGlobalInput=process.env.WINDOW_COMPANION_TEST_NO_GLOBAL_INPUT==='1'
@@ -242,6 +245,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
   if(String(c.type).startsWith('library.'))return readSavedWorkLibraryCommand(c);
+  if(String(c.type).startsWith('outputs.'))return readOutputArchiveCommand(c);
   if(c.type==='image.copy')return readImageCopyCommand(c);
   if(c.type==='code-block.copy')return readCodeBlockCopy(c);
   if(String(c.type).startsWith('contacts.'))return readLocalContactsCommand(c);
@@ -1042,6 +1046,9 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
   if(isSpeechCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('Listening selection changed.');};const result=await documentSpeech.command(c,guard);if(c.type==='speech.select'||c.type==='speech.generate')changed(c.taskId);return result;}
   if(isCodeCommand(c)){const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error(CODE_WORKSPACE_ERROR);};const result=await codeWorkspaces.command(c,guard);if(['code.instructions.use','code.instructions.disable','code.folder.disconnect'].includes(c.type)){await core.markResponseContextChanged(c.taskId,guard);sourceContextEpoch++;changed(c.taskId);}else if(['code.file.open','code.file.reload','code.file.save'].includes(c.type))changed(c.taskId);return result;}
   switch(c.type){
+    case 'outputs.preview':case 'outputs.save':{
+      const context=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==context)throw Error('Return to this task before downloading its outputs.');};guard();const result=c.type==='outputs.preview'?await outputArchives.preview(c,guard):await outputArchives.save(c,guard);if(c.type==='outputs.save')changed(c.taskId);return result;
+    }
     case 'workbook.preview':case 'workbook.save':{
       const context=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==context)throw Error('Return to the exact CSV source before creating its workbook.');};guard();return c.type==='workbook.preview'?csvWorkbooks.preview(c,guard):csvWorkbooks.save(c,guard);
     }
@@ -1500,7 +1507,7 @@ function configureConnection(){
 async function dispatchCompanionCommand(event:Pick<Electron.IpcMainInvokeEvent,'sender'|'senderFrame'>,value:unknown){
     try{
       if(event.sender!==panel.webContents||event.senderFrame!==panel.webContents.mainFrame)throw Error('Untrusted companion caller.')
-      const c=validate(value);if(isContentBackupCommand(c)){if(!['content-backup.status','content-backup.restart'].includes(c.type)&&(pendingEffects.size||credentialWindow&&!credentialWindow.isDestroyed()))throw Error('Content backup: Finish active requests, actions and connection dialogs before backing up or restoring.');return await contentBackups.command(c);}const key=c.type==='workbook.save'?`workbook:${c.taskId}`:c.type==='schedules.change'?`schedule:${c.change.id}`:c.type==='windows.capture'?'capture:window':c.type==='export.approve'?`export:${c.actionId}`:c.type==='model.run'||c.type==='browser.run'||c.type==='browser.workflow.run'||c.type==='browser.continue'?`model:${c.taskId}`:c.type==='browser.inspect'?`inspect:${c.taskId}:${c.operationId}`:undefined
+      const c=validate(value);if(isContentBackupCommand(c)){if(!['content-backup.status','content-backup.restart'].includes(c.type)&&(pendingEffects.size||credentialWindow&&!credentialWindow.isDestroyed()))throw Error('Content backup: Finish active requests, actions and connection dialogs before backing up or restoring.');return await contentBackups.command(c);}const key=c.type==='outputs.save'?`outputs:${c.taskId}`:c.type==='workbook.save'?`workbook:${c.taskId}`:c.type==='schedules.change'?`schedule:${c.change.id}`:c.type==='windows.capture'?'capture:window':c.type==='export.approve'?`export:${c.actionId}`:c.type==='model.run'||c.type==='browser.run'||c.type==='browser.workflow.run'||c.type==='browser.continue'?`model:${c.taskId}`:c.type==='browser.inspect'?`inspect:${c.taskId}:${c.operationId}`:undefined
       if(key&&pendingEffects.has(key))throw Error('This effect is already awaiting a result.')
       if(key)pendingEffects.add(key)
       try{return await contentBackupGate.run(c.type,()=>command(c))}finally{if(key)pendingEffects.delete(key);if(key?.startsWith('model:')||c.type==='queue.submit'||c.type==='queue.edit'||c.type==='queue.cancel')drainQueuedFollowups();}

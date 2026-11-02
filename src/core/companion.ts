@@ -1,4 +1,5 @@
 import {readSavedWorkLibraryCommand,readSavedLinkDefinition,savedLink,SAVED_LINK_MIME,type SavedWorkLibraryCommand,type SavedLinkResult} from '../shared/saved-work-library';
+import {outputArchiveBasisText,readOutputArchiveReceipt,readOutputArchivePending,type OutputArchiveReceipt,type OutputArchivePending} from '../shared/task-output-archive';
 import {CSV_STATISTICS_MIME,readCsvStatisticsCommand,readCsvStatistics,csvStatistics,type CsvStatisticsData,type CsvStatisticsSave,type CsvStatisticsSaved} from '../shared/csv-statistics';
 import {bundledDirectorySkill,directorySkillPayload,directoryReference} from '../shared/skill-directory';
 import {CSV_CHART_MIME,CSV_CHART_SVG_MIME,readCsvChartCommand,readCsvChart,csvChartPoints,csvChartSvg,type CsvChartData,type CsvChartSave,type CsvChartSaved} from '../shared/csv-chart';
@@ -78,7 +79,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {memoryPolicy:_memoryPolicy,instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {outputArchivePending:_outputArchivePending,outputArchives:_outputArchives,memoryPolicy:_memoryPolicy,instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -259,6 +260,19 @@ export class Companion {
   }
 
   getCliPreferences():Promise<CliPreferences>{return this.exclusive(()=>clone(this.state.cliPreferences??defaultCliPreferences()));}
+  prepareOutputArchive(input:OutputArchivePending,assertCurrent:()=>void=()=>{}):Promise<OutputArchivePending>{
+    const value=readOutputArchivePending(input);
+    return this.exclusive<OutputArchivePending>(()=>{assertCurrent();const task=this.task(this.state,value.receipt.taskId),existing=task.session?.outputArchivePending;if(existing){if(JSON.stringify(existing)!==JSON.stringify(value))return reject('conflict','Check the previous ZIP save before starting another.');return clone(existing);}if(hash(outputArchiveBasisText(task))!==value.receipt.basis)return reject('conflict','The saved outputs changed before publication.');return this.commit(state=>{assertCurrent();const owner=this.task(state,value.receipt.taskId),session=owner.session??emptyTaskSession();owner.session={...session,revision:session.revision+1,outputArchivePending:value};return clone(value);});});
+  }
+  clearOutputArchivePending(taskId:string,operationId:string,assertCurrent:()=>void=()=>{}):Promise<void>{
+    return this.exclusive<void>(()=>{assertCurrent();const task=this.task(this.state,taskId),pending=task.session?.outputArchivePending;if(!pending)return;if(pending.receipt.operationId!==operationId)return reject('conflict','The pending ZIP save changed.');return this.commit(state=>{assertCurrent();const owner=this.task(state,taskId),session=owner.session??emptyTaskSession(),{outputArchivePending:_pending,...rest}=session;owner.session={...rest,revision:session.revision+1};});});
+  }
+  recordOutputArchive(input:OutputArchiveReceipt,assertCurrent:()=>void=()=>{}):Promise<OutputArchiveReceipt>{
+    const value=readOutputArchiveReceipt(input);
+    return this.exclusive<OutputArchiveReceipt>(()=>{assertCurrent();const task=this.task(this.state,value.taskId),existing=task.session?.outputArchives?.find(item=>item.operationId===value.operationId);if(existing){if(JSON.stringify(existing)!==JSON.stringify(value))return reject('conflict','This archive identity already has a different receipt.');return clone(existing);}if(JSON.stringify(task.session?.outputArchivePending?.receipt)!==JSON.stringify(value))return reject('conflict','The original ZIP publication identity is unavailable.');
+      return this.commit(state=>{assertCurrent();const owner=this.task(state,value.taskId),session=owner.session??emptyTaskSession(),{outputArchivePending:_pending,...rest}=session;owner.session={...rest,revision:session.revision+1,outputArchives:[...(session.outputArchives??[]),value].slice(-20)};return clone(value);});
+    });
+  }
   getReadingPreferences(taskId:string):Promise<ReadingPreferences>{return this.exclusive(()=>clone(this.task(this.state,taskId).session?.readingPreferences??defaultReadingPreferences()));}
   changeReadingPreferences(input:unknown,assertCurrent:()=>void=()=>{}):Promise<ReadingCommit>{
     const value=readReadingCommand(input);if(value.type!=='reading.preferences.set')throw Error('Invalid reading preference change.');
