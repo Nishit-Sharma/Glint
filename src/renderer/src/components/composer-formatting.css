@@ -1,0 +1,7 @@
+.composer-formatting{margin:0 0 5px;font-size:12px;color:var(--muted)}
+.composer-formatting>summary{width:fit-content;cursor:pointer;padding:3px 0;min-height:24px}
+.composer-formatting-panel{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:5px 0}
+.app .composer-formatting-panel>button{width:auto;min-height:28px;padding:4px 7px;font-size:12px}
+.composer-formatting-panel label{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.composer-formatting-panel input{width:auto;min-height:0}
+.composer-formatting .tiny{margin:0 0 4px;line-height:17px}

@@ -114,6 +114,10 @@ export interface AiInputMessage {
 }
 
 export interface AiInputProps {
+  spellCheck?: boolean
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
+  onCompositionStart?: () => void
+  onCompositionEnd?: () => void
   active?: boolean
   clearOnSubmit?: boolean
   id?: string
@@ -163,6 +167,10 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
       showMessages = false,
       onMicClick,
       className,
+      spellCheck,
+      onKeyDown,
+      onCompositionStart,
+      onCompositionEnd,
     },
     ref,
   ) => {
@@ -244,6 +252,8 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
 
     const handleKeyDown = useCallback(
       (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+        onKeyDown?.(e)
+        if (e.defaultPrevented) return
         if (e.nativeEvent.isComposing) return
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault()
@@ -252,7 +262,7 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
           }
         }
       },
-      [streaming, handleSubmit],
+      [streaming, handleSubmit, onKeyDown],
     )
 
     useEffect(() => {
@@ -324,6 +334,9 @@ export const AiInput = forwardRef<HTMLTextAreaElement, AiInputProps>(
               name={name}
               rows={1}
               aria-label={ariaLabel ?? placeholder}
+              spellCheck={spellCheck}
+              onCompositionStart={onCompositionStart}
+              onCompositionEnd={onCompositionEnd}
               className={cn(
                 'block max-h-40 w-full min-h-6 resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm text-foreground outline-none',
                 'placeholder:text-muted-foreground',
