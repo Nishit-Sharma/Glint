@@ -14,6 +14,7 @@ import {ReadingView} from './components/ReadingView';
 import {ArtifactList} from './components/ArtifactList';
 import {PageReferencePicker} from './components/PageReferencePicker';
 import {PageReferenceNavigationProvider,usePageReferenceNavigation,requestPageReferenceNavigation} from './page-reference-navigation';
+import {ArtifactAttribution} from './components/ArtifactAttribution';
 import type {PageReference,PageReferenceSource} from '../../shared/page-reference';
 import {LocalContacts} from './LocalContacts';
 import {appendLocalContactMessage} from '../../shared/local-contacts';
@@ -892,6 +893,7 @@ function ArtifactEditor({task, artifact, cache,scope,isCurrent,saveDocument,busy
    </>}
    </div>
   </form>
+  {currentArtifact&&current&&!readingRevision&&!editing&&!exportOpen&&!comparing&&<ArtifactAttribution key={[task.id,currentArtifact.id,current.revision,current.digest,scope].join(':')} task={task} answer={{artifactId:currentArtifact.id,revision:current.revision,digest:current.digest}} isCurrent={isCurrent} disabled={busy||dirty||conflict||stale.length>0||running||task.status!=='active'||!!task.archive} run={run} onOpen={onWorkflowCreated}/>}
   {currentArtifact&&!readingRevision&&!editing&&!exportOpen&&!comparing&&<div data-artifact-region="Revision instructions" role="region" aria-label="Revision instructions" tabIndex={0} className="artifact-followup">{instructionController?<RevisionInstructionsInput controller={instructionController} cache={cache} busy={busy} dirty={dirty} conflict={conflict} stale={stale.length>0} connection={connection} runningRequestId={runningRequestId} onStop={onStop} onConfigure={onConfigure}/>:<Composer active idPrefix="revision" value={revise} placeholder="Ask for a change…" kind="create" onChange={change=>setRevise(change.text??revise)} disabled={busy||dirty||conflict||stale.length>0} connection={connection} running={false} onRun={async text=>{const submitted=text;if(await onModel(submitted,'revise',currentArtifact.id)&&revisionInstructions.current===submitted)setRevise('');}} onStop={onStop} onConfigure={onConfigure} allowModes={false}/>}</div>}
  </section>;
 }

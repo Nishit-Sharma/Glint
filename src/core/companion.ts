@@ -42,6 +42,8 @@ import {taskDeletionBlocker,type ProjectDeletePreview,type ProjectDeleteResult} 
 import {encodeProjectDeletion,findProjectDeletion} from './project-deletion-receipt';
 import {encodeProjectCreation,findProjectCreation} from './project-creation-receipt';
 import {readPublicGithubCommand,readPublicGithubSnapshot,samePublicGithubConnection,PUBLIC_GITHUB_README_LIMIT,type PublicGithubCapture,type PublicGithubCommand,type PublicGithubResult} from '../shared/public-github';
+import {aiAttributionIntent,aiAttributionPreview,readAiAttributionInput,type AiAttributionSaved} from '../shared/ai-attribution';
+import {encodeAiAttributionReceipt,findAiAttributionReceipt} from './ai-attribution-receipt';
 import {encodeTaskHandoffReceipt,findTaskHandoffReceipt} from './task-handoff-receipt';
 import {readSavedDocumentSourceInput,savedDocumentSourcePreview,type SavedDocumentSourceResult} from '../shared/saved-document-source';
 import {browserReviewNotesPreview,readBrowserReviewNotesSave,BROWSER_REVIEW_NOTES_TITLE,type BrowserReviewNotesSaved} from '../shared/browser-review-notes';
@@ -1333,6 +1335,24 @@ export class Companion {
         this.claimRequest(state,intent);const saved=this.appendArtifact(current,{title:preview.title,content:preview.content,mimeType:'text/markdown',sourceRefs:[]});
         state.usedRequestIds.push(encodeTaskHandoffReceipt({claimHash,requestDigest,payloadDigest:hash(preview.content),taskId:current.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
         return {task:current,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest,alreadySaved:false};
+      });
+    });
+  }
+  saveAiAttributedCopy(input:unknown,assertCurrent:()=>void=()=>{}):Promise<AiAttributionSaved>{
+    const value=clone(readAiAttributionInput(input)),intent='ai-attribution:'+hash(aiAttributionIntent(value)),claimHash=hash(intent),requestDigest=hash(JSON.stringify({intent:aiAttributionIntent(value),binding:value.binding}));
+    return this.exclusive<AiAttributionSaved>(()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),receipt=findAiAttributionReceipt(this.state.usedRequestIds,claimHash);
+      if(receipt){
+        const artifacts=task.artifacts.filter(item=>item.id===receipt.artifactId),copy=artifacts.length===1&&artifacts[0].revisions.length===1?artifacts[0].revisions[0]:undefined;
+        if(receipt.taskId!==task.id||receipt.requestDigest!==requestDigest||!copy||copy.revision!==receipt.revision||copy.digest!==receipt.digest||hash(copy.content)!==receipt.digest||copy.content!==value.binding||copy.mimeType!=='text/plain'||copy.encoding==='base64')return reject('conflict','The original attributed copy changed or is unavailable. No replacement was created.');
+        return clone({task,artifactId:receipt.artifactId,revision:receipt.revision,digest:receipt.digest,alreadySaved:true});
+      }
+      return this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId);if(owner.status!=='active'||owner.archive)return reject('conflict','Open an active task before saving an attributed copy.');
+        const preview=aiAttributionPreview(owner,value.requestId,value.answer);if(preview.content!==value.binding)return reject('conflict','The exact attribution preview changed. Review it again.');
+        this.claimRequest(state,intent);const saved=this.appendArtifact(owner,preview);
+        state.usedRequestIds.push(encodeAiAttributionReceipt({claimHash,requestDigest,taskId:owner.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
+        return {task:owner,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest,alreadySaved:false};
       });
     });
   }

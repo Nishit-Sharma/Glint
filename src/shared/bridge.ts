@@ -1,4 +1,5 @@
 import type {TaskResponseModeCommand} from './task-response-mode';
+import type {AiAttributionInput} from './ai-attribution';
 import type {SavedWorkLibraryCommand} from './saved-work-library';
 import type {TaskSectionsCommand} from './task-sections';
 import type {OutputArchiveCommand} from './task-output-archive';
@@ -142,6 +143,7 @@ export type Command = TaskResponseModeCommand
   | {type:'context.capture';activationId:string;windowId:string;taskId?:string}
   | {type:'artifact.save';taskId:string;artifact:ArtifactInput}
   | ({type:'artifact.handoff'} & TaskHandoffSave)
+  | ({type:'artifact.ai-attribution'} & AiAttributionInput)
   | {type:'module.edit';taskId:string;artifactId:string;artifactRevision:number;moduleId:string;action:ModuleAction}
   | {type:'module.document';taskId:string;artifactId:string;artifactRevision:number;sessionRevision:number}
   | {type:'workflow.window.review';taskId:string;requestId:string;candidate:ArtifactRef;review:unknown}
