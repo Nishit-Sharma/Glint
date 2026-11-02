@@ -11,7 +11,7 @@ import {canEditRichText,editableDocumentBody} from '../document-format';
 const SafeCodeBlock=CodeBlock.extend({renderMarkdown(node,helpers){const text=helpers.renderChildren(node.content??[]);let longest=2;for(const match of text.matchAll(/`+/g))longest=Math.max(longest,match[0].length);const fence='`'.repeat(longest+1);return fence+(node.attrs?.language||'')+'\n'+text+'\n'+fence;}});
 type Props={value:string;title:string;documentKey:string;onChange:(value:string)=>void;disabled?:boolean};
 export default function RichDocument(props:Props){
- const supported=useMemo(()=>canEditRichText(props.value),[props.documentKey]);
+ const supported=useMemo(()=>canEditRichText(props.value),[props.documentKey,props.value]);
  if(!supported)return <textarea aria-label="Draft content" value={props.value} disabled={props.disabled} onChange={event=>props.onChange(event.target.value)}/>;
  return <RichDocumentEditor {...props}/>;
 }

@@ -1,0 +1,7 @@
+.page-reference-picker{padding:.75rem 1rem;border-bottom:1px solid var(--line);font-size:.875rem}
+.page-reference-picker>p:empty{margin:0}
+.page-reference-dialog{width:min(38rem,calc(100vw - 2rem));max-height:calc(100vh - 2rem);overflow:auto;padding:1.5rem;border:1px solid var(--line);border-radius:12px;background:var(--paper,#222221);color:inherit}
+.page-reference-dialog::backdrop{background:rgb(0 0 0 / .28)}
+.page-reference-dialog textarea,.page-reference-dialog select{width:100%;min-width:0}
+.page-reference-dialog h4{overflow-wrap:anywhere}
+.markdown-page-reference{min-height:24px;text-align:left;white-space:normal;overflow-wrap:anywhere;text-decoration:underline}

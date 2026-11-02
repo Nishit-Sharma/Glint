@@ -21,6 +21,8 @@ import {Button,Field} from '../src/renderer/src/ui';
 import {SavedDocumentDraftStatus} from '../src/renderer/src/components/SavedDocumentDraftStatus';
 import {SourceLinks} from '../src/renderer/src/components/SourceLinks';
 import {RevisionCompare} from '../src/renderer/src/components/RevisionCompare';
+import {PageReferencePicker} from '../src/renderer/src/components/PageReferencePicker';
+import {usePageReferenceNavigation} from '../src/renderer/src/page-reference-navigation';
 import {createControlledRenderer} from './controlled-renderer.fixture';
 import type {ArtifactInput,Task} from '../src/core/types';
 
@@ -42,7 +44,7 @@ async function fixture(){
  const visit=(node:ts.Node)=>{if(ts.isFunctionDeclaration(node)&&node.name?.text==='ArtifactEditor')declaration=node;ts.forEachChild(node,visit);};visit(file);if(!declaration)throw Error('Actual ArtifactEditor declaration is missing.');
  const bindings={useState:React.useState,useRef:React.useRef,useEffect:React.useEffect,useSyncExternalStore:React.useSyncExternalStore,...editorState,ordinaryTextDocument,createSavedDocumentDraftController,createRevisionInstructionsController,prepareSavedRevisionDraft,canEditRichText,renameDocumentTitle,useNavigationDraft,Button,Field,SavedDocumentDraftStatus,SourceLinks,RevisionCompare,
   last:<T,>(items:T[])=>items.at(-1)!,date:(value:string)=>value,signalPracticeDisplay:()=>null,Download:()=>null,
-  TaskMenu:({children}:{children:React.ReactNode})=>children,DeveloperDetails:()=>null,ReadableText:({text:body}:{text:string})=>React.createElement('div',{className:'readable-text'},body),RevisionInstructionsInput:()=>null,
+  TaskMenu:({children}:{children:React.ReactNode})=>children,DeveloperDetails:()=>null,ReadableText:({text:body}:{text:string})=>React.createElement('div',{className:'readable-text'},body),RevisionInstructionsInput:()=>null,PageReferencePicker,usePageReferenceNavigation,
  };
  const javascript=ts.transpileModule(declaration.getText(file),{fileName:'ArtifactEditor.tsx',compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText;
  const ArtifactEditor=Function('require','exports',...Object.keys(bindings),javascript+'\nreturn ArtifactEditor;')((id:string)=>{if(id==='react/jsx-runtime')return jsx;throw Error('Unexpected extracted editor dependency '+id);},{},...Object.values(bindings));

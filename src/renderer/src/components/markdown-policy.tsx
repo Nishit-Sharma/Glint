@@ -2,6 +2,7 @@ import {createElement} from 'react';
 import {defaultRehypePlugins,type Components} from 'streamdown';
 import {CodeBlock} from './CodeBlock';
 import {codeBlockSourcePlugin} from './code-block-source';
+import {parsePageReferenceHref,type PageReference} from '../../../shared/page-reference';
 import './markdown.css';
 
 const elements=['p','strong','em','code','pre','ul','ol','li','h1','h2','h3','h4','h5','h6','blockquote','hr','br','del','table','thead','tbody','tr','th','td','span','a','img','input','sup','sub'];
@@ -13,13 +14,13 @@ export const markdownPolicy={
  urlTransform:(url:string,key:string,node:{tagName:string})=>((node.tagName==='a'&&key==='href')||(node.tagName==='img'&&key==='src'))?url:'',
 };
 
-export function markdownComponents(hiddenHeadingLine?:number,copyEnabled=true):Components{
+export function markdownComponents(hiddenHeadingLine?:number,copyEnabled=true,onPageReference?:(reference:PageReference)=>void):Components{
  const components:Components={
   strong:({children})=><strong>{children}</strong>,
   em:({children})=><em>{children}</em>,
   del:({children})=><del>{children}</del>,
   p:({children})=><p className="markdown-paragraph">{children}</p>,
-  a:({children,href})=><span className="markdown-reference">{children}{href&&<> (<bdi>{href}</bdi>)</>}</span>,
+  a:({children,href})=>{const reference=parsePageReferenceHref(href);return reference&&onPageReference?<button type="button" className="markdown-page-reference" onClick={()=>onPageReference(reference)}>{children}</button>:<span className="markdown-reference">{children}{href&&<> (<bdi>{href}</bdi>)</>}</span>;},
   img:({alt,src})=><span className="markdown-image-reference">Image reference{alt?`: ${alt}`:''}{src?` (${src})`:''} — image not loaded.</span>,
   input:({type,checked})=>type==='checkbox'?<input type="checkbox" checked={Boolean(checked)} disabled readOnly aria-label={checked?'Checked task':'Unchecked task'}/>:null,
   li:({children,className})=><li className={className?.split(/\s+/).includes('task-list-item')?'task-list-item':undefined}>{children}</li>,
