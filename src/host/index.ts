@@ -5,6 +5,8 @@ import {readSavedWorkLibraryCommand} from '../shared/saved-work-library';
 import {readTaskSectionsCommand} from '../shared/task-sections';
 import {readOutputArchiveCommand} from '../shared/task-output-archive';
 import {TaskOutputArchives} from './task-output-archive';
+import {AnswerRatings} from './answer-rating';
+import {readAnswerRatingCommand} from '../shared/answer-rating';
 import {CsvWorkbooks} from './csv-workbook';
 import {readCsvWorkbookCommand} from '../shared/csv-workbook';
 import {readCsvStatisticsCommand} from '../shared/csv-statistics';
@@ -205,6 +207,7 @@ const documentImports=new DocumentImports({getTask:id=>core.getTask(id),putSourc
 const pdfPageImports=new PdfPageImports({getTask:id=>core.getTask(id),addPdfPageSources:(...args)=>core.addPdfPageSources(...args)},async()=>{const choice=await dialog.showOpenDialog(panel,{title:'Import visual PDF pages',properties:['openFile'],filters:[{name:'PDF document',extensions:['pdf']}]});return choice.canceled?undefined:choice.filePaths[0];});
 let viewSelectionQueue:Promise<unknown>=Promise.resolve()
 const taskViewPreferences=new TaskViewPreferences(dataDir,async id=>(await core.listTasks()).some(task=>task.id===id),id=>core.getTask(id),async()=>(await core.listTasks()).map(task=>task.id))
+const answerRatings=new AnswerRatings(dataDir,id=>core.getTask(id))
 const taskNotifications=new TaskNotifications({readNotifications:()=>taskViewPreferences.readNotifications(),mutateNotifications:update=>contentBackupGate.run('notifications.poll',()=>taskViewPreferences.mutateNotifications(update))},()=>core.listTasks(),async()=>({focused:!!panel&&!panel.isDestroyed()&&panel.isVisible()&&panel.isFocused(),mutedBotIds:notificationMuteScope(await botPreferences.read())}),()=>emit({type:'notifications.changed'}),Date.now,(notice,event)=>notificationToast.show(notice.id,event?.kind==='needs-input'?'Your study input is needed':event?.kind==='completed'?'Study attempt complete':notice.kind==='break'?'Time for a break?':'Your quiet hours',event?.summary??(notice.kind==='break'?'Your daily active-use reminder threshold was reached. You can continue whenever you choose.':'You asked for a reminder on opening Glint during this time. You can continue.')))
 const documentSpeech=new DocumentSpeech({directory:dataDir,core:{getTask:id=>core.getTask(id),replaceSession:(...args)=>core.replaceSession(...args)}})
 const codeWorkspaces=new CodeWorkspaces({directory:dataDir,core:{getTask:id=>core.getTask(id),saveArtifact:(...args)=>core.saveArtifact(...args)},choose:async()=>{const selected=await dialog.showOpenDialog(panel,{title:'Choose local code folder',message:'Browse supported text and code files locally. Each file write needs its own review.',properties:['openDirectory','dontAddToRecent']});return selected.canceled?undefined:selected.filePaths[0];}})
@@ -248,6 +251,7 @@ function validateComposerValue(value:unknown,withRevision:boolean){
 }
 function validate(value:unknown):Command{
   const c=object(value);str(c.type,'command',80)
+  if(String(c.type).startsWith('answerRating.'))return readAnswerRatingCommand(c);
   if(String(c.type).startsWith('task-sections.'))return readTaskSectionsCommand(c);
   if(String(c.type).startsWith('library.'))return readSavedWorkLibraryCommand(c);
   if(String(c.type).startsWith('outputs.'))return readOutputArchiveCommand(c);
@@ -1037,6 +1041,9 @@ async function command(c:Command,recurring?:RecurringInvocation,queued?:QueuedFo
     await preferences.check();await memory.check();await folderGuidance.check();const current=await core.previewInstructionRequest(c.taskId,c.expectedSkillRevision,[...c.sourceIds]);const currentInference=await resolveTaskRequestInference(current.task,c.prompt,c.kind,undefined,catalog);
     const latest=inspectPdfRequest(c.taskId,{prompt:c.prompt,sources:current.task.sources.map(source=>({...source.versions.at(-1)!})),taskHistory:current.taskHistory,responseMode:current.responseMode,projectInstructions:current.projectInstructions,preferences:preferences.current,memory,instructionSkill:current.instructionSkill,folderGuidance:folderGuidance.current},inference.selection,capability);
     if(result.wireDigest!==latest.wireDigest||JSON.stringify(inference)!==JSON.stringify(currentInference)||connectionEpoch!==keyEpoch||selectedProvider!=='codex')throw Error('The visual request context changed. Inspect it again before sending.');guard();preferences.assertCurrent();memory.assertCurrent();folderGuidance.assertCurrent();return result;
+  }
+  if(c.type==='answerRating.read'||c.type==='answerRating.set'){
+    const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.selection.taskId||requestedViewTaskId!==c.selection.taskId||sourceContextEpoch!==epoch)throw Error('Return to the original saved answer before rating it.');};guard();return c.type==='answerRating.read'?answerRatings.read(c,guard):answerRatings.set(c,guard);
   }
   if(isInstructionSkillCommand(c)){
     const epoch=sourceContextEpoch,guard=()=>{assertCurrentWork(lifecycle);if(currentViewTaskId!==c.taskId||requestedViewTaskId!==c.taskId||sourceContextEpoch!==epoch)throw Error('The skill owner task changed. Saved work is kept.');};guard();

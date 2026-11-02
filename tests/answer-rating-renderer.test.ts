@@ -1,0 +1,23 @@
+import {expect,test,vi} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('./controlled-renderer.fixture')).hooks}));
+vi.mock('lucide-react',()=>({ThumbsUp:()=>null,ThumbsDown:()=>null}));
+import {createElement} from 'react';
+import {setImmediate as yieldToRenderer} from 'node:timers/promises';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {AnswerRatings} from '../src/host/answer-rating';
+import {readAnswerRatingCommand,type AnswerRatingCommand,type AnswerRatingState} from '../src/shared/answer-rating';
+import {AnswerRating} from '../src/renderer/src/components/AnswerRating';
+import {createControlledRenderer} from './controlled-renderer.fixture';
+import {ratingTask,ratingSelection} from './answer-rating.fixture';
+
+test('thumbs retain exact local pressed state, recover lost acknowledgement by explicit read and retire delayed responses for another owner',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-answer-rating-ui-')),task=ratingTask(),other=ratingTask('other-owner'),ratings=new AnswerRatings(directory,async id=>structuredClone(id===task.id?task:other));let selection=ratingSelection(task),active=true,disabled=false,loseAck=false,failRead=false,barrier:Promise<void>|undefined,tail:Promise<unknown>=Promise.resolve();const calls:AnswerRatingCommand[]=[];
+ try{
+  async function invoke(input:unknown):Promise<AnswerRatingState>{const command=readAnswerRatingCommand(input);calls.push(command);if(barrier)await barrier;if(command.type==='answerRating.read'&&failRead)throw Error('Read unavailable');const guard=()=>{if(!active||command.selection.taskId!==selection.taskId)throw Error('Owner changed');};const result=command.type==='answerRating.read'?await ratings.read(command,guard):await ratings.set(command,guard);if(command.type==='answerRating.set'&&loseAck){loseAck=false;throw Error('Lost acknowledgement');}return result;}
+  vi.stubGlobal('window',{companion:{invoke(input:unknown){tail=invoke(input);return tail;}}});const renderer=createControlledRenderer(()=>createElement(AnswerRating,{selection,disabled,isCurrent:()=>active}));type Node=ReturnType<typeof renderer.nodes>[number];const text=(node:Node):string=>node.type==='#text'?node.props.text:node.children.map(text).join(''),button=(label:string)=>renderer.find(node=>node.type==='button'&&text(node)===label),settle=async()=>{await tail.catch(()=>{});await yieldToRenderer();renderer.render();},click=async(label:string)=>{button(label).props.onClick();renderer.render();await settle();};renderer.render();expect(button('Helpful').props.disabled).toBe(true);await settle();expect(button('Helpful').props.disabled).toBe(false);expect(button('Helpful').props['aria-pressed']).toBe(false);expect(renderer.find(node=>node.props.role==='status')).toBeDefined();await click('Helpful');expect(button('Helpful').props['aria-pressed']).toBe(true);expect(button('Not helpful').props['aria-pressed']).toBe(false);const firstSet=calls.find(command=>command.type==='answerRating.set');expect(firstSet?.selection.answer.revision).toBe(1);
+  loseAck=true;await click('Not helpful');expect(button('Helpful').props['aria-pressed']).toBe(true);const count=calls.filter(command=>command.type==='answerRating.set').length;expect(button('Helpful').props.disabled).toBe(true);expect(button('Not helpful').props.disabled).toBe(true);button('Helpful').props.onClick();renderer.render();await settle();expect(calls.filter(command=>command.type==='answerRating.set')).toHaveLength(count);failRead=true;await click('Reload rating');expect(button('Helpful').props['aria-pressed']).toBe(true);expect(button('Not helpful').props.disabled).toBe(true);failRead=false;await click('Reload rating');expect(calls.filter(command=>command.type==='answerRating.set')).toHaveLength(count);expect(button('Not helpful').props['aria-pressed']).toBe(true);expect(button('Helpful').props['aria-pressed']).toBe(false);expect(button('Helpful').props.disabled).toBe(false);
+  let release=()=>{};barrier=new Promise<void>(resolve=>{release=resolve;});button('Reload rating').props.onClick();renderer.render();selection=ratingSelection(other);renderer.render();release();await settle();barrier=undefined;expect(button('Helpful').props['aria-pressed']).toBe(false);expect(button('Not helpful').props['aria-pressed']).toBe(false);disabled=true;renderer.render();expect(button('Helpful').props.disabled).toBe(true);expect(button('Reload rating').props.disabled).toBe(true);const before=calls.length;active=false;button('Helpful').props.onClick();expect(calls).toHaveLength(before);
+ }finally{vi.unstubAllGlobals();await rm(directory,{recursive:true,force:true});}
+});

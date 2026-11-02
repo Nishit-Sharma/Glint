@@ -64,6 +64,7 @@ import type {CsvChartCommand} from './csv-chart';
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
 export type Command = TaskResponseModeCommand
+  | import('./answer-rating').AnswerRatingCommand
   | TaskSectionsCommand
   | OutputArchiveCommand
   | SavedWorkLibraryCommand
