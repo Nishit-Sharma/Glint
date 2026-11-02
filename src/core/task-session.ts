@@ -1,3 +1,4 @@
+import {TaskResponseModeSchema} from '../shared/task-response-mode';
 import {TaskMemoryPolicySchema} from '../shared/task-memory-policy';
 import {OutputArchiveReceiptSchema,OutputArchivePendingSchema} from '../shared/task-output-archive';
 import {RequestInferenceSavedSchema} from '../shared/request-inference';
@@ -39,6 +40,7 @@ export const BrowserOperationSchema = Schema.Struct({
   error: Schema.optional(text),
 });
 export const TaskSessionSchema = Schema.Struct({
+  responseMode:Schema.optional(TaskResponseModeSchema),
   outputArchives:Schema.optional(Schema.Array(OutputArchiveReceiptSchema).pipe(Schema.maxItems(20))),
   outputArchivePending:Schema.optional(OutputArchivePendingSchema),
   memoryPolicy:Schema.optional(TaskMemoryPolicySchema),

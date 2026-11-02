@@ -1,3 +1,4 @@
+import type {TaskResponseModeCommand} from './task-response-mode';
 import type {SavedWorkLibraryCommand} from './saved-work-library';
 import type {TaskSectionsCommand} from './task-sections';
 import type {OutputArchiveCommand} from './task-output-archive';
@@ -61,7 +62,7 @@ import type {CsvChartCommand} from './csv-chart';
 
 import type {CodeBlockCopyCommand} from './code-block-copy';
 
-export type Command =
+export type Command = TaskResponseModeCommand
   | TaskSectionsCommand
   | OutputArchiveCommand
   | SavedWorkLibraryCommand

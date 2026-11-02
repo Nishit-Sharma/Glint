@@ -1,3 +1,4 @@
+import type {ResponseMode} from '../shared/task-response-mode';
 import type {RequestInferenceSelection} from '../shared/request-inference';
 import type {InstructionSkillReference,InstructionSkillSnapshot,InstructionSkillAvailability} from '../shared/instruction-skill';
 import type {ConversationAttemptReceipt} from '../shared/conversation-attempt';
@@ -43,6 +44,7 @@ export interface ModuleStateRef { artifactId: string; artifactRevision: number; 
 export interface SessionCommitGuard { sourceRefs: SourceRef[]; artifactRefs: ArtifactRef[]; requireActive?:boolean }
 export type RequestStatus = 'running' | 'completed' | 'cancelled' | 'interrupted' | 'failed';
 export interface RequestRecord {
+  responseMode?:ResponseMode;
   responseModel?:import('../shared/response-model').ResponseModelReceipt;
   instructionSkill?:InstructionSkillReference;
   inference?:RequestInferenceSelection;
@@ -109,8 +111,9 @@ export interface ProcedureInput {
   originArtifact?: { artifactId: string; revision: number };
 }
 /** The detached task's sources contain only the request's selected current versions. */
-export interface RequestContext { task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; instructionSkill?:InstructionSkillSnapshot; signal: AbortSignal }
+export interface RequestContext { responseMode?:ResponseMode; task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; instructionSkill?:InstructionSkillSnapshot; signal: AbortSignal }
 export interface RequestInput {
+  responseMode?:ResponseMode;
   instructionSkill?:InstructionSkillReference|null;
   instructionSkillRevision?:number;
   inference?:RequestInferenceSelection;

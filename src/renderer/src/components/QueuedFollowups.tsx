@@ -14,6 +14,7 @@ export function QueuedFollowups({task,disabled,canRecover,onHold,onSave,onCancel
    <div className="queue-item-heading"><strong>{item.status==='queued'?'Waiting':item.status==='held'?'Held for review':'Cancelled'}</strong><span>{item.kind==='create'?'Draft':'Question'} · version {item.revision}</span></div>
    {editing?.id===item.id?<label>Queued message<textarea aria-label="Edit queued message" value={editing.text} maxLength={16000} disabled={disabled||saving} onChange={event=>setEditing({...editing,text:event.target.value})}/></label>:<p className="queue-prompt">{item.prompt}</p>}
    <p className="queue-context">{item.sourceRefs.length?item.sourceRefs.map(ref=>{const source=task.sources.find(source=>source.id===ref.sourceId),version=source?.versions.find(version=>version.version===ref.version&&version.digest===ref.digest);return `${version?.label??'Earlier source'} · version ${ref.version}`;}).join(', '):'No sources selected'} · same-task history, including preceding responses</p>
+   {item.responseMode==='plan'&&<p className="queue-context">Plan mode · planning-only text. Later task mode choices do not change this follow-up.</p>}
    {item.inference&&<p className="queue-context">Saved model choice: {item.inference.model} · {item.inference.effort} reasoning · {item.inference.tier==='priority'?'Fast':'Standard'} speed. Later task choices do not change this follow-up.</p>}
    {item.reason&&<p role="status">{item.reason}</p>}
    <div className="row">

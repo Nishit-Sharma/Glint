@@ -1,3 +1,4 @@
+import {ResponseModeSchema,taskResponseMode,type ResponseMode} from '../shared/task-response-mode';
 import {readSavedWorkLibraryCommand,readSavedLinkDefinition,savedLink,SAVED_LINK_MIME,type SavedWorkLibraryCommand,type SavedLinkResult} from '../shared/saved-work-library';
 import {outputArchiveBasisText,readOutputArchiveReceipt,readOutputArchivePending,type OutputArchiveReceipt,type OutputArchivePending} from '../shared/task-output-archive';
 import {CSV_STATISTICS_MIME,readCsvStatisticsCommand,readCsvStatistics,csvStatistics,type CsvStatisticsData,type CsvStatisticsSave,type CsvStatisticsSaved} from '../shared/csv-statistics';
@@ -79,7 +80,7 @@ const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKi
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
 function requestSession(session:TaskSession):TaskSession{
-  const {outputArchivePending:_outputArchivePending,outputArchives:_outputArchives,memoryPolicy:_memoryPolicy,instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
+  const {responseMode:_responseMode,outputArchivePending:_outputArchivePending,outputArchives:_outputArchives,memoryPolicy:_memoryPolicy,instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
   return {...rest,draft:''};
 }
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
@@ -819,7 +820,12 @@ export class Companion {
       return clone(availableInstructionSkillEntry(this.state.tasks,chosen));});
   }
   previewInstructionRequest(taskId:string,expectedRevision:number,sourceIds:string[]):Promise<Omit<RequestContext,'signal'>>{
-    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection,selected=new Set(sourceIds);return clone({task:{...task,sources:task.sources.filter(source=>selected.has(source.id)).map(source=>({...source,versions:[latest(source.versions)]}))},sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:availableInstructionSkillEntry(this.state.tasks,chosen)}:{})});});
+    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection,selected=new Set(sourceIds);return clone({responseMode:taskResponseMode(task.session).mode,task:{...task,sources:task.sources.filter(source=>selected.has(source.id)).map(source=>({...source,versions:[latest(source.versions)]}))},sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:availableInstructionSkillEntry(this.state.tasks,chosen)}:{})});});
+  }
+  setTaskResponseMode(taskId:string,expectedRevision:number,mode:ResponseMode,assertCurrent:()=>void=()=>{}):Promise<Task>{
+    mode=Schema.decodeUnknownSync(ResponseModeSchema)(mode);
+    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)return Promise.reject(Error('The response mode revision is invalid.'));
+    return this.exclusive(()=>this.commit(state=>{assertCurrent();const task=this.task(state,taskId),session=task.session??emptyTaskSession(),current=taskResponseMode(session);if(task.status!=='active'||task.archive)throw Error('Open and resume the task before changing response mode.');if(current.revision!==expectedRevision)throw Error('The response mode changed. Read the saved mode before choosing again.');if(current.mode===mode)return task;if(current.revision===Number.MAX_SAFE_INTEGER)throw Error('The response mode revision limit was reached.');task.session={...session,revision:session.revision+1,responseMode:{mode,revision:current.revision+1}};task.updatedAt=this.time();return task;}));
   }
   setRequestInference(taskId:string,expectedRevision:number,selection:RequestInferenceSelection|null,assertCurrent:()=>void=()=>{},policy:RequestInferencePolicy='fixed'):Promise<RequestInferenceState>{
     const chosen=selection===null?null:readRequestInferenceSelection(selection);
@@ -866,6 +872,7 @@ export class Companion {
       if((existing?.revision??0)!==expectedRevision||existing&&(existing.status==='dispatched'||existing.status==='cancelled')||item.revision!==expectedRevision+1)reject('conflict','This queued follow-up changed. Reload before editing.');
       if(this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis)reject('conflict','The queued context changed before saving. Your text is kept.');
       this.validRefs(task,[...item.sourceRefs]);
+      if((item.responseMode??'ordinary')!==(existing?existing.responseMode??'ordinary':taskResponseMode(session).mode))reject('conflict','The queued response mode changed. Keep its reviewed mode.');
       if(!sameInstructionSkill(existing?existing.instructionSkill:instructionSkillSelection(session).selection,item.instructionSkill))reject('conflict','The queued skill choice changed. Keep its original pinned selection.');
       if(item.instructionSkill)availableInstructionSkillEntry(state.tasks,item.instructionSkill);
       if(index<0){if(items.length>=100)reject('invalid','This task has reached its saved follow-up limit.');if(state.usedRequestIds.includes(item.id)||state.tasks.some(owner=>owner.id!==taskId&&owner.session?.queuedFollowups?.some(entry=>entry.id===item.id)))reject('conflict','This follow-up identity is already used.');items.push(item);}else{items[index]=item;for(let position=index+1;position<items.length;position++)if(items[position].status==='queued')items[position]={...items[position],status:'held',reason:'An earlier queued message changed. Review this follow-up before queueing it again.'};}
@@ -1408,6 +1415,7 @@ export class Companion {
 
   async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
     input = clone(input);
+    if(input.responseMode!==undefined)input.responseMode=Schema.decodeUnknownSync(ResponseModeSchema)(input.responseMode);
     if(input.inference!==undefined)input.inference=readRequestInferenceSelection(input.inference);
     if(input.instructionSkill!==undefined&&input.instructionSkill!==null)input.instructionSkill=Schema.decodeUnknownSync(InstructionSkillReferenceSchema,{onExcessProperty:'error'})(input.instructionSkill);
     if(input.instructionSkillRevision!==undefined&&(!Number.isSafeInteger(input.instructionSkillRevision)||input.instructionSkillRevision<0))throw Error('The task skill choice revision is invalid.');
@@ -1421,7 +1429,12 @@ export class Companion {
     const begun = await this.exclusive(async () => {
       const task = this.task(this.state, input.taskId), sourceRefs = this.requestRefs(task, input.sourceIds);
       const ordinarySkill=['explain','create'].includes(input.kind)&&!input.artifactId&&(!input.executionScope||input.executionScope.startsWith('response-preferences:v1:'));
+      const ordinaryResponse=ordinarySkill||['explain','create'].includes(input.kind)&&!input.artifactId&&/^folder-instructions:v1:[a-f0-9]{64}$/.test(input.executionScope??'');
       if(!ordinarySkill&&(input.instructionSkill||input.instructionSkillRevision!==undefined))throw Error('Skills apply only to ordinary questions and drafts.');
+      if(input.responseMode!==undefined&&!ordinaryResponse)throw Error('Response mode applies only to ordinary questions and drafts.');
+      const previous=task.requests.find(request=>request.id===input.requestId),queuedMode=input.queuedFollowup?task.session?.queuedFollowups?.find(item=>item.id===input.queuedFollowup!.id)?.responseMode??'ordinary':undefined;
+      const responseMode=ordinaryResponse?input.responseMode??queuedMode??(previous?previous.responseMode??'ordinary':taskResponseMode(task.session).mode):undefined;
+      if(responseMode!==undefined)input.responseMode=responseMode;
       const currentSkill=instructionSkillSelection(task.session);
       if(ordinarySkill&&!input.queuedFollowup&&(!sameInstructionSkill(currentSkill.selection,input.instructionSkill)||input.instructionSkillRevision!==undefined&&input.instructionSkillRevision!==currentSkill.revision))throw Error('The selected skill changed. Review the current task choice before asking.');
       const skill=input.instructionSkill?instructionSkillEntry(this.state.tasks,input.instructionSkill):undefined;
@@ -1436,8 +1449,10 @@ export class Companion {
       const existing = task.requests.find(request => request.id === input.requestId);
       if (existing) {
         // Existing stores may contain the previous payload-only digest for an unscoped request.
-        const legacyReplay = input.sourceIds === undefined && existing.digest === hash(JSON.stringify(input));
-        if (existing.digest !== digest && !legacyReplay) reject('conflict', 'Request ID has a different payload or source scope.');
+        const legacyOrdinary=existing.responseMode===undefined&&responseMode==='ordinary',legacyInput={...input,responseMode:undefined};
+        const legacyReplay = input.sourceIds === undefined && (existing.digest===hash(JSON.stringify(input))||legacyOrdinary&&existing.digest===hash(JSON.stringify(legacyInput)));
+        const legacyModeReplay=legacyOrdinary&&existing.digest===hash(JSON.stringify({...legacyInput,sourceIds:input.sourceIds===undefined?undefined:sourceRefs.map(ref=>ref.sourceId),sourceRefs,...(projectInstructions?{projectInstructions}:{})}));
+        if (existing.digest !== digest && !legacyReplay && !legacyModeReplay) reject('conflict', 'Request ID has a different payload or source scope.');
         return { existing: clone(existing) };
       }
       if(input.instructionSkill&&!input.queuedFollowup)availableInstructionSkillEntry(this.state.tasks,input.instructionSkill);
@@ -1465,12 +1480,12 @@ export class Companion {
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
-        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||!sameRequestInference(item.inference,input.inference)||!sameInstructionSkill(item.instructionSkill,input.instructionSkill)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
-        task.requests.push({ ...(input.instructionSkill?{instructionSkill:clone(input.instructionSkill)}:{}),...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||(item.responseMode??'ordinary')!==responseMode||!sameRequestInference(item.inference,input.inference)||!sameInstructionSkill(item.instructionSkill,input.instructionSkill)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
+        task.requests.push({ ...(responseMode?{responseMode}:{}),...(input.instructionSkill?{instructionSkill:clone(input.instructionSkill)}:{}),...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
         const selected = new Set(sourceRefs.map(ref => ref.sourceId));
         const {publicGithub:_publicGithub,...requestTask}=task;
-        return { ...(skill?{instructionSkill:clone(skill)}:{}),...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...requestTask,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        return { ...(responseMode?{responseMode}:{}),...(skill?{instructionSkill:clone(skill)}:{}),...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...requestTask,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
       return { context };

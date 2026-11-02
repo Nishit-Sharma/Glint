@@ -1,3 +1,4 @@
+import {ResponseModeSchema} from './task-response-mode';
 import {RequestInferenceSelectionSchema} from './request-inference';
 import {InstructionSkillReferenceSchema} from './instruction-skill';
 import {Schema} from 'effect';
@@ -9,6 +10,7 @@ const kind=Schema.Literal('explain','create');
 const refs=Schema.Array(Schema.Struct({sourceId:id,version:revision,digest:id})).pipe(Schema.maxItems(64));
 const fingerprint=Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/));
 export const QueuedFollowupSchema=Schema.Struct({
+ responseMode:Schema.optional(ResponseModeSchema),
  instructionSkill:Schema.optional(InstructionSkillReferenceSchema),
  id,revision,prompt,kind,createdAt:id,sourceRefs:refs,inference:Schema.optional(RequestInferenceSelectionSchema),
  status:Schema.Literal('queued','held','cancelled','dispatched'),reason:Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
