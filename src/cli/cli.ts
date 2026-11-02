@@ -9,12 +9,12 @@ import {isPresetCliCommand,runPresetCli} from './presets';
 export const CLI_FILE_LIMIT=32*1024*1024;
 export const CLI_OUTPUT_LIMIT=262144;
 type Display={-readonly [Key in 'format'|'includeSourceLabels'|'excerptChars']:CliPreferences[Key]};
-type Selection={kind:'help'}|{kind:'tasks';limit:number}|{kind:'task';id:string}|{kind:'settings';search:string};
+type Selection={kind:'copy'}|{kind:'help'}|{kind:'tasks';limit:number}|{kind:'task';id:string}|{kind:'settings';search:string};
 export type CliArguments={selection:Selection;dataDir?:string;overrides:Partial<Display>};
 type TaskSummary={id:string;title:string;status:'active'|'paused';archived:boolean;updatedAt:string;sourceCount:number};
 type SourceSummary={id:string;kind:'text'|'image'|'window';freshness:'fresh'|'refresh-required';label?:string;excerpt?:string};
-type Snapshot={preferences:CliPreferences;tasks:State['tasks']};
-export const CLI_HELP='Glint CLI · read saved tasks\n\nUsage: glint tasks [--limit 1..100]\n       glint task <task-id>\n       glint settings [--search <text>]\n       glint help\n\nOptions: --data-dir <absolute-path>  --format text|json\n         --source-labels true|false  --excerpt-chars 0..256\n\nPreferences → CLI saves defaults. Each invocation reads the saved values; no restart is needed.\nThis CLI reads a task snapshot. It cannot change tasks or run requests.\n\nLocal prompt presets (separate cli-presets.json; tasks remain untouched):\n  glint presets list [--format json]\n  glint presets save <1..10> <name> --file <absolute-prompt.md>\n  glint presets save <1..10> <name> --text <literal-prompt>\n  glint presets edit <1..10> <name> --expect <catalog-revision> --file <path>\n  glint presets delete <1..10> --expect <catalog-revision>\n  glint presets show <slot-or-name>\n  glint presets recall <slot-or-name> [-- arguments]\n  glint /prompts:name [arguments]\n  glint prompt | glint /presets (interactive keyboard menu)\n\nMarkdown body is retained; an initial UTF-8 BOM is removed. No implicit imports.\nParameters: $1..$9, $ARGUMENTS (all positional), $NAME or NAME=value; $$ is literal $.\nQuote arguments containing spaces. Missing/unused arguments fail clearly.\nRecall expands text once: slash commands, shell text and control characters never execute.\nWorkbench recall stays an editable local draft, never submits, and ends with /quit.\nThe vendor Markdown-prompt mechanism was deprecated; this is a local Glint workflow.\n';
+export type Snapshot={preferences:CliPreferences;tasks:State['tasks']};
+export const CLI_HELP='Glint CLI · read saved tasks\n\nUsage: glint tasks [--limit 1..100]\n       glint task <task-id>\n       glint settings [--search <text>]\n       glint /copy [--data-dir <absolute-path>]\n       glint help\n\nOptions: --data-dir <absolute-path>  --format text|json\n         --source-labels true|false  --excerpt-chars 0..256\n\nPreferences → CLI saves defaults. Each invocation reads the saved values; no restart is needed.\nThis CLI reads a task snapshot. It cannot change tasks or run requests.\n/copy requires a TTY: choose a task and transcript blocks; Ctrl+Insert copies selected blocks on macOS via /usr/bin/pbcopy. No stdout copy fallback.\n\nLocal prompt presets (separate cli-presets.json; tasks remain untouched):\n  glint presets list [--format json]\n  glint presets save <1..10> <name> --file <absolute-prompt.md>\n  glint presets save <1..10> <name> --text <literal-prompt>\n  glint presets edit <1..10> <name> --expect <catalog-revision> --file <path>\n  glint presets delete <1..10> --expect <catalog-revision>\n  glint presets show <slot-or-name>\n  glint presets recall <slot-or-name> [-- arguments]\n  glint /prompts:name [arguments]\n  glint prompt | glint /presets (interactive keyboard menu)\n\nMarkdown body is retained; an initial UTF-8 BOM is removed. No implicit imports.\nParameters: $1..$9, $ARGUMENTS (all positional), $NAME or NAME=value; $$ is literal $.\nQuote arguments containing spaces. Missing/unused arguments fail clearly.\nRecall expands text once: slash commands, shell text and control characters never execute.\nWorkbench recall stays an editable local draft, never submits, and ends with /quit.\nThe vendor Markdown-prompt mechanism was deprecated; this is a local Glint workflow.\n';
 export function parseCliArguments(args:readonly string[]):CliArguments{
  if(args.length>24||args.some(arg=>arg.length>4096||/[\u0000-\u001f\u007f-\u009f]/.test(arg)))throw Error('Invalid CLI arguments. Run glint help.');
  const positionals:string[]=[],flags=new Map<string,string>();
@@ -34,6 +34,7 @@ export function parseCliArguments(args:readonly string[]):CliArguments{
  const [command,id]=positionals;
  let selection:Selection;
  if((command===undefined||command==='help')&&positionals.length<=1){if(flags.size)throw Error('Use glint help on its own.');selection={kind:'help'};}
+ else if(command==='/copy'&&positionals.length===1){if([...flags.keys()].some(key=>key!=='--data-dir'))throw Error('/copy accepts only --data-dir.');selection={kind:'copy'};}
  else if(command==='tasks'&&positionals.length===1){const limit=number(flags.get('--limit')??'50',100);if(limit<1)throw Error('--limit must be from 1 to 100.');selection={kind:'tasks',limit};}
  else if(command==='task'&&positionals.length===2&&id.length>0&&id.length<=200)selection={kind:'task',id};
  else if(command==='settings'&&positionals.length===1){const search=flags.get('--search')??'';if(search.length>200)throw Error('Settings search is too long.');selection={kind:'settings',search};}
@@ -46,7 +47,7 @@ export function defaultCliDataDir(platform=process.platform,home=homedir(),env:N
  const appData=platform==='darwin'?join(home,'Library','Application Support'):platform==='win32'?(env.APPDATA??join(home,'AppData','Roaming')):(env.XDG_CONFIG_HOME??join(home,'.config'));
  return join(appData,'window-companion','tasks');
 }
-async function readSnapshot(dataDir:string):Promise<Snapshot>{
+export async function readSnapshot(dataDir:string):Promise<Snapshot>{
  let file;
  try{
   file=await open(join(dataDir,'tasks.json'),constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
@@ -54,7 +55,7 @@ async function readSnapshot(dataDir:string):Promise<Snapshot>{
   const bytes=Buffer.alloc(Math.min(stat.size+1,CLI_FILE_LIMIT+1));let length=0;
   while(length<bytes.length){const read=await file.read(bytes,length,bytes.length-length,null);if(read.bytesRead===0)break;length+=read.bytesRead;}
   if(length!==stat.size)throw Error('Task snapshot changed while reading.');
-  const state=parseCurrentState(JSON.parse(bytes.subarray(0,length).toString('utf8')));
+  const state=parseCurrentState(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,length))));
   return {preferences:state.cliPreferences??defaultCliPreferences(),tasks:state.tasks};
  }catch{throw Error('The saved task snapshot could not be read. Existing files were preserved. Open Glint to review the store or choose --data-dir.');}
  finally{await file?.close();}
@@ -70,7 +71,7 @@ function sourceSummaries(task:State['tasks'][number],display:Display):SourceSumm
 }
 export async function runCli(args:readonly string[],defaultDirectory?:string):Promise<string>{
  if(isPresetCliCommand(args))return runPresetCli(args,defaultDirectory??defaultCliDataDir());
- const parsed=parseCliArguments(args);if(parsed.selection.kind==='help')return CLI_HELP;
+ const parsed=parseCliArguments(args);if(parsed.selection.kind==='help')return CLI_HELP;if(parsed.selection.kind==='copy')throw Error('/copy requires the interactive CLI entry and a terminal. No clipboard write occurred.');
  const snapshot=await readSnapshot(parsed.dataDir??defaultDirectory??defaultCliDataDir()),display={...snapshot.preferences,...parsed.overrides};
  let result:unknown,lines:string[];
  if(parsed.selection.kind==='settings'){
