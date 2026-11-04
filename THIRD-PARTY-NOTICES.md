@@ -1,6 +1,6 @@
 # Third-party notices
 
-Glint's own code and art are by Nishit Sharma (Glint) and are covered by the project licence (see `LICENSE` once it is added). This includes the character designs, the 3D character code in `src/renderer/src/character-original/` (apart from its `vendor/` folder), `shape-assets.json`, the `bot-thumbnails/` renders, the app icon (`build/companion*`) and the menu-bar icon (`build/tray/`, `src/host/tray-image.ts`). They were made from scratch for this project.
+Glint's own code and art are by Nishit Sharma (Glint) and are covered by the project licence (MIT; see [LICENSE](LICENSE)). This includes the character designs, the 3D character code in `src/renderer/src/character-original/` (apart from its `vendor/` folder), `shape-assets.json`, the `bot-thumbnails/` renders, the app icon (`build/companion*`) and the menu-bar icon (`build/tray/`, `src/host/tray-image.ts`). They were made from scratch for this project.
 
 The third-party material below is **not** covered by the project licence and keeps its own terms. The full licence texts are next to the vendored code and in `src/renderer/public/licenses/`, which the app also ships.
 
