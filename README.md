@@ -113,7 +113,9 @@ Not yet verified:
 
 ## Credits and licence
 
-Nishit Sharma created Glint, including the character designs and art: `src/renderer/src/character-original/`, `bot-thumbnails/`, the app icon and the menu-bar icon. They are covered by the project licence (MIT; see [LICENSE](LICENSE)).
+Glint is built by Nishit Sharma and Matthew Li.
+
+Nishit Sharma created the character designs and art: `src/renderer/src/character-original/`, `bot-thumbnails/`, the app icon and the menu-bar icon. They are covered by the project licence (MIT; see [LICENSE](LICENSE)).
 
 Some vendored code keeps its own terms:
 

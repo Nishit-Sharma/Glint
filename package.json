@@ -3,6 +3,7 @@
   "version": "0.4.10-dev.20261026",
   "private": true,
   "description": "Local window-aware desktop companion",
+  "contributors": ["Nishit Sharma", "Matthew Li"],
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
