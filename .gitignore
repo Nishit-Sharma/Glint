@@ -1,60 +1,30 @@
-# Dependencies & caches
+# Dependencies
 node_modules/
-.npm-cache/
-.pnpm-store/
-.yarn/
-*.log
-npm-debug.log*
 
-# Build / packaging output
+# Build output
 out/
 dist/
 build/release/
 *.asar
 *.dmg
-*.app/
-*.exe
-*.AppImage
 
-# Local runtime / agent scratch (not for public)
-.next/
-next/
-.runtime/
-.review/
-.audit/
-.cursor/
-.codex/
-.vscode/
-.idea/
-
-# Tests & verification artifacts
+# Test output
 evidence/
+work/
 test-results/
-test-results-browser/
 playwright-report/
 coverage/
-.nyc_output/
-*.lcov
 
-# Env & secrets
+# Local environment and secrets
 .env
 .env.*
 !.env.example
 *.pem
 *.p12
 *.key
-credentials.json
-**/secrets/
 
-# OS / editor junk
+# OS and editor files
 .DS_Store
-Thumbs.db
-*.swp
-*~
-
-# Large / private reference material
-references/library/
-
-# Internal agent handoffs (local only)
-HANDOFF.md
-REUSE-HANDOFF.md
+.vscode/
+.idea/
+*.log

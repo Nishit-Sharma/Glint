@@ -4,7 +4,7 @@ import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {chromium,expect} from '@playwright/test';
 
 const evidence='evidence/module-arrival-motion';await mkdir(evidence,{recursive:true});
-await build({entryPoints:['fixtures/motion/tall-motion-preview.tsx'],bundle:true,format:'esm',outfile:'test-results/module-arrival-motion/build/tall-motion.js',loader:{'.woff2':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
+await build({entryPoints:['scripts/fixtures/motion/tall-motion-preview.tsx'],bundle:true,format:'esm',outfile:'test-results/module-arrival-motion/build/tall-motion.js',loader:{'.woff2':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
 const server=createServer(async(req,res)=>{
  try{
   if(req.url?.startsWith('/preview.js')){res.setHeader('content-type','application/javascript');res.end(await readFile('test-results/module-arrival-motion/build/tall-motion.js'));return;}

@@ -1,0 +1,4 @@
+import {defineConfig} from '@playwright/test';
+import {rooted} from './root';
+process.env.WINDOW_COMPANION_TEST_PORT='47881';
+export default rooted(defineConfig({testDir:'tests',testMatch:'helper-suggestions.e2e.ts',outputDir:'work/continuation/selected-suggestions/rendered/results',workers:1,retries:0,timeout:90000,expect:{timeout:7000},use:{baseURL:'http://127.0.0.1:47881',headless:true,viewport:{width:1080,height:800},reducedMotion:'reduce',trace:'retain-on-failure'},reporter:[['list'],['json',{outputFile:'work/continuation/selected-suggestions/rendered/results.json'}]],webServer:{command:'npx vite --config tests/config/vite.helper-suggestions.config.ts',url:'http://127.0.0.1:47881',reuseExistingServer:false,timeout:60000}}));

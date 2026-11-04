@@ -1,4 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "include": ["src", "tests", "electron.vite.config.ts", "playwright.config.ts", "vitest.picking.config.ts"]
-}

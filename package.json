@@ -9,8 +9,8 @@
     "dev": "electron-vite dev",
     "build": "node scripts/build-cli-launcher.mjs && node scripts/build-document-source.mjs && tsc --noEmit && electron-vite build",
     "preview": "electron-vite preview",
-    "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test": "vitest run --config tests/config/vitest.config.ts",
+    "test:e2e": "playwright test -c tests/config/playwright.config.ts",
     "package": "npm run build && electron-builder --dir",
     "verify": "node scripts/verify.mjs"
   },

@@ -17,7 +17,7 @@ if(scope==='native')plan.push(['npm',['run','test:e2e','--',...nativeSpecs.map(n
 if(args.includes('--dry-run')){console.log(JSON.stringify({scope,plan,liveProviders:false,native:scope==='all'||scope==='native'},null,2));process.exit(0)}
 const paths=[];
 async function collect(dir){for(const e of await readdir(dir,{withFileTypes:true})){const p=join(dir,e.name);if(e.isDirectory())await collect(p);else if(e.isFile())paths.push(p)}}
-for(const dir of ['src','tests','scripts','build','native','fixtures'])await collect(dir);
+for(const dir of ['src','tests','scripts','build','native'])await collect(dir);
 paths.push('package.json','package-lock.json','tsconfig.json',...(await readdir('.')).filter(name=>name.endsWith('.config.ts')));paths.sort();
 const hash=createHash('sha256');const files=[];
 for(const path of paths){const bytes=await readFile(path);const digest=createHash('sha256').update(bytes).digest('hex');hash.update(path+'\0'+digest+'\n');files.push({path,digest})}
@@ -38,7 +38,7 @@ for(const [command,argv] of plan){
  await writeFile('evidence/verification.json',JSON.stringify(evidence,null,2));
 }
 const before=new Map(files.map(file=>[file.path,file.digest]));paths.length=0;
-for(const dir of ['src','tests','scripts','build','native','fixtures'])await collect(dir);
+for(const dir of ['src','tests','scripts','build','native'])await collect(dir);
 paths.push('package.json','package-lock.json','tsconfig.json',...(await readdir('.')).filter(name=>name.endsWith('.config.ts')));paths.sort();
 const changed=[];for(const path of paths){const digest=createHash('sha256').update(await readFile(path)).digest('hex');if(before.get(path)!==digest)changed.push(path);before.delete(path);}changed.push(...before.keys());
 if(changed.length){evidence.status='source-changed';evidence.changedDuringVerification=changed;await writeFile('evidence/verification.json',JSON.stringify(evidence,null,2));console.error('Source changed during verification; run the affected checks again.');process.exit(1);}

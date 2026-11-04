@@ -1,5 +1,0 @@
-{
- "extends":"./tsconfig.json",
- "include":["src/host/index.ts","src/renderer/src/App.tsx","tests/learning-draft-basis.test.ts","tests/window-learning-entry.e2e.ts","tests/window-learning-conversation.test.ts","tests/window-learning-compatibility.test.ts","tests/window-review-presentation.test.ts","tests/window-review-publication.test.ts","tests/window-learning-host.test.ts","tests/window-learning-capture.test.ts","tests/window-learning-drafts.test.ts","tests/window-learning-form.test.ts","tests/window-workflow-proposal.test.ts","tests/window-workflow-review.test.ts"],
- "exclude":["node_modules","next"]
-}
