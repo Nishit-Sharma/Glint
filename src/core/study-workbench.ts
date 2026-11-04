@@ -5,7 +5,7 @@ export const STUDY_MODULE_ID='study-workbench';
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 export function studyMaterial(task:Task,reference:SourceRef){
  const source=task.sources.find(source=>source.id===reference.sourceId),version=source?.versions.find(version=>version.version===reference.version&&version.digest===reference.digest);
- if(!source||!version||version.kind!=='text'||source.freshness!=='fresh'||source.currentVersion!==version.version)throw Error('The study notes changed. Choose and review the current text source.');
+ if(!source||source.revoked||!version||version.kind!=='text'||source.freshness!=='fresh'||source.currentVersion!==version.version)throw Error('The study notes changed. Choose and review the current text source.');
  return {reference:{...reference},label:version.label,text:version.content};
 }
 export function studyDeck(task:Task,reference:ArtifactRef,latest=true):{deck:StudySet;revision:ArtifactRevision;state:StudyState}{

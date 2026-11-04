@@ -1,7 +1,7 @@
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach,beforeEach,expect,test} from 'vitest';
+import {afterEach,beforeEach,expect,test,vi} from 'vitest';
 import {createCompanion,type Companion} from '../src/core/companion';
 import {createTextHelper,readTextHelperCreate} from '../src/core/text-helper-host';
 import {parseModuleAnswer} from '../src/core/interactive-modules';
@@ -84,13 +84,28 @@ test('paused owners cannot create and a deleted owner is never resurrected by re
  expect(await core.listTasks()).toEqual([]);
 });
 
+test('a current-work failure before admission leaves no request or helper',async()=>{
+ const owner=await core.createTask({title:'Before admission'}),before=await core.getTask(owner.id),runRequest=core.runRequest.bind(core);let active=true,runnerInvoked=false;
+ const spy=vi.spyOn(core,'runRequest').mockImplementation((input,runner,assertCurrent)=>{active=false;return runRequest(input,async context=>{runnerInvoked=true;return runner(context);},assertCurrent);});
+ try{
+  await expect(createTextHelper(core,{taskId:owner.id,requestId:'not-admitted'},()=>{if(!active)throw Error('Owned test work retired.');})).rejects.toThrow('Owned test work retired.');
+  expect(runnerInvoked).toBe(false);expect(await core.getTask(owner.id)).toEqual(before);
+ }finally{spy.mockRestore();}
+});
+
 test('a current-work failure at publication retains failure evidence without publishing a helper',async()=>{
- const owner=await core.createTask({title:'Publication boundary'});let checks=0;
- await expect(createTextHelper(core,{taskId:owner.id,requestId:'retired'},()=>{if(++checks===2)throw Error('Owned test work retired.');})).rejects.toThrow('Owned test work retired.');
- const task=await core.getTask(owner.id);
- expect(task.artifacts).toEqual([]);expect(task.requests).toHaveLength(1);expect(task.requests[0].status).toBe('cancelled');
- await expect(createTextHelper(core,{taskId:owner.id,requestId:'retired'})).rejects.toThrow('Owned test work retired.');
- expect((await core.getTask(owner.id)).requests).toHaveLength(1);
+ const owner=await core.createTask({title:'Publication boundary'}),runRequest=core.runRequest.bind(core);let active=true,runnerReturned=false;
+ const spy=vi.spyOn(core,'runRequest').mockImplementation((input,runner,assertCurrent)=>runRequest(input,async context=>{
+  const output=await runner(context);expect(output.mimeType).toBe(MODULE_MIME);
+  expect((await core.getTask(owner.id)).requests.find(request=>request.id==='retired')?.status).toBe('running');runnerReturned=true;active=false;return output;
+ },assertCurrent));
+ try{
+  await expect(createTextHelper(core,{taskId:owner.id,requestId:'retired'},()=>{if(!active)throw Error('Owned test work retired.');})).rejects.toThrow('Owned test work retired.');
+  expect(runnerReturned).toBe(true);const task=await core.getTask(owner.id);
+  expect(task.artifacts).toEqual([]);expect(task.requests).toHaveLength(1);expect(task.requests[0].status).toBe('cancelled');
+  await expect(createTextHelper(core,{taskId:owner.id,requestId:'retired'})).rejects.toThrow('Owned test work retired.');
+  expect((await core.getTask(owner.id)).requests).toEqual(task.requests);
+ }finally{spy.mockRestore();}
 });
 
 test('replay rejects a changed artifact instead of silently opening another revision',async()=>{

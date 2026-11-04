@@ -1,10 +1,12 @@
-import {it,expect} from 'vitest';
+import {it,expect,vi} from 'vitest';
 import {createServer} from 'node:http';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
 import {BrowserCoordinator} from '../src/host/browser/coordinator';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 it('a committed action with an unsavable observation stays uncertain across restart and blocks another write',async()=>{
  let commits=0;const server=createServer((req,res)=>{res.setHeader('content-type','text/html');if(req.method==='POST'){commits++;res.end('<title>'+('x'.repeat(100001))+'</title><h1>Draft saved once</h1>');}else res.end('<title>Draft form</title><form method="post" action="/save"><button>Save</button></form>');});

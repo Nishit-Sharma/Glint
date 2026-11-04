@@ -9,7 +9,8 @@ import {modelModuleText} from '../src/core/interactive-modules';
 import {projectTaskDialogue} from '../src/core/task-dialogue';
 import {taskContext} from '../src/host/browser/coordinator';
 import {semanticHelper as priorHelper} from './fixtures/workflow-steps-prior/src/learning/semantic-helper';
-import {readState as oldRead,writeState as oldWrite} from './fixtures/a91/src/core/store';
+import {readState as oldRead} from './fixtures/a91/src/core/store';
+import {expectPinnedReaderRefusal} from './pinned-reader-refusal.fixture';
 import {sourceHelperLearningFixture} from './source-helper-learning.fixture';
 const close:Array<()=>Promise<void>>=[];afterEach(async()=>{for(const f of close.splice(0))await f();});
 async function fixture(){const f=await sourceHelperLearningFixture();close.push(f.close);return f;}
@@ -38,6 +39,7 @@ test('commit guard rejects a source revision changed after lesson admission',asy
 test('stopped predictions grade status only; original first answer survives later ordinary edits and strict prior helper refuses it',async()=>{
  const f=await fixture(),action={...f.action,practiceInput:{label:'new stop',quantity:-7,size:4},prediction:{status:'abstained' as const}};await f.submit(action);const state=await f.read(),receipt=state.sourcePractices![0];expect(sourceHelperPracticeFeedback(f.context.procedure,receipt)).toMatchObject({matches:true,grading:expect.stringContaining('Only the stopped status')});expect(()=>priorHelper.parseState(f.data.id,state)).toThrow();const next=await f.act({kind:'run-semantic-active',input:{label:'next',quantity:11,size:2}});expect(next.sourcePractices).toEqual([receipt]);expect(()=>semanticHelper.parseState(f.data.id,{...next,sourcePractices:[receipt,receipt]})).toThrow();
 });
-test('pinned older task store preserves the opaque private first-answer extension on unrelated writes',async()=>{
- const f=await fixture();await f.submit();const other=await f.core.createTask({title:'Unrelated old reader'});await f.core.close();const old=await Effect.runPromise(oldRead(f.directory)),before=old.tasks.find(task=>task.id===f.owner.taskId);old.tasks.find(task=>task.id===other.id)!.goal='Unrelated update';await Effect.runPromise(oldWrite(f.directory,old));const reread=await Effect.runPromise(oldRead(f.directory));expect(reread.tasks.find(task=>task.id===f.owner.taskId)).toEqual(before);const core=await createCompanion({dataDir:f.directory});try{expect(semanticHelper.parseState(f.data.id,(await core.getTask(f.owner.taskId)).session!.moduleStates[0].state).sourcePractices![0].submitted.reasoning).toBe(f.action.reasoning);}finally{await core.close();}
+// Refusal contract: the old unrelated write can no longer happen; the pinned reader refuses the provenance-bearing store unchanged.
+test('pinned older task store refuses new provenance unchanged while current reopen keeps the opaque private first-answer extension',async()=>{
+ const f=await fixture();await f.submit();const other=await f.core.createTask({title:'Unrelated old reader'});const before=await f.core.getTask(f.owner.taskId);await f.core.close();await expectPinnedReaderRefusal(f.directory,()=>Effect.runPromise(oldRead(f.directory)));const core=await createCompanion({dataDir:f.directory});try{const reopened=await core.getTask(f.owner.taskId);expect(reopened.artifacts).toEqual(before.artifacts);expect(reopened.requests).toEqual(before.requests);expect(reopened.session!.moduleStates).toEqual(before.session!.moduleStates);expect(semanticHelper.parseState(f.data.id,reopened.session!.moduleStates[0].state).sourcePractices![0].submitted.reasoning).toBe(f.action.reasoning);expect((await core.getTask(other.id)).title).toBe('Unrelated old reader');}finally{await core.close();}
 });

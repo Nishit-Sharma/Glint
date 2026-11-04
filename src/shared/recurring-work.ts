@@ -15,7 +15,7 @@ export const RecurringWorkSchema=Schema.mutable(Schema.Struct({id:bounded(200),r
 export const RecurringWorkListSchema=Schema.mutable(Schema.Array(RecurringWorkSchema).pipe(Schema.maxItems(RECURRING_WORK_LIMIT),Schema.filter(items=>new Set(items.map(item=>item.id)).size===items.length)));
 export type RecurringWork=typeof RecurringWorkSchema.Type;
 const identity={id:bounded(200),expectedRevision:revision};
-const save=Schema.Struct({...identity,kind:Schema.Literal('save'),title:bounded(200),instruction:bounded(10_000),intervalHours:cadence,nextDueAt:timestamp,...scope});
+const save=Schema.Struct({...identity,kind:Schema.Literal('save'),expectedDigest:Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),title:bounded(200),instruction:bounded(10_000),intervalHours:cadence,nextDueAt:timestamp,...scope});
 export const RecurringWorkChangeSchema=Schema.Union(save,Schema.Struct({...identity,kind:Schema.Literal('pause','resume','delete')}));
 export type RecurringWorkChange=typeof RecurringWorkChangeSchema.Type;
 export const readRecurringWorkChange=Schema.decodeUnknownSync(RecurringWorkChangeSchema,{onExcessProperty:'error'});

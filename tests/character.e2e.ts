@@ -10,7 +10,7 @@ test('saved character colors accent actions and selections while cancelled previ
  await page.setViewportSize({width:1080,height:720});await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'});
  const fixture=await BrowserFixture.open(page);
  try{
-  await page.getByRole('button',{name:'Customize Companion'}).click();
+  await page.getByRole('button',{name:'Customize Glint'}).click();
   const save=page.getByRole('button',{name:'Save appearance',exact:true});
   const selectedShape=page.getByRole('button',{name:'Dumpling',exact:true});
   await expect(save).toHaveCSS('background-color','rgb(214, 181, 144)');
@@ -19,7 +19,7 @@ test('saved character colors accent actions and selections while cancelled previ
   await expect(save).toHaveCSS('background-color','rgb(214, 181, 144)');
   await expect(selectedShape).toHaveCSS('border-color','rgb(214, 181, 144)');
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
-  await page.getByRole('button',{name:'Customize Companion'}).click();
+  await page.getByRole('button',{name:'Customize Glint'}).click();
   await expect(page.getByRole('button',{name:'Dough',exact:true})).toHaveAttribute('aria-pressed','true');
   const palettes=[['Sage','rgb(129, 169, 147)'],['Iris','rgb(135, 147, 208)'],['Apricot','rgb(210, 155, 130)'],['Rose','rgb(198, 141, 158)'],['Sky','rgb(122, 171, 202)'],['Butter','rgb(204, 182, 110)'],['Dough','rgb(214, 181, 144)']] as const;
   for(const [label,color] of palettes){
@@ -53,7 +53,7 @@ test('saved Dough Sage and Iris reach the actual entry SVG after preferences reo
  try{
   await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal','settled');
   await page.addInitScript(()=>{Object.defineProperty(document.fonts,'ready',{configurable:true,value:new Promise<void>(resolve=>Reflect.set(window,'__releasePaletteFonts',resolve))});});
-  let name='Companion';
+  let name='Glint';
   for(const [label,dark,light] of [['Dough','rgb(214, 181, 144)','rgb(130, 96, 56)'],['Sage','rgb(129, 169, 147)','rgb(62, 112, 88)'],['Iris','rgb(135, 147, 208)','rgb(86, 103, 164)']] as const){
    await page.getByRole('button',{name:'Customize '+name,exact:true}).click();name='Palette '+label;
    await page.getByRole('textbox',{name:'Character name'}).fill(name);await page.getByRole('button',{name:label,exact:true}).click();await page.getByRole('button',{name:'Save appearance',exact:true}).click();await expect(page.getByText('Appearance saved.',{exact:true})).toBeVisible();
@@ -94,7 +94,7 @@ test('Appearance keeps Save and Cancel fully visible and keyboard controls clear
  await page.setViewportSize({width:1080,height:720});await page.emulateMedia({reducedMotion:'reduce'});
  const fixture=await BrowserFixture.open(page);
  try{
-  await page.getByRole('button',{name:'Customize Companion'}).click();await page.getByRole('textbox',{name:'Character name'}).fill('Room to save');
+  await page.getByRole('button',{name:'Customize Glint'}).click();await page.getByRole('textbox',{name:'Character name'}).fill('Room to save');
   for(const viewport of [{width:1080,height:720},{width:390,height:744}]){
    await page.setViewportSize(viewport);
    await page.locator('.appearance-layout').evaluate(layout=>layout.scrollTop=0);
@@ -113,7 +113,7 @@ test('Appearance keeps Save and Cancel fully visible and keyboard controls clear
     expect(index).toBeLessThan(31);
    }
   }
-  await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('button',{name:'Customize Companion'})).toBeFocused();
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();await expect(page.getByRole('button',{name:'Customize Glint'})).toBeFocused();
  }finally{await fixture.close();}
 });
 
@@ -121,13 +121,13 @@ test('Appearance saves on its own boundary, reconciles a lost reply, and keeps t
  await page.setViewportSize({width:1120,height:744});
  const fixture=await BrowserFixture.open(page);
  try{
-  await expect(page.getByRole('button',{name:'Customize Companion'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Customize Glint'})).toBeVisible();
   await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal',/settled|cancelled|skipped/);
   await expect(page.locator('[data-character-render=live]')).toHaveCount(1);
   await page.getByRole('textbox',{name:'Ask about this task'}).fill('Keep this unsent message.');
   await expect.poll(()=>fixture.core.getTask(fixture.taskA.id).then(task=>readComposerDraft(task.session).text)).toBe('Keep this unsent message.');
   const before=await fixture.core.getTask(fixture.taskA.id),commands=fixture.commands.length;
-  await page.getByRole('button',{name:'Customize Companion'}).click();
+  await page.getByRole('button',{name:'Customize Glint'}).click();
   await expect(page.getByRole('form',{name:'Character appearance'})).toBeVisible();
   await expect(page.locator('[data-character-render=live]')).toHaveCount(2);
   await expect(page.getByRole('button',{name:'Dumpling',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -166,7 +166,7 @@ test('narrow workspace keeps a keyboard reachable character control and guards u
  await page.setViewportSize({width:390,height:744});
  const fixture=await BrowserFixture.open(page);
  try{
-  const control=page.getByRole('button',{name:'Customize Companion'});
+  const control=page.getByRole('button',{name:'Customize Glint'});
   await expect(control).toBeVisible();await expect(control).toHaveCount(1);
   await control.focus();await page.keyboard.press('Enter');
   await page.getByRole('textbox',{name:'Character name'}).fill('Temporary');
@@ -200,13 +200,13 @@ test('narrow workspace keeps a keyboard reachable character control and guards u
 test('failed save retains edits and conflict requires loading the current saved profile',async({page})=>{
  await page.setViewportSize({width:1120,height:744});const fixture=await BrowserFixture.open(page);
  try{
-  await page.getByRole('button',{name:'Customize Companion'}).click();
+  await page.getByRole('button',{name:'Customize Glint'}).click();
   await page.getByRole('textbox',{name:'Character name'}).fill('Unsaved');
   fixture.preferenceSaveError='Synthetic write denied';
   await page.getByRole('button',{name:'Save appearance'}).click();
   await expect(page.getByText('Your appearance could not be saved. Your edits are still here. Try Save again.')).toBeVisible();
   await expect(page.getByRole('textbox',{name:'Character name'})).toHaveValue('Unsaved');
-  await expect(page.getByRole('button',{name:'Customize Companion'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Customize Glint'})).toBeVisible();
   fixture.preferenceSaveError=undefined;
   await fixture.preferences.update({expectedRevision:0,profile:{personalName:'Elsewhere',look:{shape:'bean',color:'rose',face:'bright',motion:false}}});
   await page.getByRole('button',{name:'Save appearance'}).click();
@@ -229,7 +229,7 @@ test('failed save retains edits and conflict requires loading the current saved 
 
 test('closing Appearance opened from compact focuses the reachable workspace character',async({page})=>{
  await page.setViewportSize({width:430,height:760});const fixture=await BrowserFixture.open(page,'companion');
- try{await page.getByRole('button',{name:'Customize Companion'}).focus();await page.keyboard.press('Enter');await expect(page.getByRole('form',{name:'Character appearance'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('button',{name:'Customize Companion'})).toBeFocused();await expect(page.getByRole('heading',{name:'Task Alpha',exact:true})).toBeVisible();}finally{await fixture.close();}
+ try{await page.getByRole('button',{name:'Customize Glint'}).focus();await page.keyboard.press('Enter');await expect(page.getByRole('form',{name:'Character appearance'})).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('button',{name:'Customize Glint'})).toBeFocused();await expect(page.getByRole('heading',{name:'Task Alpha',exact:true})).toBeVisible();}finally{await fixture.close();}
 });
 
 test('real compact widths keep the character, meaningful result and composer through streaming without entrance replay',async({page})=>{
@@ -252,7 +252,7 @@ test('real compact widths keep the character, meaningful result and composer thr
   await page.screenshot({path:output+'/compact-430-result.png'});
   await page.setViewportSize({width:360,height:440});await expect(page.getByRole('textbox',{name:'Ask companion',exact:true})).toBeVisible();await expect(page.locator('[data-character-render=live]')).toHaveCount(1);await page.screenshot({path:output+'/compact-360-result.png'});
   await page.getByRole('button',{name:'Open task workspace',exact:true}).click();await page.setViewportSize({width:1120,height:744});await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal','settled');await page.screenshot({path:output+'/workspace-result.png'});
-  await page.getByRole('button',{name:'Customize Companion'}).click();await expect(page.getByRole('dialog',{name:'Make it yours',exact:true})).toBeVisible();await expect(page.getByRole('tablist')).toHaveCount(0);await page.screenshot({path:output+'/appearance-default-result.png'});
+  await page.getByRole('button',{name:'Customize Glint'}).click();await expect(page.getByRole('dialog',{name:'Make it yours',exact:true})).toBeVisible();await expect(page.getByRole('tablist')).toHaveCount(0);await page.screenshot({path:output+'/appearance-default-result.png'});
   await page.keyboard.press('Escape');await page.getByRole('button',{name:'Collapse to edge anchor',exact:true}).click();await expect(page.getByRole('button',{name:'Open Glint',exact:true})).toBeVisible();await page.setViewportSize({width:74,height:64});await page.screenshot({path:output+'/anchor-74x64.png'});const box=await page.getByRole('button',{name:'Open Glint',exact:true}).boundingBox();expect(box!.y).toBeGreaterThanOrEqual(0);expect(box!.y+box!.height).toBeLessThanOrEqual(64);
  }finally{await fixture.close();}
 });
@@ -260,7 +260,7 @@ test('real compact widths keep the character, meaningful result and composer thr
 test('name-only save preserves the primary canvas and paused preview resizes before static context recovery',async({page})=>{
  await page.setViewportSize({width:1120,height:744});await page.emulateMedia({reducedMotion:'reduce'});const fixture=await BrowserFixture.open(page);
  try{
-  await page.getByRole('button',{name:'Customize Companion'}).click();const primary=await page.locator('.character-control-sidebar canvas').elementHandle();expect(primary).not.toBeNull();
+  await page.getByRole('button',{name:'Customize Glint'}).click();const primary=await page.locator('.character-control-sidebar canvas').elementHandle();expect(primary).not.toBeNull();
   await page.getByRole('textbox',{name:'Character name'}).fill('Still');await page.getByRole('button',{name:'Save appearance'}).click();await expect(page.getByText('Appearance saved.',{exact:true})).toBeVisible();expect(await primary!.evaluate(canvas=>canvas.isConnected)).toBe(true);
   await page.getByRole('checkbox',{name:'Subtle movement'}).uncheck();await page.getByRole('button',{name:'Save appearance'}).click();await expect(page.getByRole('button',{name:'Save appearance'})).toBeDisabled();
   await page.setViewportSize({width:390,height:744});const preview=page.locator('.appearance-preview canvas');await expect.poll(()=>preview.evaluate(canvas=>canvas instanceof HTMLCanvasElement?canvas.width:0)).toBe(160);await expect.poll(()=>preview.evaluate(canvas=>canvas instanceof HTMLCanvasElement?canvas.height:0)).toBe(176);

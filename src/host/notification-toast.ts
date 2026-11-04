@@ -6,14 +6,14 @@ type Card={noticeId:string;title:string;body:string;token:string};
 /** One app-owned, protected desktop surface; no preload, scripts, provider or OS-notification grant. */
 export class NotificationToast{
  private window:BrowserWindow|undefined;private cards:Card[]=[];private revision=0;private timer:ReturnType<typeof setTimeout>|undefined;private release:(()=>void)|undefined;private pending=Promise.resolve();private closed=false;
- constructor(private readonly activate:(action:NotificationToastAction)=>void,private readonly ownProcess:(pid:number)=>()=>void){}
+ constructor(private readonly activate:(action:NotificationToastAction)=>void,private readonly ownProcess:(pid:number)=>()=>void,private readonly protect:(window:BrowserWindow)=>void=window=>window.setContentProtection(true)){}
  ids(){if(!this.window||this.window.isDestroyed())return [];const match=/^window:([1-9]\d*):[01]$/.exec(this.window.getMediaSourceId());return match?[`window:${match[1]}`]:[];}
  show(noticeId:string,title:string,body:string){if(this.closed)return;this.cards=[...this.cards.filter(card=>card.noticeId!==noticeId),{noticeId,title:title.slice(0,100),body:body.slice(0,500),token:randomUUID()}].slice(-3);this.render();}
  private render(){
   if(this.closed||!this.cards.length){this.clear();return;}
   if(!this.window||this.window.isDestroyed()){
    const window=this.window=new BrowserWindow({show:false,width:380,height:180,frame:false,resizable:false,focusable:false,alwaysOnTop:true,skipTaskbar:true,title:'Glint local notifications',backgroundColor:'#222221',webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true}});
-   window.setContentProtection(true);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+   this.protect(window);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
    window.webContents.on('will-navigate',(event,url)=>{event.preventDefault();const match=/^glint-local-notice:\/\/(open|dismiss)\/([a-f0-9-]+)\/?$/.exec(url);if(!match)return;const card=this.cards.find(card=>card.token===match[2]);if(!card)return;this.cards=this.cards.filter(item=>item.token!==card.token);this.activate({kind:match[1] as 'open'|'dismiss',noticeId:card.noticeId});this.render();});
    window.webContents.on('will-redirect',event=>event.preventDefault());window.webContents.on('render-process-gone',()=>this.clear());
    window.on('closed',()=>{if(this.window===window){this.window=undefined;this.release?.();this.release=undefined;}});

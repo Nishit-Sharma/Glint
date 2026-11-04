@@ -6,7 +6,7 @@ vi.mock('react',async original=>({...await original<typeof import('react')>(),..
 import {createElement} from 'react';
 import {createCompanion} from '../src/core/companion';
 import {Effect} from 'effect';
-import {readState as oldRead,writeState as oldWrite} from './fixtures/a91/src/core/store';
+import {readState as oldRead} from './fixtures/a91/src/core/store';
 import {LearningDraftStore} from '../src/host/learning-drafts';
 import {createLearningDrafts} from '../src/renderer/src/learning-drafts';
 import {createSavedDocumentDraftController} from '../src/renderer/src/saved-document-draft-controller';
@@ -94,9 +94,9 @@ it('source invalidation before the atomic save refuses publication and keeps the
  expect(controller.snapshot().fields.content).toBe('My corrected visit plan.');expect((await f.core.getTask(f.task.id)).artifacts[0].revisions).toEqual([f.saved.revision]);expect((await f.core.getTask(f.task.id)).requests).toEqual([]);
 });
 
-it('the pinned older task reader preserves the partially reviewed draft sidecar and all saved revisions',async()=>{
+it('the pinned older task reader refuses new provenance without changing saved work or the partial-review sidecar',async()=>{
  const f=await fixture();f.controller.edit({content:'Preserve this partial source review.'});await f.cache.flush();await f.refresh(f.a,'Group size: 22.\n');await f.refresh(f.b,'Return: 16:00.\n');f.controller.reviewSources(f.controller.snapshot().sourceReview!,f.a);await f.cache.flush();
- const before=await f.core.getTask(f.task.id),sidecar=await readFile(join(f.directory,'learning-drafts.json'));await f.core.close();const state=await Effect.runPromise(oldRead(f.directory)),task=state.tasks.find(item=>item.id===before.id)!;expect(task.artifacts).toEqual(before.artifacts);task.goal='Unrelated old-reader update.';await Effect.runPromise(oldWrite(f.directory,state));expect(await readFile(join(f.directory,'learning-drafts.json'))).toEqual(sidecar);
+ const before=await f.core.getTask(f.task.id),sidecar=await readFile(join(f.directory,'learning-drafts.json'));await f.core.close();const ledger=await readFile(join(f.directory,'tasks.json'));await expect(Effect.runPromise(oldRead(f.directory))).rejects.toThrow(/unreadable or incompatible/);expect(await readFile(join(f.directory,'tasks.json'))).toEqual(ledger);expect(await readFile(join(f.directory,'learning-drafts.json'))).toEqual(sidecar);
  const reopened=await createCompanion({dataDir:f.directory});try{expect((await reopened.getTask(before.id)).artifacts).toEqual(before.artifacts);const store=new LearningDraftStore({directory:f.directory,lookupTask:async id=>(await reopened.listTasks()).find(item=>item.id===id)}),cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();const view=createSavedDocumentDraftController({...f.options,cache,task:()=>before}).snapshot();expect(view.fields).toMatchObject({content:'Preserve this partial source review.',sourceRefs:[{version:2},{version:1}]});}finally{await reopened.close();}
 });
 

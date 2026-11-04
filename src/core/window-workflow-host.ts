@@ -28,7 +28,7 @@ export function prepareWindowWorkflowSourceContext(task:Task,basisInput:Artifact
  return parseWindowWorkflowProposal('{"schemaVersion":1,"kind":"unsupported-source","code":"unreadable","reason":"Context validation only."}',context).provenance;
 }
 
-export type WindowWorkflowCaptureFence={check:()=>Promise<void>;assertCurrent:()=>void};
+export type WindowWorkflowCaptureFence={check:()=>Promise<void>;checkCommit:()=>Promise<void>;assertCurrent:()=>void};
 const publication=Schema.Struct({taskId:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200)),requestId:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200)),candidate:GroundingArtifactRefSchema,review:Schema.Unknown});
 const hash=(value:unknown)=>createHash('sha256').update(serializeLearningDraftJson(value)).digest('hex');
 export function windowWorkflowCandidateForReview(task:Task,ref:ArtifactRef){
@@ -38,26 +38,18 @@ export function windowWorkflowCandidateForReview(task:Task,ref:ArtifactRef){
  return candidate;
 }
 /** This is the only image→finite-module admission; its fence is owned by the native host, never IPC. */
-export async function createWindowWorkflow(core:Companion,input:unknown,fence:WindowWorkflowCaptureFence){
+export function prepareWindowWorkflowPublication(task:Task,input:unknown){
  let value:typeof publication.Type;try{value=Schema.decodeUnknownSync(publication,{onExcessProperty:'error'})(input);}catch{throw Error('Choose the exact candidate and reviewed image interpretation.');}
- const task=await core.getTask(value.taskId),candidate=windowWorkflowCandidateForReview(task,value.candidate),checked=checkWindowWorkflowReview(candidate,value.review);
+ const candidate=windowWorkflowCandidateForReview(task,value.candidate),checked=checkWindowWorkflowReview(candidate,value.review);
  if(checked.kind!=='valid')throw Error('Complete the image transcription and finite rule review. Diagnostic: '+checked.issues[0]?.code+'.');
  const review=checked.value,issueProjection=Schema.decodeUnknownSync(Schema.Struct({draft:Schema.Struct({issueResolutions:Schema.Array(Schema.Struct({issueId:Schema.String,kind:Schema.Literal('resolved','excluded'),reason:Schema.String}))})}))(JSON.parse(checked.value.reviewSnapshot)),issueReviews=candidate.proposal.issues.map(issue=>{const resolution=issueProjection.draft.issueResolutions.find(resolution=>resolution.issueId===issue.id);if(!resolution)throw Error('The reviewed issue disposition is missing.');return {id:issue.id,originalKind:issue.kind,originalReason:issue.reason,citationIds:issue.citationIds,disposition:resolution.kind,reason:resolution.reason};}),identity=hash({candidate:value.candidate,transferDigest:hash(workflowExample.transfer),reviewDigest:createHash('sha256').update(review.reviewSnapshot).digest('hex')}),id='window-'+identity.slice(0,40),basis=review.provenance.basis,refs=[review.provenance.source.ref];
- const data:WorkflowData=workflowLab.parse({kind:'workflow-lab',schemaVersion:1,id,version:1,title:review.practice.title,basis:{kind:'reviewed-window',contextDigest:identity,taskId:task.id,artifact:basis,candidate:value.candidate,sourceRefs:refs,capture:review.provenance.source.capture,names:review.nameInterpretations,issueReviews},practice:review.practice,transfer:workflowExample.transfer,assumptions:[...review.assumptions,'Reviewed image transcription is historical evidence, not verified OCR.','Events are sequential; missing/disabled rules block without changing state. No timing, concurrency, HDL simulation or external action is modeled.'],citations:review.evidence.map(e=>({id:e.citationId,sourceRef:e.sourceRef,location:e.reviewed,original:e.original,classification:e.classification,reason:e.reason})),ruleOrigins:review.ruleInterpretations.map(r=>({ruleId:r.ruleId,reason:r.reason,citationId:r.citationIds[0],imageCitationIds:r.citationIds,interpretation:r.classification}))});
- // Inspect the exact completed receipt before requesting any fresh capture. Never invent a new request ID after an uncertain reply.
- const previous=task.requests.find(request=>request.id===value.requestId);
- if(previous){
-  if(previous.status!=='completed'||!previous.answer)throw Error('This publication is '+previous.status+'. Inspect its saved outcome before starting a separate deliberate attempt.');
-  const saved=task.artifacts.find(a=>a.id===previous.answer!.artifactId)?.revisions.find(r=>r.revision===previous.answer!.revision&&r.digest===previous.answer!.digest);
-  const module=saved?.mimeType===MODULE_MIME?parseModuleAnswer(JSON.parse(saved.content)).modules.find(module=>module.id===id):undefined;
-  if(!module||module.data.kind!=='workflow-lab'||module.data.basis.kind!=='reviewed-window'||module.data.basis.contextDigest!==identity)throw Error('This request ID belongs to a different publication intent.');
-  return previous;
- }
- const assertContext=(current:Task)=>{if(serializeLearningDraftJson(prepareWindowWorkflowSourceContext(current,basis))!==serializeLearningDraftJson(candidate.provenance))throw Error('The image review source or capture changed.');windowWorkflowCandidateForReview(current,value.candidate);};
- assertContext(task);await fence.check();fence.assertCurrent();
- return core.runRequest({taskId:task.id,requestId:value.requestId,kind:'experiment',prompt:'Admit this explicitly reviewed image transcription into a finite sequential learning model.',executionScope:'reviewed-window-workflow-v1:'+identity,sourceIds:refs.map(ref=>ref.sourceId),expectedSourceRefs:refs,expectedArtifacts:[basis,value.candidate]},async context=>{
-  if(context.signal.aborted)throw Error('Image review publication stopped.');assertContext(context.task);fence.assertCurrent();
-  const output={title:data.title,mimeType:MODULE_MIME,content:JSON.stringify({schemaVersion:1,markdown:'Reviewed frozen image transcription from a historical capture. Pixels are not stored or restored. Rules are explicit image interpretations; this finite sequential experiment is not HDL simulation.',modules:[{id:data.id,version:data.version,data,provenance:[]}]})};
-  await fence.check();fence.assertCurrent();if(context.signal.aborted)throw Error('Image review publication stopped.');return output;
- },()=>{fence.assertCurrent();});
+ const data:WorkflowData=workflowLab.parse({kind:'workflow-lab',schemaVersion:1,id,version:1,title:review.practice.title,basis:{kind:'reviewed-window',contextDigest:identity,taskId:task.id,artifact:basis,candidate:value.candidate,sourceRefs:refs,capture:review.provenance.source.capture,names:review.nameInterpretations,issueReviews},practice:review.practice,transfer:workflowExample.transfer,assumptions:[...review.assumptions,'Reviewed image transcription is historical evidence, not verified OCR.','Events are sequential; missing/disabled rules block without changing state. No timing, concurrency, HDL simulation or external action is modeled.'],citations:review.evidence.map(e=>({id:e.citationId,sourceRef:e.sourceRef,location:e.reviewed,original:e.original,classification:e.classification,reason:e.reason})),ruleOrigins:review.ruleInterpretations.map(r=>({ruleId:r.ruleId,reason:r.reason,citationId:r.citationIds[0],imageCitationIds:r.citationIds,interpretation:r.classification,...(r.reviewerAdded?{reviewerAdded:true as const}:{})}))});
+ const request={taskId:task.id,requestId:value.requestId,kind:'experiment',prompt:'Admit this explicitly reviewed image transcription into a finite sequential learning model.',executionScope:'reviewed-window-workflow-v1:'+identity,sourceIds:refs.map(ref=>ref.sourceId),expectedSourceRefs:refs,expectedArtifacts:[basis,value.candidate]};
+ const artifact={title:data.title,mimeType:MODULE_MIME,content:JSON.stringify({schemaVersion:1,markdown:'Reviewed frozen image transcription from a historical capture. Pixels are not stored or restored. Rules are explicit image interpretations; this finite sequential experiment is not HDL simulation.',modules:[{id:data.id,version:data.version,data,provenance:[]}]})};
+ return {request,artifact,candidate,basis};
 }
+export function assertWindowWorkflowPublicationContext(task:Task,publication:ReturnType<typeof prepareWindowWorkflowPublication>){
+ if(serializeLearningDraftJson(prepareWindowWorkflowSourceContext(task,publication.basis))!==serializeLearningDraftJson(publication.candidate.provenance))throw Error('The image review source or capture changed.');
+ windowWorkflowCandidateForReview(task,publication.request.expectedArtifacts[1]);
+}
+export function createWindowWorkflow(core:Companion,input:unknown,fence:WindowWorkflowCaptureFence){return core.saveWindowWorkflow(input,fence);}

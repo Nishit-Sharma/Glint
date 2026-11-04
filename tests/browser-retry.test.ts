@@ -2,9 +2,11 @@ import {createServer} from 'node:http';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {createCompanion} from '../src/core/companion';
 import {BrowserCoordinator,type BrowserPlanner} from '../src/host/browser/coordinator';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 it('replans a denied filled form in a fresh browser before offering a matching submit',async()=>{
  const bodies:string[]=[];

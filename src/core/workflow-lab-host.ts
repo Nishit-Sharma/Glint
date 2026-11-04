@@ -1,3 +1,4 @@
+import {CONTEXTUAL_WORKFLOW_MODULE_PREFIX} from '../learning/contextual-workflow-admission';
 import {createHash} from 'node:crypto';
 import {Schema} from 'effect';
 import type {Companion,RequestOutput} from './companion';
@@ -65,18 +66,26 @@ export function workflowCommitGuard(task:Task,value:unknown,output:ArtifactRef):
  if(current.sourceRefs.length!==refs.length||!current.sourceRefs.every(r=>refs.some(other=>sameRef(r,other))))throw Error('Workflow output references do not match its admitted source context.');
  return {sourceRefs:[...refs],artifactRefs:[output,...(data.basis.kind==='reviewed-window'?[data.basis.artifact,data.basis.candidate]:data.basis.kind==='reviewed-source'?[data.basis.artifact]:[])]};
 }
-export async function createWorkflowArtifact(core:Companion,input:{taskId:string;requestId:string;definition:unknown;review?:WorkflowReview;target?:{artifactId:string;expectedRevision:number};admission?:'contextual-sequence-v1'}){
+export type WorkflowArtifactPublication={taskId:string;requestId:string;definition:unknown;review?:WorkflowReview;target?:{artifactId:string;expectedRevision:number};admission?:'contextual-sequence-v1'};
+/** Closed deterministic serializer. It never reads project guidance or invokes an explanation runner. */
+export function prepareWorkflowPublication(task:Task,input:WorkflowArtifactPublication){
+ if(Object.keys(input).some(key=>!['taskId','requestId','definition','review','target','admission'].includes(key))||input.admission!==undefined&&input.admission!=='contextual-sequence-v1')throw Error('Unsupported workflow publication fields.');
+ if(input.taskId!==task.id)throw Error('The workflow publication owner changed.');
+ if(input.target!==undefined)Schema.decodeUnknownSync(Schema.Struct({artifactId:id,expectedRevision:Schema.Int.pipe(Schema.positive())}),{onExcessProperty:'error'})(input.target);
  if(input.review&&input.target?.artifactId===input.review.basis.artifactId)throw Error('The workflow source basis and output must be separate artifacts.');
- const task=await core.getTask(input.taskId),data=input.review?admitReviewedWorkflow(task,{definition:input.definition,review:input.review}):localWorkflow(input.definition);
- const sourceRefs=data.basis.kind!=='local-sample'?data.basis.sourceRefs:[];
- return core.runRequest({taskId:input.taskId,requestId:input.requestId,kind:'experiment',prompt:'Predict, change and inspect a bounded finite workflow model.',executionScope:(input.admission==='contextual-sequence-v1'?'workflow:contextual-sequence-v1:':'workflow:')+hash({data,target:input.target??null}),sourceIds:sourceRefs.map(r=>r.sourceId),expectedSourceRefs:[...sourceRefs],expectedArtifacts:data.basis.kind==='reviewed-window'?[data.basis.artifact,data.basis.candidate]:data.basis.kind==='reviewed-source'?[data.basis.artifact]:[],...(input.target??{})},async current=>{
-  const admitted=input.review?admitReviewedWorkflow(current.task,{definition:input.definition,review:input.review}):localWorkflow(input.definition);
-  return {title:admitted.title,mimeType:'application/vnd.window-companion.modules+json',content:JSON.stringify({schemaVersion:1,markdown:admitted.basis.kind==='local-sample'?'Illustrative local workflow sample. It does not observe or change a real procedure.':'Explicit reviewed interpretation of cited text rules. The finite event sequence and later changes are local experiments.',modules:[{id:admitted.id,version:admitted.version,data:admitted,provenance:[]}]})};
- });
+ const data=input.review?admitReviewedWorkflow(task,{definition:input.definition,review:input.review}):localWorkflow(input.definition),sourceRefs=data.basis.kind!=='local-sample'?data.basis.sourceRefs:[];
+ const contextualIdentity=data.id.startsWith(CONTEXTUAL_WORKFLOW_MODULE_PREFIX),contextualAdmission=input.admission==='contextual-sequence-v1';
+ if(contextualIdentity!==contextualAdmission||contextualAdmission&&(data.basis.kind!=='reviewed-source'||!/^contextual-v1-[a-f0-9]{64}$/.test(data.id)))throw Error('The fixed workflow admission does not match its reviewed module identity.');
+ const request={taskId:input.taskId,requestId:input.requestId,kind:'experiment',prompt:'Predict, change and inspect a bounded finite workflow model.',executionScope:(input.admission==='contextual-sequence-v1'?'workflow:contextual-sequence-v1:':'workflow:')+hash({data,target:input.target??null}),sourceIds:sourceRefs.map(r=>r.sourceId),expectedSourceRefs:[...sourceRefs],expectedArtifacts:data.basis.kind==='reviewed-window'?[data.basis.artifact,data.basis.candidate]:data.basis.kind==='reviewed-source'?[data.basis.artifact]:[],...(input.target??{})};
+ const artifact={title:data.title,mimeType:'application/vnd.window-companion.modules+json',content:JSON.stringify({schemaVersion:1,markdown:data.basis.kind==='local-sample'?'Illustrative local workflow sample. It does not observe or change a real procedure.':'Explicit reviewed interpretation of cited text rules. The finite event sequence and later changes are local experiments.',modules:[{id:data.id,version:data.version,data,provenance:[]}]})};
+ return {request,artifact};
+}
+export function createWorkflowArtifact(core:Companion,input:WorkflowArtifactPublication,assertCurrent:()=>void=()=>{}){
+ return core.saveWorkflowArtifact(input,assertCurrent);
 }
 /** Deliberate product entry: the host selects the bundled sample; no source/model inference. */
-export function createWorkflowExample(core:Companion,input:{taskId:string;requestId:string}){
- return createWorkflowArtifact(core,{taskId:input.taskId,requestId:input.requestId,definition:workflowExample});
+export function createWorkflowExample(core:Companion,input:{taskId:string;requestId:string},assertCurrent:()=>void=()=>{}){
+ return createWorkflowArtifact(core,{taskId:input.taskId,requestId:input.requestId,definition:workflowExample},assertCurrent);
 }
 /** Only the active stage is projected; unstarted transfer definitions never reach explanations. */
 export function workflowExplanationContext(task:Task,ref:ModuleStateRef){

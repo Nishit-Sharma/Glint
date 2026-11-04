@@ -8,12 +8,16 @@ import {createWindowWorkflowCaptureFence} from '../src/host/window-workflow-capt
 import {syntheticCandidate} from './window-learning.fixture';
 /** Actual App/core/draft stores. Provider response, consent, native capture/target/privacy and pixels are disclosed synthetic boundaries. No provider adapter is called. */
 export async function windowLearningEntry(page:Page,options:{inferred?:boolean}={}){
- const fixture=await OnboardingFixture.open(page,{ready:true,port:4193});fixture.configured=true;
+ const fixture=await OnboardingFixture.open(page,{ready:true,port:Number(process.env.WINDOW_COMPANION_TEST_PORT??4193)});fixture.configured=true;
  const catalog=await fixture.ready(),task=await fixture.core.createTask({title:'Owned synthetic image FSM',assignedBotId:catalog.defaultBotId});
  const capturedAt=new Date().toISOString(),capture={sourceVersion:'owned-synthetic-capture',imageSha256:'a'.repeat(64),capturedAt};let live=true,privacy=true;
  const withSource=await fixture.core.putSource(task.id,{id:'owned-window',kind:'window',role:'fact',label:'Owned synthetic FSM window',windowId:'disposable-window',documentToken:'disposable-diagram',content:JSON.stringify({captureId:capture.sourceVersion,imageSha256:capture.imageSha256,capturedAt,transform:{pixelWidth:800,pixelHeight:400},freshness:'frozen-explicit-capture'})});
  const source=withSource.sources[0],version=source.versions[0],ref={sourceId:source.id,version:version.version,digest:version.digest};
- const saved=await fixture.core.saveArtifact(task.id,{title:'Screen brief',mimeType:'application/json',sourceRefs:[ref],content:JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'Owned synthetic finite diagram for UI testing. No OCR or live inference is claimed.',actions:[]})});
+ // The brief is a completed answer in the normal request journal: an unjournaled saveArtifact JSON revision has an
+ // unverifiable context origin and is refused for AI reuse (src/core/request-context.ts artifactContextUncertain).
+ const briefRecord=await fixture.core.runRequest({taskId:task.id,requestId:'owned-synthetic-screen-brief',kind:'create',prompt:'Create the disclosed synthetic screen brief.',sourceIds:[ref.sourceId],expectedSourceRefs:[ref]},async()=>({title:'Screen brief',mimeType:'application/json',content:JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'Owned synthetic finite diagram for UI testing. No OCR or live inference is claimed.',actions:[]})}));
+ if(briefRecord.status!=='completed'||!briefRecord.artifactId)throw Error(briefRecord.error??'Synthetic screen brief was not saved');
+ const saved={artifactId:briefRecord.artifactId,revision:(await fixture.core.getTask(task.id)).artifacts.find(item=>item.id===briefRecord.artifactId)!.revisions[0]};
  const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400"><rect width="800" height="400" fill="#f6f6f2"/><text x="40" y="70" font-family="sans-serif" font-size="24">Owned synthetic FSM fixture</text><text x="80" y="200" font-family="sans-serif" font-size="30">Idle</text><text x="560" y="200" font-family="sans-serif" font-size="30">Busy</text><path d="M170 180 H520 L505 170 M520 180 L505 190" fill="none" stroke="#222" stroke-width="3"/><text x="280" y="155" font-family="sans-serif" font-size="24">Start</text><path d="M550 230 H180 L195 220 M180 230 L195 240" fill="none" stroke="#222" stroke-width="3"/><text x="280" y="270" font-family="sans-serif" font-size="24">Finish</text></svg>';
  const counts={syntheticTransports:0,publications:0};let losePublicationReply=false;
  const invoke=fixture.invoke.bind(fixture);

@@ -1,5 +1,8 @@
 import {expect,test} from 'vitest';
 import {tableWorkflow,runTableWorkflow,tableWorkflowSuite,workflowTableCsv,applyTableWorkflowStep,tableWorkflowInput,tableWorkflowReport} from '../src/learning/table-workflow';
+import {pickingDigest} from '../src/shared/picking-digest';
+import {namedFixture} from './table-workflow-inputs.fixture';
+import {columnFixture} from './table-workflow-columns.fixture';
 import {demoCsv,freshCsv,stopCsv,steps,demoExpected,freshExpected,tableWorkflowFixture} from './table-workflow.fixture';
 
 test('ordered collection steps calculate fresh grouped totals with exact original-record provenance',()=>{
@@ -38,4 +41,14 @@ test('an explicit stop token takes precedence over invalid numeric cells after C
 
 test('numeric validation follows executed steps, so a filtered-out bad row is not processed or included in the final totals',()=>{
  const input=freshCsv+'South,queued,not-a-number,8\n',result=runTableWorkflow({steps,exceptions:[{contains:'HOLD',reason:'Leave for review.'}]},input);expect(result.status).toBe('completed');if(result.status!=='completed')throw Error();expect(workflowTableCsv(result.table)).toBe(freshExpected);expect(result.trace[0].before.rows).toHaveLength(4);expect(result.trace[0].before.rows[3].cells).toContain('not-a-number');expect(result.trace[0].after.rows).toHaveLength(2);expect(result.trace[1].before.rows.flatMap(row=>row.cells)).not.toContain('not-a-number');expect(result.table.rows.flatMap(row=>row.records)).toEqual([2,3]);
+});
+
+
+test.each(['basic','named','column']as const)('exact %s check replacement refuses another check identity without changing saved checks',async kind=>{
+ const f=kind==='named'?await namedFixture():kind==='column'?await columnFixture():await tableWorkflowFixture();try{
+  if('check'in f&&typeof f.check==='function')await f.check();else await f.teach();const before=await f.read(),selected=before.draft.checks[1],other=before.draft.checks[0],expected={kind:'output' as const,csv:'team,total\nNorth,999\n'};
+  await expect(f.act({kind:'table-workflow-check',...other,expected,replaces:pickingDigest(selected)})).rejects.toThrow(/different declared check/);expect(await f.read()).toEqual(before);
+  await f.act({kind:'table-workflow-check',...selected,expected,replaces:pickingDigest(selected)});const edited=await f.read();expect(edited.draft.checks).toHaveLength(before.draft.checks.length);expect(edited.draft.checks).toContainEqual(other);expect(edited.versions).toEqual(before.versions);expect(edited.activeVersion).toBe(before.activeVersion);
+  await f.act({kind:'table-workflow-check',...other,expected});const upserted=await f.read();expect(upserted.draft.checks).toHaveLength(before.draft.checks.length);expect(upserted.draft.checks.at(-1)).toEqual({...other,expected});
+ }finally{await f.close();}
 });

@@ -1,3 +1,4 @@
+import {serializeLearningDraftJson} from './learning-drafts';
 import {Schema} from 'effect';
 import type {Task} from '../core/types';
 import {parseModuleAnswer,initialModuleState} from '../core/interactive-modules';
@@ -9,7 +10,7 @@ export const DocumentRecipeCreateSchema=Schema.Struct({taskId:id,requestId:id});
 export const DocumentRecipeRequestSchema=Schema.Struct({taskId:id,artifactId:id,artifactRevision:positive,artifactDigest:digest,moduleId:id,moduleVersion:positive,stateRevision:Schema.Int.pipe(Schema.between(0,500)),activeVersion:Schema.Int.pipe(Schema.between(1,20)),sourceRef:Schema.Struct({sourceId:id,version:positive,digest})});
 const Save=Schema.Struct({...DocumentRecipeRequestSchema.fields,binding:digest,confirmed:Schema.Literal('save-reviewed-new-document')});
 const Inspect=Schema.Struct({...DocumentRecipeRequestSchema.fields,binding:digest});
-const decode=<A,I>(schema:Schema.Schema<A,I>,value:unknown):A=>Schema.decodeUnknownSync(schema,{onExcessProperty:'error'})(value);
+const decode=<A,I>(schema:Schema.Schema<A,I>,value:unknown):A=>{serializeLearningDraftJson(value);return Schema.decodeUnknownSync(schema,{onExcessProperty:'error'})(structuredClone(value));};
 export const readDocumentRecipeCreate=(value:unknown)=>decode(DocumentRecipeCreateSchema,value);
 export const readDocumentRecipeRequest=(value:unknown)=>decode(DocumentRecipeRequestSchema,value);
 export const readDocumentRecipeSave=(value:unknown)=>decode(Save,value);

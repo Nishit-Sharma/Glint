@@ -1,3 +1,4 @@
+import {EXPLANATION_MIME} from '../../../shared/explanation-modes';
 import {SAVED_LINK_MIME} from '../../../shared/saved-work-library';
 import {STUDY_SET_MIME} from '../../../shared/study-workbench';
 import {useRef,useState} from 'react';
@@ -8,7 +9,7 @@ import {BROWSER_WORKFLOW_MIME} from '../../../shared/browser-workflow';
 import {CONCEPT_MAP_MIME} from '../../../shared/concept-map';
 import {readModelDraft} from './ModelDraftReview';
 
-const artifactKind=(artifact:Artifact)=>{const r=artifact.revisions.at(-1)!;return r.mimeType===SAVED_LINK_MIME?'Saved link':r.mimeType===STUDY_SET_MIME?'Study set':r.mimeType===DESIGN_CANVAS_MIME?'Design canvas':r.mimeType===DESIGN_SVG_MIME?'SVG copy':r.mimeType===CONCEPT_MAP_MIME?'Concept map':r.mimeType===BROWSER_WORKFLOW_MIME?'Browser workflow':r.mimeType.startsWith('image/')?'Image':readModelDraft(r)?.kind==='experiment'?'Experiment':readModelDraft(r)?.kind==='procedure'?'Procedure':'Document';};
+const artifactKind=(artifact:Artifact)=>{const r=artifact.revisions.at(-1)!;return r.mimeType===SAVED_LINK_MIME?'Saved link':r.mimeType===STUDY_SET_MIME?'Study set':r.mimeType===DESIGN_CANVAS_MIME?'Design canvas':r.mimeType===DESIGN_SVG_MIME?'SVG copy':r.mimeType===CONCEPT_MAP_MIME?'Concept map':r.mimeType===EXPLANATION_MIME?'Explanation':r.mimeType===BROWSER_WORKFLOW_MIME?'Browser workflow':r.mimeType.startsWith('image/')?'Image':readModelDraft(r)?.kind==='experiment'?'Experiment':readModelDraft(r)?.kind==='procedure'?'Procedure':'Document';};
 
 /** One tab stop for saved results; arrows move deliberately, never on arrival. */
 export function ArtifactList({task,onArtifact,onProcedure,onPin,pinnedIds=[],pinDisabled=false}:{task:Task;onPin?:(artifact:Artifact,pinned:boolean)=>void;pinnedIds?:readonly string[];pinDisabled?:boolean;onArtifact:(artifact:Artifact)=>void;onProcedure:(procedure:Procedure)=>void}){

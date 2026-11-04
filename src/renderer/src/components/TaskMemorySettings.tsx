@@ -1,7 +1,7 @@
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import type {Task} from '../../../core/types';
 import {taskMemoryPolicy,readTaskMemoryPolicyState,type TaskMemoryPolicy} from '../../../shared/task-memory-policy';
-import {readMemoryPreview,type TaskMemorySelection} from '../../../shared/project-memory';
+import {readMemoryPreview,projectMemoryFactActive,type TaskMemorySelection} from '../../../shared/project-memory';
 import {Button,Field} from '../ui';
 
 export function TaskMemorySettings({task,prompt}:{task:Task;prompt:string}){
@@ -25,11 +25,12 @@ export function TaskMemorySettings({task,prompt}:{task:Task;prompt:string}){
  }
  async function inspect(){
   if(locked.current||blocked)return;locked.current=true;setWorking(true);setPreview(undefined);setMessage('');const captured=key,epoch=generation.current,token=++inspection.current;
-  try{const value=readMemoryPreview(await window.companion.invoke({type:'memory.preview',taskId:task.id,prompt}));if(!alive.current||epoch!==generation.current||captured!==liveKey.current||token!==inspection.current)return;if(value.taskPolicy?.revision!==current.current.revision||value.taskPolicy.mode!==current.current.mode)throw Error();setPreview({key:captured,value});}
+  try{const value=readMemoryPreview(await window.companion.invoke({type:'memory.preview',taskId:task.id,prompt}));if(!alive.current||epoch!==generation.current||captured!==liveKey.current||token!==inspection.current)return;if(value.taskPolicy?.revision!==current.current.revision||value.taskPolicy.mode!==current.current.mode||value.projectFacts.some(fact=>!projectMemoryFactActive(fact,Date.now())))throw Error();setPreview({key:captured,value});}
   catch{if(alive.current&&epoch===generation.current)setMessage('Memory could not be inspected. Reload the saved task choice and inspect again.');}
   finally{if(epoch===generation.current){locked.current=false;if(alive.current)setWorking(false);}}
  }
- const shown=preview?.key===key?preview.value:undefined;
+ useEffect(()=>{if(!preview||preview.key!==key)return;const token=inspection.current,deadline=Math.min(...preview.value.projectFacts.flatMap(fact=>fact.expiresAt?[Date.parse(fact.expiresAt)]:[]));if(!Number.isFinite(deadline))return;let timer:ReturnType<typeof setTimeout>|undefined;const expire=()=>{if(token!==inspection.current)return;const remaining=deadline-Date.now();if(remaining<=0){inspection.current++;setPreview(undefined);setMessage('The project memory inspection expired. Inspect memory again for the current selection.');return;}timer=setTimeout(expire,Math.min(remaining,2_147_483_647));};expire();return()=>{if(timer)clearTimeout(timer);};},[preview,key]);
+ const shown=preview?.key===key&&preview.value.projectFacts.every(fact=>projectMemoryFactActive(fact,Date.now()))?preview.value:undefined;
  return <details className="request-inference"><summary>Task memory · {saved.mode==='off'?'Off':'Inherit settings'}</summary>
   <p>Choose whether saved account and project facts may enter ordinary questions and drafts in this task. Inherit obeys global and project settings; it never turns global Memory on.</p>
   <Field label="Saved memory for this task"><select disabled={working||blocked||task.status!=='active'} value={saved.mode} onChange={event=>{const mode=event.target.value;if(mode==='inherit'||mode==='off')void save(mode);}}><option value="inherit">Inherit global and project settings</option><option value="off">Off for this task</option></select></Field>

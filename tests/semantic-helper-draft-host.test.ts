@@ -1,5 +1,6 @@
+import {expectPinnedReaderRefusal} from './pinned-reader-refusal.fixture';
 import {oldTaskLookup} from './pinned-old-task-lookup';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,test} from 'vitest';
@@ -77,8 +78,8 @@ test('artifact replacement and task deletion fence helper writes while preservin
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });
 
-test('pinned old sidecar reads helper raw fields and preserves them through an unrelated old write',async()=>{
- const directory=await mkdtemp(join(tmpdir(),'helper-draft-old-reader-')),core=await createCompanion({dataDir:directory});
+test('pinned old sidecar fails closed on the provenance-bearing store without changing helper raw fields; current reopen keeps them',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'helper-draft-old-reader-'));let core=await createCompanion({dataDir:directory});
  try{
   const task=await core.createTask({title:'Helper owner'}),created=await createTextHelper(core,{taskId:task.id,requestId:'create'}),helper=created.task.artifacts.find(item=>item.id===created.artifactId)!,revision=helper.revisions[0],module=parseModuleAnswer(JSON.parse(revision.content)).modules[0];
   const owner:LearningDraftOwner={taskId:task.id,artifactId:helper.id,artifactRevision:1,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version},lookupTask=async(id:string)=>(await core.listTasks()).find(item=>item.id===id);
@@ -86,8 +87,12 @@ test('pinned old sidecar reads helper raw fields and preserves them through an u
   await current.save(owner,'helper:text:run','initial',0,value);
   const joinTask=await core.createTask({title:'Join owner'}),joined=await core.saveArtifact(joinTask.id,{title:'Join',mimeType:MODULE_MIME,sourceRefs:[],content:JSON.stringify({schemaVersion:1,markdown:'Join.',modules:[{id:'join',version:1,data:exampleLesson,provenance:[]}]})});
   const joinOwner:LearningDraftOwner={taskId:joinTask.id,artifactId:joined.artifactId,artifactRevision:joined.revision.revision,artifactDigest:joined.revision.digest,moduleId:'join',moduleVersion:1};
-  const old=new OldDraftStore({directory,lookupTask:oldTaskLookup(directory)});const prior=await old.read();expect(prior.kind==='available'&&prior.records.some(record=>record.slot==='helper:text:run'&&record.value?.value===value.value)).toBe(true);
-  await old.save(joinOwner,'prediction','initial',0,{initial:'""',value:'"0"',basis:'join'});
-  const reopened=await current.read();expect(reopened.kind==='available'&&reopened.records.some(record=>record.slot==='helper:text:run'&&record.value?.value===value.value)).toBe(true);
+  // Refusal contract: replaces the old sidecar's raw-field read and its unrelated join save; its pinned task lookup refuses the store, so both fail closed with tasks.json and learning-drafts.json unchanged.
+  const before=await core.getTask(task.id),sidecar=join(directory,'learning-drafts.json'),rawBytes=await readFile(sidecar);
+  await expectPinnedReaderRefusal(directory,()=>oldTaskLookup(directory)(task.id));
+  const old=new OldDraftStore({directory,lookupTask:oldTaskLookup(directory)});expect((await old.read()).kind).toBe('unavailable');
+  await expect(old.save(joinOwner,'prediction','initial',0,{initial:'""',value:'"0"',basis:'join'})).rejects.toThrow(/unreadable or incompatible/);expect(await readFile(sidecar)).toEqual(rawBytes);
+  const reopened=await current.read();expect(reopened.kind==='available'&&reopened.records.some(record=>record.slot==='helper:text:run'&&record.value?.value===value.value)).toBe(true);expect(reopened.kind==='available'&&reopened.records.some(record=>record.slot==='prediction')).toBe(false);
+  await core.close();core=await createCompanion({dataDir:directory});const reopenedTask=await core.getTask(task.id);expect(reopenedTask.artifacts).toEqual(before.artifacts);expect(reopenedTask.requests).toEqual(before.requests);expect(reopenedTask.session?.moduleStates).toEqual(before.session?.moduleStates);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });

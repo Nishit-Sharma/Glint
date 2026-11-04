@@ -8,6 +8,8 @@ import {createCompanion} from '../src/core/companion';
 import {BrowserCoordinator} from '../src/host/browser/coordinator';
 import {BrowserControl} from '../src/host/browser/control';
 import {LocalBrowser} from '../src/host/browser/local-browser';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 // Deliberate read-error injection; real store/browser, scripted planner and no provider.
 it.each(['observe','propose','review'] as const)('Pause wins over a rejected pre-execution %s while the same page remains usable',async phase=>{
@@ -45,10 +47,13 @@ it('fences new agent input while prior page-scheduled same-site traffic can cont
  const server=createServer(async(req,res)=>{res.setHeader('content-type','text/html');if(req.url==='/started'){starts++;start();await pending;res.end('Continue owned page callback');return;}if(req.url==='/late'){late++;res.end('Owned delayed request');return;}res.end('<h1>Owned scripted page</h1><button onclick="fetch(\'/started\').then(()=>fetch(\'/late\'))">Schedule owned request</button>');});
  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const address=server.address();if(!address||typeof address==='string')throw Error('Missing port');const origin=`http://127.0.0.1:${address.port}`,directory=await mkdtemp(join(tmpdir(),'browser-late-page-')),core=await createCompanion({dataDir:directory});let running:Promise<unknown>|undefined;
  try{
-  const task=await core.createTask({title:'Owned delayed page traffic'}),coordinator=new BrowserCoordinator(core,{endpointKey:'owned-scripted',async plan(input){plans++;return {kind:'action',reason:'One owned page interaction',action:{kind:'click',targetId:input.observation.targets[0].id}};}});
+  const task=await core.createTask({title:'Owned delayed page traffic'}),coordinator=new BrowserCoordinator(core,{endpointKey:'owned-scripted',async plan(input){
+   // One page interaction. A later plan stays pending until handoff aborts the turn, so page timing (slower in Helium) cannot add agent clicks.
+   if(++plans>1)await new Promise((_resolve,reject)=>{const stop=()=>reject(Error('Stopped by user.'));if(input.signal.aborted)stop();else input.signal.addEventListener('abort',stop,{once:true});});
+   return {kind:'action',reason:'One owned page interaction',action:{kind:'click',targetId:input.observation.targets[0].id}};}});
   running=coordinator.run({taskId:task.id,requestId:'late-page',goal:'One owned interaction then manual control',origin,url:origin,transmissionApproved:true,control,approveAction:async()=>{approvals++;return {approved:true};}});void running.catch(()=>{});
-  await initiated;control.take();await expect.poll(()=>control.status().mode).toBe('user');expect(starts).toBe(1);expect(late).toBe(0);expect(plans).toBe(1);expect(approvals).toBe(1);
-  release();await expect.poll(()=>late).toBe(1);expect(control.status().mode).toBe('user');expect(plans).toBe(1);expect(approvals).toBe(1);expect(starts).toBe(1);expect((await core.getTask(task.id)).session?.runs[0].operations[0].status).toBe('observed');
+  await initiated;control.take();await expect.poll(()=>control.status().mode).toBe('user');const handoffPlans=plans;expect(starts).toBe(1);expect(late).toBe(0);expect([1,2]).toContain(handoffPlans);expect(approvals).toBe(1);
+  release();await expect.poll(()=>late).toBe(1);expect(control.status().mode).toBe('user');expect(plans).toBe(handoffPlans);expect(approvals).toBe(1);expect(starts).toBe(1);expect((await core.getTask(task.id)).session?.runs[0].operations[0].status).toBe('observed');
   await core.cancelRequest(task.id,'late-page');expect(await running).toMatchObject({status:'cancelled'});
  }finally{release();for(const task of await core.listTasks())for(const request of task.requests)if(request.status==='running')await core.cancelRequest(task.id,request.id);await running?.catch(()=>{});await core.close();await rm(directory,{recursive:true,force:true});server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });

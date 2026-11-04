@@ -1,3 +1,4 @@
+import {InheritedSourceWarning} from './InheritedSourceWarning';
 import {MemoryReceipt} from '../UserMemory';
 import type {UserMemory} from '../../../shared/user-memory';
 import {useEffect,useLayoutEffect,useRef,useState,type ReactNode} from 'react';
@@ -14,6 +15,8 @@ import {Button} from '../ui';
 import {publicErrorMessage,requestStatusLabel} from '../../../shared/public-messages';
 import {browserRequestOutcome,earlierBrowserOutcome,requestArtifact} from '../browser-outcome';
 import {SOURCE_FORMULA_MIME,readSourceFormulaPacket} from '../../../learning/source-formula';
+import {experimentRunActivity} from '../../../learning/experiment-runs';
+import {structuredAnswerText,structuredAnswerAction} from '../answer-summary';
 import {WindowSourceContinuity} from './WindowSourceContinuity';
 
 const latest=<T,>(items:T[])=>items[items.length-1];
@@ -47,12 +50,32 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
  const sourceName=uncaptured?attachedWindow!.title:scopeIds.length===0?'Only your question':scopeIds.length>1?`${scopeIds.length} sources selected`:version?.label||'No source attached';
  let formulaValid=false;if(revision?.mimeType===SOURCE_FORMULA_MIME)try{readSourceFormulaPacket(revision.content);formulaValid=true;}catch{/* Unsupported saved packets are never displayed as raw text. */}
  const itemIdentity=[task?.id,artifact?.id,revision?.revision,revision?.digest].join(':');
+ /** A saved run opens in its own view; its packet is never compact answer text. */
+ const runActivity=task&&artifact&&revision?experimentRunActivity(task,artifact.id,revision):undefined;
+ const answerAction=task&&artifact&&revision?structuredAnswerAction(task,artifact,revision):undefined,structuredAnswer=!!revision&&structuredAnswerText(revision)!==undefined;
  const renderedBrief=artifact&&revision?.mimeType!==SOURCE_FORMULA_MIME&&renderBrief?.(artifact),isShownBrief=!!renderedBrief&&!currentStream&&!currentRunning&&!showOutcome;
- const resultRefs=(currentStream||currentRunning)?task?.requests.find(request=>request.id===(ownsResponse?requestId:currentRequest?.id))?.sourceRefs:revision?.sourceRefs;
+ const resultRecord=(currentStream||currentRunning)?task?.requests.find(request=>request.id===(ownsResponse?requestId:currentRequest?.id)):revision;
+ const resultRefs=resultRecord?.sourceRefs;
  const differentScope=selectedSourceIds!==undefined&&!!resultRefs&&(scopeIds.length!==resultRefs.length||scopeIds.some(id=>!resultRefs.some(ref=>ref.sourceId===id&&sources.find(s=>s.id===id)?.currentVersion===ref.version)));
  const citations=resultRefs?.map(ref=>({ref,version:sources.find(source=>source.id===ref.sourceId)?.versions.find(version=>version.version===ref.version&&version.digest===ref.digest)}));
  const outdatedResult=!!task&&!!resultRefs&&changedDependencies(task,resultRefs).length>0;
  useEffect(()=>{if(active)main.current?.focus({preventScroll:true});},[active]);
+ // Marks the answer plate while more content sits below its fold, for a bottom fade cue.
+ useEffect(()=>{
+  const element=main.current,inner=content.current;if(!element||typeof ResizeObserver==='undefined')return;
+  // No fade on a plate shorter than two lines: it would hide the only visible line.
+  const update=()=>{element.dataset.more=String(element.clientHeight>=64&&element.scrollHeight-element.scrollTop-element.clientHeight>2);};
+  update();element.addEventListener('scroll',update,{passive:true});const observer=new ResizeObserver(update);observer.observe(element);if(inner)observer.observe(inner);
+  return()=>{element.removeEventListener('scroll',update);observer.disconnect();};
+ },[active,loaded]);
+ // Scroll affordances for the composer scroll box: shadows mark content above or below the visible part.
+ useEffect(()=>{
+  const element=main.current?.closest('.compact-body')?.querySelector<HTMLElement>('.compact-compose');if(!element||typeof ResizeObserver==='undefined')return;
+  const update=()=>{element.dataset.above=String(element.scrollTop>1);element.dataset.below=String(element.scrollHeight-element.scrollTop-element.clientHeight>1);};
+  update();element.addEventListener('scroll',update,{passive:true});const observer=new ResizeObserver(update);observer.observe(element);for(const child of element.children)observer.observe(child);
+  const content=new MutationObserver(update);content.observe(element,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','open']});
+  return()=>{element.removeEventListener('scroll',update);observer.disconnect();content.disconnect();};
+ },[active,loaded,!!task,!!contextContent]);
  useLayoutEffect(()=>{
   if(!active||!main.current||!content.current)return;
   const root=main.current.closest<HTMLElement>('.compact-companion'),body=root?.querySelector<HTMLElement>('.compact-body');if(!root||!body)return;
@@ -74,7 +97,9 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
    cancelAnimationFrame(frame);frame=requestAnimationFrame(async()=>{
     if(disposed||presentation.exiting||!content.current||!main.current)return;const state=phase();if(state==='running'){void freeze();return;}if(state==='preparing'&&(reserved||preparing))return;
     const chrome=root.querySelector<HTMLElement>('.compact-chrome')!.offsetHeight;
-    const parts=[...body.children].filter(node=>node!==main.current).reduce((sum,node)=>sum+(node as HTMLElement).offsetHeight,0);
+    // Natural height of every body part: the composer is a scroll box in short windows, so its laid-out
+    // offsetHeight shrinks with the window. Asking for that would lock the native fit at the minimum.
+    const parts=[...body.children].filter(node=>node!==main.current).reduce((sum,node)=>sum+Math.max((node as HTMLElement).offsetHeight,(node as HTMLElement).scrollHeight),0);
     const style=getComputedStyle(main.current),padding=parseFloat(style.paddingTop)+parseFloat(style.paddingBottom);
     const natural=Math.min(100000,Math.ceil(Math.max(220,chrome+8+parts+content.current.scrollHeight+padding+2)));
     if(!compactFit){size(innerHeight);return;}
@@ -93,11 +118,13 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
    });
   };
   const resize=new ResizeObserver(fit);resize.observe(content.current);const compose=body.querySelector('.compact-compose');if(compose)resize.observe(compose);
+  // Composer content can grow inside its scroll box without resizing it (chips, details, suggestions).
+  const composeContent=new MutationObserver(fit);if(compose)composeContent.observe(compose,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','open','class']});
   const state=new MutationObserver(fit);state.observe(root,{attributes:true,attributeFilter:['data-surface-reveal']});window.addEventListener('resize',fit);const unsubscribe=presentation.subscribe(fit);fit();
-  return()=>{disposed=true;request++;cancelAnimationFrame(frame);resize.disconnect();state.disconnect();unsubscribe();window.removeEventListener('resize',fit);};
+  return()=>{disposed=true;request++;cancelAnimationFrame(frame);resize.disconnect();composeContent.disconnect();state.disconnect();unsubscribe();window.removeEventListener('resize',fit);};
  },[active,loaded,compactFit?.id,compactFit?.maxHeight,presentation]);
  return <GeneratedSurface className="app compact-companion" active={active} ready={loaded&&(fitFailed||!compactFit||preparedFitId===compactFit.id)} skipReason={fitFailed?'native bounds could not be reserved':undefined} label="Attached companion" identity={presentationIdentity(task,attachedWindow)+':'+selected?.id+':'+loaded} live={busy||running}>
-  <header className="chrome compact-chrome" data-generation-live-region>{character}<button className="compact-task" onClick={()=>onWorkspace(task?'roster':'tasks')} aria-label={task?'Choose task: '+task.title:'Start a task'}><strong>{task?.title||'Companion'}</strong><ChevronDown size={12}/></button><div className="chrome-actions">{anyRunning&&!running&&<Button kind="icon" title="Stop current request" onClick={onStop}><Square size={13}/></Button>}<Button kind="icon" title="Open task workspace" onClick={()=>onWorkspace(task?undefined:'tasks')}><AppWindow size={15}/></Button><Button kind="icon" title="Hide floating companion" onClick={onHide} disabled={!onHide}><EyeOff size={15}/></Button><Button data-presentation-exit-control kind="icon" title="Collapse to edge anchor" onClick={onCollapse}><Minus size={15}/></Button></div></header>
+  <header className="chrome compact-chrome" data-generation-live-region>{character}<button className="compact-task" onClick={()=>onWorkspace(task?'roster':'tasks')} aria-label={task?'Choose task: '+task.title:'Start a task'}><strong>{task?.title||'Glint'}</strong><ChevronDown size={12}/></button><div className="chrome-actions">{anyRunning&&!running&&<Button kind="icon" title="Stop current request" onClick={onStop}><Square size={13}/></Button>}<Button kind="icon" title="Open task workspace" onClick={()=>onWorkspace(task?undefined:'tasks')}><AppWindow size={15}/></Button><Button kind="icon" title="Hide floating companion" onClick={onHide} disabled={!onHide}><EyeOff size={15}/></Button><Button data-presentation-exit-control kind="icon" title="Collapse to edge anchor" onClick={onCollapse}><Minus size={15}/></Button></div></header>
   <div className="compact-body" data-generation-live-region>
   {notice&&<p className="compact-notice" role="status">{notice}</p>}
   {!contextContent&&(uncaptured||(scopeIds.length>0&&!currentRequest&&!revision&&!currentStream&&!currentRunning))&&<div className="compact-source">
@@ -115,11 +142,12 @@ export function CompactCompanion({memory,character,active,compactFit,task,loaded
     {task.status==='paused'&&<p className="warning">Task paused. Resume in the workspace.</p>}
     {!uncaptured&&differentSelectedWindow&&<p className="tiny" role="status">The attached window differs from the selected source: {version?.label}. Review Context to change the selected source.</p>}
     {!uncaptured&&!differentSelectedWindow&&selected&&version?.kind==='window'&&<WindowSourceContinuity task={task} sourceId={selected.id} onReview={onReviewSource} isCurrent={sourceReviewCurrent}/>}
-    {(currentStream||currentRunning)?<section className="compact-response" aria-label="Current response">{!currentRunning&&<div className="compact-result-heading"><strong>Partial response</strong></div>}<StreamingText text={currentStream||'Preparing a response…'} streaming={active&&currentRunning}/></section>:showOutcome?<section className="compact-response" aria-label="Latest request outcome"><p className="conversation-status" role="status">{outcome?.label??requestStatusLabel(currentRequest!.status)}</p>{outcome?.message?<p>{outcome.message}</p>:currentRequest!.error&&<p className="warning">{publicErrorMessage(currentRequest!.error)}</p>}<button type="button" className="conversation-open" onClick={()=>onWorkspace('work')}>{outcome?.needsReview||earlierOutcome?.needsReview?'Review browser outcome':'View request in conversation'}<ArrowUpRight size={14}/></button></section>:revision&&artifact?(renderedBrief||<section className="settled-result" aria-label="Latest saved result"><div className="settled-result-card">{revision.mimeType==='image/png'&&revision.encoding==='base64'?<ReadyArtifact identity={itemIdentity} variant="image"><img className="compact-artifact-image" src={'data:image/png;base64,'+revision.content} alt={revision.title}/></ReadyArtifact>:revision.mimeType===SOURCE_FORMULA_MIME&&!formulaValid?<p role="status">This saved source formula needs inspection. Its original content is kept.</p>:revision.mimeType==='application/json'||formulaValid?<ReadyArtifact identity={itemIdentity}><button className="compact-structured" onClick={()=>onArtifact(artifact)}><FileText size={17}/><span><strong>{revision.title}</strong><small>Review and edit</small></span><ArrowUpRight size={14}/></button></ReadyArtifact>:<ReadableText text={revision.content}/>}</div></section>):!draftText.trim()&&!uncaptured?<div className="context-welcome"><Button onClick={onStartContext}>Use screen context</Button></div>:null}
+    {(currentStream||currentRunning)?<section className="compact-response" aria-label="Current response">{!currentRunning&&<div className="compact-result-heading"><strong>Partial response</strong></div>}<StreamingText text={currentStream||'Preparing a response…'} streaming={active&&currentRunning}/></section>:showOutcome?<section className="compact-response" aria-label="Latest request outcome"><p className="conversation-status" role="status">{outcome?.label??requestStatusLabel(currentRequest!.status)}</p>{outcome?.message?<p>{outcome.message}</p>:currentRequest!.error&&<p className="warning">{publicErrorMessage(currentRequest!.error)}</p>}<button type="button" className="conversation-open" onClick={()=>onWorkspace('work')}>{outcome?.needsReview||earlierOutcome?.needsReview?'Review browser outcome':'View request in conversation'}<ArrowUpRight size={14}/></button></section>:revision&&artifact?(renderedBrief||<section className="settled-result" aria-label="Latest saved result"><div className="settled-result-card">{revision.mimeType==='image/png'&&revision.encoding==='base64'?<ReadyArtifact identity={itemIdentity} variant="image"><img className="compact-artifact-image" src={'data:image/png;base64,'+revision.content} alt={revision.title}/></ReadyArtifact>:revision.mimeType===SOURCE_FORMULA_MIME&&!formulaValid?<p role="status">This saved source formula needs inspection. Its original content is kept.</p>:revision.mimeType==='application/json'||formulaValid?<ReadyArtifact identity={itemIdentity}><button className="compact-structured" onClick={()=>onArtifact(artifact)}><FileText size={17}/><span><strong>{revision.title}</strong><small>Review and edit</small></span><ArrowUpRight size={14}/></button></ReadyArtifact>:runActivity?<ReadyArtifact identity={itemIdentity}><button className="compact-structured" onClick={()=>onArtifact(artifact)}><FileText size={17}/><span><strong>{runActivity.label}</strong><small>{runActivity.detail}</small></span><ArrowUpRight size={14}/></button></ReadyArtifact>:<ReadableText text={structuredAnswerText(revision)??revision.content}/>}</div></section>):!draftText.trim()&&!uncaptured?<div className="context-welcome"><Button onClick={onStartContext}>Use screen context</Button></div>:null}
     {currentRequest&&<MemoryReceipt receipt={currentRequest.memory} status={currentRequest.status} memory={memory}/>}
     {earlierOutcome&&<section aria-label="Earlier browser action"><p className="conversation-status" role="status">Earlier browser action: {earlierOutcome.label}</p><p className="tiny">{earlierOutcome.needsReview?earlierOutcome.message:'The earlier website outcome was reviewed by you. See its request for the recorded evidence.'}</p>{!showOutcome&&<button type="button" className="conversation-open" onClick={()=>onWorkspace('work')}>{earlierOutcome.needsReview?'Review browser outcome':'View request in conversation'}<ArrowUpRight size={14}/></button>}</section>}
+    {!isShownBrief&&resultRecord&&<InheritedSourceWarning task={task} revision={resultRecord}/>}
     {!isShownBrief&&citations&&citations.length>0&&<div className="compact-citations" aria-label="Response sources">{citations.map(({ref,version})=><button key={[ref.sourceId,ref.version,ref.digest].join(':')} onClick={()=>onReviewSource(ref)} title={'View the source used for this response'}>{version?.label||'Earlier source'}</button>)}{outdatedResult&&<div className="compact-result-recovery" role="status"><span>Earlier context. Review sources before continuing.</span><button onClick={()=>onWorkspace('sources')}>Review sources</button></div>}</div>}
-    {!isShownBrief&&!currentStream&&!currentRunning&&!showOutcome&&revision&&artifact&&revision.mimeType!=='application/json'&&revision.mimeType!==SOURCE_FORMULA_MIME&&<button className="compact-open-result" aria-label={'Open saved result: '+revision.title} onClick={()=>onArtifact(artifact)}>Open {revision.title}<ArrowUpRight size={12}/></button>}
+    {!isShownBrief&&!currentStream&&!currentRunning&&!showOutcome&&revision&&artifact&&revision.mimeType!=='application/json'&&revision.mimeType!==SOURCE_FORMULA_MIME&&!structuredAnswer&&<button className="compact-open-result" aria-label={'Open saved result: '+revision.title} onClick={()=>onArtifact(artifact)}>Open {revision.title}<ArrowUpRight size={12}/></button>}{!currentStream&&!currentRunning&&!showOutcome&&answerAction&&<button className="compact-open-result" onClick={()=>onArtifact(answerAction.artifact)}>{answerAction.label}<ArrowUpRight size={12}/></button>}
    </>}
   </div></main>
   {task&&!contextContent&&<div className="compact-compose">{differentScope&&<button className="compact-next-scope" onClick={()=>onWorkspace('sources')}>Next message: {sourceName}</button>}{composer}</div>}

@@ -14,7 +14,7 @@ const normalize=(name:string)=>name.trim().normalize('NFC');
  * filtered/ordered page; never turn unseen task IDs into unavailable tasks. */
 export function SidebarTaskSections({tasks,allTasks,renderTask,invoke=invokeDefault}:Props){
  const [state,setState]=useState<TaskSectionsState>(),[editor,setEditor]=useState<Editor>(),[moving,setMoving]=useState<Moving>(),[pending,setPending]=useState(false),[blocked,setBlocked]=useState(false),[message,setMessage]=useState('');
- const saved=useRef(state),edit=useRef(editor),move=useRef(moving),lock=useRef(false),held=useRef(false),alive=useRef(true),generation=useRef(0);saved.current=state;edit.current=editor;move.current=moving;
+ const saved=useRef(state),edit=useRef(editor),move=useRef(moving),lock=useRef<false|'read'|'write'>(false),held=useRef(false),alive=useRef(true),generation=useRef(0);saved.current=state;edit.current=editor;move.current=moving;
  const root=useRef<HTMLElement>(null),nameField=useRef<HTMLInputElement>(null),destinationField=useRef<HTMLSelectElement>(null),newSectionButton=useRef<HTMLButtonElement>(null),trigger=useRef<HTMLElement|undefined>(undefined),triggerTask=useRef<string|undefined>(undefined),focusedEditor=useRef(''),restoreFocus=useRef(false);
  const rememberTrigger=(element?:HTMLElement,taskId?:string)=>{trigger.current=element;triggerTask.current=taskId;};
  function focusAndReveal(element:HTMLElement|undefined|null){
@@ -38,10 +38,10 @@ export function SidebarTaskSections({tasks,allTasks,renderTask,invoke=invokeDefa
  const replaceMoving=(value:Moving|undefined)=>{move.current=value;setMoving(value);};
  const discard=()=>{generation.current++;restoreFocus.current=true;replaceEditor(undefined);replaceMoving(undefined);};
  const dirty=!!editor&&editor.name!==editor.initialName||!!moving&&moving.target!==moving.initialTarget;
- const clearDraft=useNavigationDraft(dirty||pending,discard);
+ const clearDraft=useNavigationDraft(dirty||pending&&lock.current==='write',discard);
  const accept=(next:TaskSectionsState)=>{saved.current=next;setState(next);};
  async function load(){
-  if(lock.current)return;lock.current=true;setPending(true);
+  if(lock.current)return;lock.current='read';setPending(true);
   try{
    const next=readTaskSectionsState(await invoke({type:'task-sections.get'}));if(!alive.current)return;accept(next);
    if(next.kind!=='available'){hold(true);setMessage(next.message);return;}
@@ -54,7 +54,7 @@ export function SidebarTaskSections({tasks,allTasks,renderTask,invoke=invokeDefa
  useEffect(()=>{alive.current=true;void load();return()=>{alive.current=false;generation.current++;};},[]);
  async function change(value:TaskSectionChange['change'],form?:Editor,selection?:Moving){
   const basis=saved.current;if(lock.current||held.current||basis?.kind!=='available'||form&&edit.current!==form||selection&&move.current!==selection||!form&&!selection&&(edit.current||move.current))return;
-  lock.current=true;setPending(true);setMessage('');
+  lock.current='write';setPending(true);setMessage('');
   try{
    const next=readTaskSectionsState(await invoke({type:'task-sections.change',expectedRevision:basis.revision,change:value}));
    if(!alive.current)return;accept(next);

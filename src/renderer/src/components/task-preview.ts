@@ -1,5 +1,7 @@
 import type {SourceRef,Task} from '../../../core/types';
 import {buildHistoryEvents} from './history-events';
+import {savedExperimentRunActivity} from '../../../learning/experiment-runs';
+import {localActivityLabel} from '../local-activity';
 
 /** Presentation only: exact saved revisions, never source contents or inferred answers. */
 export function savedSourceSummary(task:Pick<Task,'sources'>):{heading:string;description:string;action:string;preview:string;reference?:SourceRef}|undefined{
@@ -28,5 +30,6 @@ export function taskSidebarPreview(task:Task):string{
  if(event.kind==='checkpoint')return event.checkpoint.note;
  if(event.kind==='export')return event.action.status==='verified'?'Export saved':'Export needs review';
  if(event.request.kind==='brief'){const item=task.artifacts.find(a=>a.id===event.request.artifactId);return item?.revisions.at(-1)?.title||'Screen insight';}
- return event.request.prompt;
+ const activity=event.request.status==='completed'?savedExperimentRunActivity(task,event.request):undefined;
+ return activity?activity.label:localActivityLabel(task,event.request,true)??event.request.prompt;
 }

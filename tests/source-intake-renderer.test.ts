@@ -1,0 +1,27 @@
+import {expect,it,vi} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('./controlled-renderer.fixture')).hooks}));
+import {createElement} from 'react';
+import {createControlledRenderer} from './controlled-renderer.fixture';
+import {SourceIntakeControls} from '../src/renderer/src/components/SourceIntakeControls';
+import type {Task} from '../src/core/types';
+import type {Run} from '../src/renderer/src/ui';
+const reference={sourceId:'text',version:1,digest:'a'.repeat(64)},version={id:'text',version:1,digest:reference.digest,capturedAt:'2026-11-03T00:00:00Z',kind:'text' as const,role:'fact' as const,label:'Synthetic text',content:'Visible PRIVATE tail'};
+const task:Task={id:'owner',title:'Synthetic owner',goal:'',status:'active',createdAt:version.capturedAt,updatedAt:version.capturedAt,sources:[{id:'text',currentVersion:1,freshness:'fresh',versions:[version]}],artifacts:[],requests:[],checkpoints:[],procedures:[],actions:[],memory:{enabled:false}};
+const text=(renderer:ReturnType<typeof createControlledRenderer>)=>renderer.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join(' ');
+const button=(renderer:ReturnType<typeof createControlledRenderer>,label:string)=>renderer.find(node=>node.type==='button'&&node.children.some(child=>child.props.text===label));
+it('uses native labelled selection and submits the exact reviewed UTF-16 span once while pending',async()=>{
+ let finish!:(value:Task)=>void;const calls:unknown[]=[],run=((command:unknown)=>{calls.push(command);return new Promise<Task>(resolve=>finish=resolve);}) as Run,onSaved=vi.fn();const renderer=createControlledRenderer(()=>createElement(SourceIntakeControls,{task,source:task.sources[0],reference,busy:false,run,onSaved}));renderer.render();
+ button(renderer,'Redact text…').props.onClick();renderer.render();const field=renderer.find(node=>node.type==='textarea');expect(renderer.find(node=>node.type==='label').props.htmlFor).toBe(field.props.id);field.props.onSelect({currentTarget:{value:version.content,selectionStart:8,selectionEnd:15}});renderer.render();expect(text(renderer)).toContain('Visible [redacted] tail');const pending=button(renderer,'Save redacted version').props.onClick();button(renderer,'Save redacted version').props.onClick();expect(calls).toEqual([{type:'source-intake.redact',taskId:task.id,expected:reference,spans:[{start:8,end:15}]}]);finish({...task,sources:[{...task.sources[0],currentVersion:2,versions:[version,{...version,version:2,digest:'b'.repeat(64),content:'Visible [redacted] tail'}]}]});await pending;await Promise.resolve();expect(onSaved).toHaveBeenCalledWith({...reference,version:2,digest:'b'.repeat(64)});expect(text(renderer)).toContain('Older unredacted versions stay in local history');
+});
+it('binds restoration to the exact revocation and keeps historical version controls unavailable',async()=>{
+ const removed={...task.sources[0],revoked:{id:'removal',at:version.capturedAt,previousFreshness:'fresh' as const},freshness:'refresh-required' as const};const run=vi.fn(async()=>undefined) as unknown as Run;let selected=reference;const renderer=createControlledRenderer(()=>createElement(SourceIntakeControls,{task:{...task,sources:[removed]},source:removed,reference:selected,busy:false,run,onSaved:()=>{}}));renderer.render();await button(renderer,'Restore source').props.onClick();expect(run).toHaveBeenCalledWith({type:'source-intake.restore',taskId:task.id,expected:reference,revokedAt:removed.revoked.at,revocationId:'removal'},'Source restored');selected={...reference,version:0};renderer.render();expect(renderer.nodes().some(node=>node.type==='button')).toBe(false);
+});
+it('invalid selection reports recovery locally and a stale owner cannot dispatch removal',async()=>{
+ const run=vi.fn(async()=>undefined) as unknown as Run;let current=true;const renderer=createControlledRenderer(()=>createElement(SourceIntakeControls,{task,source:task.sources[0],reference,busy:false,run,isCurrent:()=>current,onSaved:()=>{}}));renderer.render();button(renderer,'Redact text…').props.onClick();renderer.render();await button(renderer,'Save redacted version').props.onClick();renderer.render();expect(renderer.find(node=>node.props.role==='alert').children[0].props.text).toContain('Choose between');current=false;await button(renderer,'Remove from requests').props.onClick();expect(run).not.toHaveBeenCalled();
+});
+
+it('exposes read-only semantics with native caret selection and prevents source text mutation',()=>{
+ const renderer=createControlledRenderer(()=>createElement(SourceIntakeControls,{task,source:task.sources[0],reference,busy:false,run:vi.fn() as unknown as Run,onSaved:()=>{}}));renderer.render();button(renderer,'Redact text…').props.onClick();renderer.render();const field=renderer.find(node=>node.type==='textarea');expect(field.props['aria-readonly']).toBe('true');expect(field.props.readOnly).toBeUndefined();
+ for(const name of ['onBeforeInput','onPaste','onCut','onDrop']){const preventDefault=vi.fn();field.props[name]({preventDefault});expect(preventDefault).toHaveBeenCalledOnce();}
+ field.props.onSelect({currentTarget:{value:'altered',selectionStart:0,selectionEnd:5}});renderer.render();expect(text(renderer)).toContain('No text selected');const target={value:'altered'};field.props.onChange({currentTarget:target});expect(target.value).toBe(version.content);expect(task.sources[0].versions[0].content).toBe('Visible PRIVATE tail');
+});

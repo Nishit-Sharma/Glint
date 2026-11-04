@@ -14,6 +14,7 @@
 .experiment-comparison h3{margin:0 0 8px}
 .experiment-comparison ul{padding-left:22px}
 .experiment-change-explanation{border-top:1px solid var(--line);margin-top:16px;padding-top:4px;min-width:0}
+.experiment-input-trials{border-top:1px solid var(--line);margin-top:16px;padding-top:12px;overflow-wrap:anywhere}.experiment-input-trials>ul{list-style:none;padding:0}.experiment-input-trials>ul>li{border-block-end:1px solid var(--line);padding:10px 0}.experiment-input-trials p{margin:6px 0}.experiment-input-trials details{font-size:12px}.experiment-trial-intake{margin:16px 0}.experiment-change-explanation select{display:block;margin-top:6px;max-width:100%}
 .experiment-change-explanation .learning-modes{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
 .experiment-change-explanation .learning-modes button{padding:4px 11px;color:var(--muted);background:transparent;border-color:transparent}
 .experiment-change-explanation .learning-modes button[aria-pressed=true]{color:var(--ink);background:var(--soft);border-color:var(--line)}
@@ -30,3 +31,57 @@
 .experiment-flow-arrow{display:block;text-align:center;color:var(--muted);margin:6px 0}
 .experiment-flow-output{margin:0;text-align:center;font-variant-numeric:tabular-nums}
 .experiment-flow-output>span{display:block;font-size:12px;color:var(--muted);margin-top:4px}
+
+.experiment-result-save{display:grid;gap:10px}.experiment-result-save>label{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:21px}.experiment-result-save>label input{flex-shrink:0;margin:3px 0 0}.experiment-result-save>button{justify-self:start}
+
+/* Experiment practice: one prediction → check → explanation loop. Character colour (--accent) marks only the current step and an agreeing answer. */
+.experiment-practice{display:grid;gap:16px;min-width:0;max-width:640px}
+.experiment-practice>*{margin:0}
+.experiment-practice .practice-header{display:grid;gap:4px}
+.structured-tools .experiment-practice .practice-header h3{margin:0;font-size:18px;line-height:24px;font-weight:550;letter-spacing:-.2px}
+.experiment-practice .practice-header p{margin:0}
+.experiment-practice .practice-lede{font-size:14px;line-height:21px;color:var(--ink);text-wrap:pretty}
+.experiment-practice .practice-steps{display:flex;flex-wrap:wrap;gap:6px 18px;list-style:none;padding:0;font-size:12px;line-height:16px;color:var(--muted)}
+.experiment-practice .practice-steps>li{display:flex;align-items:center;gap:7px;margin:0}
+.experiment-practice .practice-steps>li>span{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:999px;border:1px solid var(--line);font-variant-numeric:tabular-nums;transition:background-color .18s cubic-bezier(.23,1,.32,1),color .18s cubic-bezier(.23,1,.32,1)}
+.experiment-practice .practice-steps>li[aria-current=step]{color:var(--ink);font-weight:550}
+.experiment-practice .practice-steps>li[aria-current=step]>span{background:var(--accent);border-color:transparent;color:#242423}
+.experiment-practice .practice-steps>li[data-done]>span{background:var(--line);border-color:transparent;color:var(--ink)}
+.experiment-practice .practice-model{display:grid;gap:6px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
+.experiment-practice .practice-formula{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;font-size:12px;line-height:16px;color:var(--muted)}
+.experiment-practice .practice-formula code{font:500 16px/24px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);overflow-wrap:anywhere}
+.experiment-practice .practice-label{margin:4px 0 0;font-size:12px;line-height:16px;color:var(--muted)}
+.structured-tools .experiment-practice .practice-assumptions{margin:0;padding-inline-start:18px;font-size:13px;line-height:20px}
+.structured-tools .experiment-practice .practice-assumptions li{margin:0}
+.experiment-practice .practice-avoid{display:grid;gap:6px}
+.experiment-practice .practice-avoid .practice-label{margin:0}
+.structured-tools .experiment-practice .practice-chips{display:flex;flex-wrap:wrap;gap:6px;list-style:none;padding:0;margin:0 0 4px}
+.structured-tools .experiment-practice .practice-chips>li{margin:0;padding:3px 9px;border:1px solid var(--line);border-radius:999px;font-size:12px;line-height:18px;color:var(--muted);font-variant-numeric:tabular-nums}
+.experiment-practice .practice-inputs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.experiment-practice .practice-input{min-width:0}
+.structured-tools .experiment-practice .practice-input .field{margin-bottom:4px}
+.experiment-practice .practice-input input{width:100%;font-variant-numeric:tabular-nums}
+.experiment-practice .practice-input p{margin:0}
+.experiment-practice .practice-primary{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.experiment-practice .practice-primary>p{margin:0;flex:1 1 220px}
+.experiment-practice .practice-predict{display:grid;gap:4px;padding:16px;border:1px solid var(--line);border-radius:10px;animation:practice-in .2s cubic-bezier(.23,1,.32,1)}
+.structured-tools .experiment-practice .practice-predict .field{margin-bottom:10px}
+.structured-tools .experiment-practice input.practice-prediction{max-width:240px;font-size:18px;line-height:24px;font-variant-numeric:tabular-nums}
+.experiment-practice .practice-predict>p{margin:0 0 8px}
+.experiment-practice .practice-verdict{display:grid;gap:2px;padding:12px 16px;border:1px solid var(--line);border-left:3px solid var(--muted);border-radius:10px;font-variant-numeric:tabular-nums;animation:practice-in .2s cubic-bezier(.23,1,.32,1)}
+.experiment-practice .practice-verdict[data-within]{border-left-color:var(--accent)}
+.experiment-practice .practice-verdict p{margin:0;font-size:14px;line-height:21px}
+.structured-tools .experiment-practice .practice-verdict h4{margin:0;font-size:15px;line-height:22px;font-weight:600}
+.experiment-practice .practice-verdict:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.experiment-practice .practice-verdict:focus:not(:focus-visible),.experiment-practice .practice-primary>p:focus:not(:focus-visible){outline:none}
+.structured-tools .experiment-practice .practice-worked{margin:8px 0 0;padding-inline-start:20px;font-size:13px;line-height:20px;color:var(--ink)}
+.structured-tools .experiment-practice .practice-worked li{margin:0 0 2px;overflow-wrap:anywhere}
+.experiment-practice .practice-summary{margin:0;font-size:14px;line-height:21px;font-variant-numeric:tabular-nums}
+.experiment-practice .practice-summary .practice-label{margin:0}
+.experiment-practice .practice-chip-tag{margin-inline-end:6px;color:var(--ink);font-weight:550}
+.experiment-practice .practice-answer{min-width:0;padding-top:4px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.experiment-practice .practice-actions{display:flex;flex-wrap:wrap;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
+.structured-tools .experiment-practice .practice-checking{margin:0}
+.experiment-practice .practice-checking p{color:var(--muted);font-size:13px;line-height:20px;max-width:65ch}
+@keyframes practice-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.experiment-practice .practice-predict,.experiment-practice .practice-verdict{animation:none}.experiment-practice .practice-steps>li>span{transition:none}}

@@ -3,6 +3,8 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
+import {artifactContextUncertain,projectRequestTask} from '../src/core/request-context';
+import {UNCERTAIN_ARTIFACT_CONTEXT} from '../src/shared/artifact-context-origin';
 import {LearningDraftStore} from '../src/host/learning-drafts';
 import {createLearningDrafts} from '../src/renderer/src/learning-drafts';
 import {SAVED_DOCUMENT_DRAFT_SLOT,emptySavedDocumentDraft,savedDocumentDraftBasis,savedDocumentDraftOwner} from '../src/shared/saved-document-draft';
@@ -11,7 +13,7 @@ const cleanups:Array<()=>Promise<void>>=[];
 afterEach(async()=>{for(const close of cleanups.splice(0))await close();});
 async function fixture(){
  const directory=await mkdtemp(join(tmpdir(),'saved-document-source-')),core=await createCompanion({dataDir:directory});cleanups.push(async()=>{await core.close();await rm(directory,{recursive:true,force:true});});
- const first=await core.createTask({title:'Original research'}),owner=await core.putSource(first.id,{kind:'text',role:'fact',label:'Requirements',content:'PRIVATE_ORIGINAL_SOURCE_BODY'}),source=owner.sources[0],ref={sourceId:source.id,version:1,digest:source.versions[0].digest},saved=await core.saveArtifact(owner.id,{title:'Saved visit plan',content:'\n  Exact saved text.  \n',mimeType:'text/markdown',sourceRefs:[ref]}),original=await core.getTask(owner.id),target=await core.createTask({title:'A new task'}),artifact={artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest},preview=savedDocumentSourcePreview(original,artifact),input={taskId:target.id,ownerTaskId:owner.id,artifact,role:'fact' as const,expectedSnapshot:preview.snapshot};
+ const first=await core.createTask({title:'Original research'}),owner=await core.putSource(first.id,{kind:'text',role:'fact',label:'Requirements',content:'PRIVATE_ORIGINAL_SOURCE_BODY'}),source=owner.sources[0],ref={sourceId:source.id,version:1,digest:source.versions[0].digest},saved=await core.createAuthoredDocument({taskId:owner.id,intentId:crypto.randomUUID(),title:'Saved visit plan',content:'\n  Exact saved text.  \n',sourceRefs:[ref]}),original=await core.getTask(owner.id),target=await core.createTask({title:'A new task'}),artifact={artifactId:saved.artifactId,revision:saved.revision,digest:saved.digest},preview=savedDocumentSourcePreview(original,artifact),input={taskId:target.id,ownerTaskId:owner.id,artifact,role:'fact' as const,expectedSnapshot:preview.snapshot};
  return {directory,core,owner:original,target,artifact,preview,input,sourceRef:ref};
 }
 it('copies only the reviewed saved revision with provenance and keeps both unsent drafts and original source bodies private',async()=>{
@@ -31,9 +33,11 @@ it('reconciles the same copy after store recreation without appending a source o
 it('retains the destination browser route and unsent message while adding an unselected document snapshot',async()=>{
  const f=await fixture();await f.core.saveComposerDraft(f.target.id,0,{text:'PRIVATE_BROWSER_DRAFT',kind:'explain'});const task=await f.core.getTask(f.target.id),context={origin:'https://owned.invalid',url:'https://owned.invalid/current',requestId:'prior-browser'};await f.core.replaceSession(task.id,task.session!.revision,{...task.session!,browserContext:context});const before=await f.core.getTask(task.id),result=await f.core.copySavedDocumentSource(f.input);expect(result.task.session?.browserContext).toEqual(context);expect(result.task.session?.draft).toBe(before.session?.draft);expect(result.task.session?.draftRevision).toBe(before.session?.draftRevision);expect(result.task.requests).toEqual([]);expect(result.task.sources).toHaveLength(1);
 });
-it.each(['refresh','invalidate'] as const)('atomically refuses a copy reviewed before a queued %s changes linked-source freshness',async kind=>{
+it.each(['refresh','invalidate'] as const)('atomically refuses a copy when a queued %s changes linked-source freshness, including after re-review',async kind=>{
  const f=await fixture(),update=kind==='refresh'?f.core.putSource(f.owner.id,{kind:'text',id:f.sourceRef.sourceId,label:'Requirements',content:'Changed requirements',role:'fact'}):f.core.invalidateSource(f.owner.id,f.sourceRef.sourceId,'Needs review'),copy=f.core.copySavedDocumentSource(f.input),refused=expect(copy).rejects.toThrow('freshness changed');await update;await refused;expect(await f.core.getTask(f.target.id)).toEqual(f.target);
- const current=await f.core.getTask(f.owner.id),reviewed=savedDocumentSourcePreview(current,f.artifact);expect(reviewed.content).toContain(kind==='refresh'?'superseded':'refresh-required');const result=await f.core.copySavedDocumentSource({...f.input,expectedSnapshot:reviewed.snapshot});expect(result.task.sources[0].versions[0].content).toBe(reviewed.content);
+ const current=await f.core.getTask(f.owner.id),reviewed=savedDocumentSourcePreview(current,f.artifact);expect(reviewed.content).toContain(kind==='refresh'?'superseded':'refresh-required');const before=await f.core.listTasks(),bytes=await readFile(join(f.directory,'tasks.json'));
+ // Re-review records changed provenance; it does not restore withdrawn context authority.
+ expect(artifactContextUncertain(current,f.artifact.artifactId,reviewed.revision)).toBe(false);await expect(f.core.copySavedDocumentSource({...f.input,expectedSnapshot:reviewed.snapshot})).rejects.toThrow('Source changed or requires an explicit refresh.');expect(await f.core.listTasks()).toEqual(before);expect(await readFile(join(f.directory,'tasks.json'))).toEqual(bytes);
 });
 it.each(['owner','target','paused','guard'] as const)('keeps the destination intact when the %s is unavailable or no longer admitted',async kind=>{
  const f=await fixture();if(kind==='owner')await f.core.deleteTask(f.owner.id);if(kind==='target')await f.core.deleteTask(f.target.id);if(kind==='paused')await f.core.pause(f.target.id);const before=await f.core.listTasks(),bytes=await readFile(join(f.directory,'tasks.json'));await expect(f.core.copySavedDocumentSource(f.input,()=>{if(kind==='guard')throw Error('Retired owner scope');})).rejects.toThrow();expect(await f.core.listTasks()).toEqual(before);expect(await readFile(join(f.directory,'tasks.json'))).toEqual(bytes);
@@ -48,4 +52,8 @@ it('rejects forged revisions, copied text, source roles and unknown input withou
 });
 it('excludes image/structured/oversized and embedded-image documents from ordinary-text copying',async()=>{
  const f=await fixture();for(const patch of [{mimeType:'application/json'},{content:'x'.repeat(100_001)},{content:'![image](data:image/png;base64,c2VjcmV0)'},{content:'\0private'},{encoding:'base64' as const}]){const owner=structuredClone(f.owner);Object.assign(owner.artifacts[0].revisions[0],patch);expect(()=>savedDocumentSourcePreview(owner,f.artifact)).toThrow();}
+});
+it('keeps a generic unjournaled saved document UNKNOWN, excludes it from request context and refuses a new source copy without mutation',async()=>{
+ const f=await fixture(),saved=await f.core.saveArtifact(f.owner.id,{title:'Saved visit plan',content:'\n  Exact saved text.  \n',mimeType:'text/markdown',sourceRefs:[f.sourceRef]}),owner=await f.core.getTask(f.owner.id),artifact={artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest},preview=savedDocumentSourcePreview(owner,artifact),before=await f.core.listTasks(),bytes=await readFile(join(f.directory,'tasks.json'));
+ expect(saved.revision.contextOrigin).toBeUndefined();expect(artifactContextUncertain(owner,saved.artifactId,saved.revision)).toBe(true);expect(projectRequestTask(owner,[f.sourceRef]).artifacts.some(item=>item.id===saved.artifactId)).toBe(false);await expect(f.core.copySavedDocumentSource({...f.input,artifact,expectedSnapshot:preview.snapshot})).rejects.toThrow(UNCERTAIN_ARTIFACT_CONTEXT);expect(await f.core.listTasks()).toEqual(before);expect(await readFile(join(f.directory,'tasks.json'))).toEqual(bytes);
 });

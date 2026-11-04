@@ -49,7 +49,7 @@ export class BrowserReconciliation {
     if(input.signal?.aborted)throw Error('Browser inspection stopped.');
     this.inspections.set(inspection.id, {inspection,binding}); return structuredClone(inspection);
   }
-  async resolve(id: string, review: (inspection: Inspection) => Promise<OutcomeReview>, control?:{signal:AbortSignal;beginCommit:()=>void}) {
+  async resolve(id: string, review: (inspection: Inspection,checkCurrent:()=>Promise<void>) => Promise<OutcomeReview>, control?:{signal:AbortSignal;beginCommit:()=>void}) {
     const record = this.inspections.get(id);
     if (!record) throw Error('Inspect the current website before reviewing this outcome.');
     const {inspection,binding}=record;
@@ -57,7 +57,8 @@ export class BrowserReconciliation {
     const beforeReview=this.core.getTask(inspection.taskId),current=await (control?untilInspectionStopped(beforeReview,control.signal):beforeReview);
     assertBinding(current,binding);
     if(control?.signal.aborted)throw Error('Browser inspection stopped.');
-    const decision = Schema.decodeUnknownSync(Review, { onExcessProperty: 'error' })(await review(structuredClone(inspection)));
+    const checkCurrent=async()=>{if(control?.signal.aborted)throw Error('Browser inspection stopped.');const task=await this.core.getTask(inspection.taskId);assertBinding(task,binding);if(control?.signal.aborted)throw Error('Browser inspection stopped.');};
+    const decision = Schema.decodeUnknownSync(Review, { onExcessProperty: 'error' })(await review(structuredClone(inspection),checkCurrent));
     if(control?.signal.aborted)throw Error('Browser inspection stopped.');
     const reading=this.core.getTask(inspection.taskId);
     const task = await (control?untilInspectionStopped(reading,control.signal):reading), session = task.session, run = session?.runs.find(run => run.id === inspection.runId), operation = run?.operations.find(operation => operation.id === inspection.operationId);

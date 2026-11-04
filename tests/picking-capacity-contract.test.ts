@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {writeFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync} from 'node:fs';
 import {expect,test} from 'vitest';
 import {pickingPlan} from './picking-fixture';
 import {pickingDefinition,parsePickingCase} from '../src/learning/picking-helper';
@@ -29,5 +29,5 @@ test('complete closed V2 payloads and outer one-owner file fit unchanged 8 MiB w
  const perSlot=Object.fromEntries(Object.entries(payloads).map(([family,payload],i)=>[family,{payloadBytes:bytes(payload),outerRecordBytes:bytes(records[i]),payloadDigest:createHash('sha256').update(JSON.stringify(payload)).digest('hex')}]));
  const file={schemaVersion:2,epoch:'11111111-1111-4111-8111-111111111111',records},result={classification:'inert prospective payload/serialization proof, no DOM input or execution-success claim',candidateCharacterBudget:count(definition),candidateSteps:63,cases:20,rowsPerCase:12,cellsPerRow:4,ownerMetadata:'200-char escaped task/artifact/digest,80ASCII module,maxsafe revisions',basisCharacters:16384,basisWorstEscape:'U+0001',initialAndValue:'both maximal witness',perSlot,completeOneOwnerFileBytes:bytes(file),unchangedFileLimit:8*1024*1024,headroom:8*1024*1024-bytes(file)};
  expect(bytes(file)).toBeLessThan(8*1024*1024);expect(perSlot.candidate.payloadBytes).toBeLessThan(1024*1024);expect(perSlot.cases.payloadBytes).toBeLessThan(1536*1024);for(const family of ['context','recording','correction','run'] as const)expect(perSlot[family].payloadBytes).toBeLessThan(128*1024);
- writeFileSync('evidence/RAW-CAPACITY-WITNESS.json',JSON.stringify(result,null,2)+'\n');
+ mkdirSync('evidence',{recursive:true});writeFileSync('evidence/RAW-CAPACITY-WITNESS.json',JSON.stringify(result,null,2)+'\n');
 });

@@ -1,3 +1,6 @@
+import {UNCERTAIN_ARTIFACT_CONTEXT,WITHHELD_ARTIFACT_CONTEXT} from './artifact-context-origin';
+import {EXPLANATION_ERROR} from './explanation-modes';
+import {MUSE_CONNECTION_MESSAGES} from './muse-connection';
 import {MEMORY_EXPORT_MESSAGES} from './memory-export';
 import {SYSTEM_SETTINGS_MESSAGES} from './system-settings';
 import {FALLBACK_SHORTCUT_MESSAGES} from './fallback-shortcut';
@@ -14,6 +17,7 @@ export const RESPONSE_BRANCH_IMAGE_LIMIT = 'This conversation includes embedded 
 export const BROWSER_LAUNCH_UNAVAILABLE = 'Companion could not open its browser. Your task is kept.';
 export const BROWSER_PAGE_OPEN_FAILED = 'The selected page could not be opened. Whether it loaded or changed the website is unknown.';
 export const BROWSER_ACTION_NOT_RUN = 'The browser action could not be prepared safely. It was not run.';
+import {isBrowserPatchedUnavailable} from './browser-control';
 export const BROWSER_CLEANUP_UNCONFIRMED = 'Browser cleanup could not be confirmed. The page may have loaded or changed the website.';
 import {MODULE_EXPORT_RECOVERY,MODULE_REVISION_RECOVERY} from './module-contract';
 const browserRecoveryMessages=new Map([
@@ -49,13 +53,16 @@ const glintCopy = new Map([
  ['This page renders content in a way Companion cannot safely read yet. Choose a narrower page.', 'This page renders content in a way Glint cannot safely read yet. Choose a narrower page.'],
  ['This workspace is open in another copy of Companion. Close that copy and try again.', 'This workspace is open in another copy of Glint. Close that copy and try again.'],
  ['Choose an external window. Companion windows cannot be captured.', 'Choose an external window. Glint windows cannot be captured.'],
- ['Allow screen recording for Companion in System Settings, then capture the window again.', 'Allow screen recording for Window Companion in System Settings, then capture the window again.'],
+ ['Allow screen recording for Companion in System Settings, then capture the window again.', 'Allow screen recording for Glint in System Settings, then capture the window again.'],
 ]);
 /** Presentation only. Raw failures stay in the local task record for recovery. */
 export function publicErrorMessage(error:unknown):string {
  const text=(error&&typeof error==='object'&&'message' in error?String(error.message):String(error??'')).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,'').replace(/^Error:\s*/,'').trim();
  if(text.startsWith('Content backup: '))return text;
  if(text===SPEECH_ERROR)return text;
+ if(isBrowserPatchedUnavailable(text))return text;
+ if(['Open and resume this task before finding helper suggestions.','Choose at most 64 included sources before finding helper suggestions.','The task, sources or helper changed. Find suggestions again before opening a helper.','Return to the selected task and find helper suggestions again.','Return to this task and find suggestions again.','The suggested helper changed. Find suggestions again.'].includes(text))return text;
+ if(Object.values(MUSE_CONNECTION_MESSAGES).some(message=>message===text))return text;
  if(MEMORY_EXPORT_MESSAGES.some(message=>message===text))return text;
  if(Object.values(SYSTEM_SETTINGS_MESSAGES).some(message=>message===text))return text;
  if(Object.values(FALLBACK_SHORTCUT_MESSAGES).some(message=>message===text))return text;
@@ -66,6 +73,12 @@ export function publicErrorMessage(error:unknown):string {
  if(['Review this conversation export again before saving.','This conversation is too large to export in one file. No partial transcript was created.','Finish another export before preparing a new snapshot.','Export destination changed. Choose it again.'].includes(text))return text;
  const recurring=recurringWorkPublicMessage(text);if(recurring)return recurring;
  const branded=glintCopy.get(text);if(branded)return branded;
+ if(['Source selection changed. Review the selected sources before sending again.','Source selection changed. Reload this task before choosing sources again.','Return to the source owner task before changing its selection.','Resume this task before choosing sources.','A selected source is unavailable in this task.','The source selection revision limit was reached.','Wait for this task’s source selection to finish saving.'].includes(text))return text;
+ if(['The original canvas publication cannot be verified. Inspect its saved revision in Files before another save.','The canvas owner changed. Inspect the original saved result before trying again.'].includes(text))return text;
+ if(['The original comparison receipt is unavailable or conflicting. Your notes are kept. Inspect Files before another save.','The original comparison revision is unavailable or changed. Your notes are kept. Inspect Files before another save.','Return to the comparison owner task before checking or saving these notes.','The comparison save identity does not match its exact notes and sources.'].includes(text))return text;
+ if(text===UNCERTAIN_ARTIFACT_CONTEXT||text===WITHHELD_ARTIFACT_CONTEXT)return text;
+ if(text==='The exact local research notice target changed. Recompute explicitly.')return text;
+ if(text===EXPLANATION_ERROR)return text;
  const mapMessage=conceptMapPublicMessage(text);if(mapMessage)return mapMessage;
  const browserRecovery=browserRecoveryMessage(text)??inspectionRecoveryMessages.get(text);
  if(browserRecovery)return glintCopy.get(browserRecovery)??browserRecovery;
@@ -95,13 +108,15 @@ export function publicErrorMessage(error:unknown):string {
  if(/store.*(unreadable|incompatible|persistence failed)/i.test(text))return 'This workspace could not be opened. Keep its files for recovery and reopen the app.';
  if(/ENOSPC|disk.*full/i.test(text))return 'Your disk is full. Free some space and try again.';
  if(/EACCES|EPERM|permission denied/i.test(text))return 'The app cannot access this file or folder. Choose another location or check its permissions.';
- if(/screen recording|screen capture.*permission/i.test(text))return 'Allow screen recording for Window Companion in System Settings, then capture the window again.';
+ if(/screen recording|screen capture.*permission/i.test(text))return 'Allow screen recording for Glint in System Settings, then capture the window again.';
  if(/selected capture exceeds|image.*exceeds.*8 MiB/i.test(text))return 'This image is too large. Choose a smaller image or resize the source window before capturing it again.';
  if(/references exceed.*32 MiB/i.test(text))return 'The selected snapshots are too large together. Capture smaller source windows before continuing.';
  if(/secure storage.*unavailable/i.test(text))return 'Secure storage is unavailable. Your connection was not saved. Reopen the app and try again.';
  if(/authorize this destination/i.test(text))return 'Confirm where your selected sources will be sent before connecting.';
  if(/API key.*(must|invalid)|unauthenticated|invalid.*key|\b401\b|\b403\b/i.test(text))return 'The connection could not be verified. Check your sign-in or API key in Settings.';
  if(/\b429\b|rate limit|quota|usage limit/i.test(text))return 'This connection has reached its usage limit. Check your account or choose another connection.';
+ // The provider never answered, so the cause is the connection, not the task. Model, choice and setup errors keep their own copy.
+ if(!/\b(?:model|choice|sign-in|metadata|setup|setting|tier|effort|catalog)/i.test(text)&&/\b(?:connection|provider|service)\s+(?:is\s+)?(?:unavailable|closed)\b(?!\s+before)|\b(?:did not respond|not responding|no response)\b|could not complete the connection/i.test(text))return 'The connection was interrupted. Check your connection before trying again.';
  if(/provider availability.*unverified|unconfigured|not configured|no.*(credential|connection)/i.test(text))return 'Connect an AI service in Settings before sending a request.';
  if(/incomplete|ended.*before|closed.*before.*response.*finished|partial response/i.test(text))return 'The response was incomplete. Check your connection before trying again.';
  if(/offline|disconnect|ECONN|network|fetch failed|timeout|timed out|stalled|\b50[0234]\b/i.test(text))return 'The connection was interrupted. Check your connection before trying again.';

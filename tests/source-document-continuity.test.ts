@@ -67,14 +67,14 @@ it('retires a delayed metadata read when the selected task epoch changes',async(
 async function followFixture(){
  const f=await fixture();let task=await f.core.createTask({title:'Own synthetic follow'});
  task=await f.core.putSource(task.id,{kind:'window',label:'Same title',content:'A pixels',role:'fact',windowId:nativeA.id,windowProcessId:88,documentToken:nativeA.documentToken,documentStamp:stampA});
- let observation:import('../src/shared/document-source').DocumentObservation={kind:'document',stamp:stampA},approve=true,refreshGate:ReturnType<typeof hold>|undefined;
+ let observation:import('../src/shared/document-source').DocumentObservation={kind:'document',stamp:stampA},approve:false|'address'|'visible-content'='address',refreshGate:ReturnType<typeof hold>|undefined;
  const calls={captures:0,retired:0,changes:0,providers:0,reviews:0};
  const follow=new DocumentSourceFollow({core:f.core,observe:async(_target,options)=>{options.assertCurrent();return observation},approve:async()=>{calls.reviews++;return approve},retire:()=>{calls.retired++},changed:()=>{calls.changes++},refresh:async(binding,stamp,guard)=>{
   await refreshGate?.wait;guard();calls.captures++;
   const task=await f.core.putSource(binding.taskId,{id:binding.ref.sourceId,kind:'window',label:'Same title',content:'B pixels',role:'fact',windowId:nativeA.id,windowProcessId:88,documentToken:nativeA.documentToken,documentStamp:stamp});guard();return {task,sourceId:binding.ref.sourceId,target:nativeA};
  }});
  follow.bind({task,sourceId:task.sources[0].id,target:nativeA});
- return {get core(){return f.core},restart:f.restart,task,follow,calls,setObservation:(value:typeof observation)=>{observation=value},setApprove:(value:boolean)=>{approve=value},setRefreshGate:(value:typeof refreshGate)=>{refreshGate=value}};
+ return {get core(){return f.core},restart:f.restart,task,follow,calls,setObservation:(value:typeof observation)=>{observation=value},setApprove:(value:typeof approve)=>{approve=value},setRefreshGate:(value:typeof refreshGate)=>{refreshGate=value}};
 }
 it('observes A to B as stale history until the separate session follow review is accepted',async()=>{
  const f=await followFixture();f.setObservation({kind:'document',stamp:stampB});const status=await f.follow.poll();
@@ -86,6 +86,14 @@ it('approved follow refreshes only its bound same-title active window into a new
  const task=await f.core.getTask(f.task.id);expect(f.calls.captures).toBe(1);expect(f.calls.providers).toBe(0);
  expect(task.sources[0]).toMatchObject({currentVersion:2,freshness:'fresh'});expect(task.sources[0].versions.map(v=>v.content)).toEqual(['A pixels','B pixels']);expect(task.sources[0].versions[1].documentStamp).toEqual(stampB);
  await f.follow.poll();expect(f.calls.captures).toBe(1);
+});
+it('visible-content consent alone permits unchanged-address snapshots and stopping removes that scope',async()=>{
+ const f=await followFixture();await f.follow.enable();await f.follow.poll();expect(f.calls.captures).toBe(0);
+ f.follow.stop();const task=await f.core.getTask(f.task.id);f.follow.bind({task,sourceId:task.sources[0].id,target:nativeA});f.setApprove('visible-content');
+ expect(await f.follow.enable()).toMatchObject({scope:'visible-content',automaticSnapshots:'on'});
+ f.setObservation({kind:'inactive',reason:'background'});await f.follow.poll();expect(f.calls.captures).toBe(0);
+ f.setObservation({kind:'document',stamp:stampA});await f.follow.poll();expect(f.calls.captures).toBe(1);expect(f.calls.providers).toBe(0);
+ f.follow.stop();expect(f.follow.read()).toMatchObject({kind:'off'});await f.follow.poll();expect(f.calls.captures).toBe(1);
 });
 it('background C suspends follow and a closed source freezes without a snapshot',async()=>{
  const f=await followFixture();await f.follow.enable();f.setObservation({kind:'inactive',reason:'background'});expect(await f.follow.poll()).toMatchObject({automaticSnapshots:'paused'});expect(f.calls.captures).toBe(0);
@@ -106,7 +114,7 @@ it('does not invalidate a newly rebound source from a late previous-version obse
 
 import {projectTaskDialogue} from '../src/core/task-dialogue';
 import {taskHistoryReview} from '../src/host/request-review';
-it('retrieves an older source-linked decision after rebinding and discloses it before sharing context',async()=>{
+it('keeps older source-linked decisions local after rebinding instead of sharing stale context',async()=>{
  const f=await fixture();let task=await f.core.createTask({title:'Long source comparison'});
  task=await f.core.putSource(task.id,{kind:'text',label:'Original A',content:'Original synthetic source',role:'fact'});
  const source=task.sources[0];await f.core.checkpoint(task.id,'Governing decision: compare all dates in UTC.');
@@ -114,8 +122,8 @@ it('retrieves an older source-linked decision after rebinding and discloses it b
  task=await f.core.putSource(task.id,{id:source.id,kind:'text',label:'Rebound B',content:'Changed synthetic source',role:'fact'});
  const payload=projectTaskDialogue(task,'next-request',[]),parsed=JSON.parse(payload);
  expect(parsed.checkpoints.map((c:{note:string})=>c.note)).not.toContain('Governing decision: compare all dates in UTC.');
- expect(parsed.sourceResume.relatedCheckpoints[0].note).toBe('Governing decision: compare all dates in UTC.');
- expect(parsed.sourceResume.omittedRelatedCheckpoints).toBe(4);expect(taskHistoryReview(payload)).toContain('Related saved note: Governing decision: compare all dates in UTC.');
+ expect(parsed.sourceResume.relatedCheckpoints).toEqual([]);expect(taskHistoryReview(payload)).not.toContain('Governing decision: compare all dates in UTC.');
+ expect(task.checkpoints[0].note).toBe('Governing decision: compare all dates in UTC.');
 });
 it('a delayed invalidation admitted after its epoch retires cannot modify the saved source',async()=>{
  const f=await followFixture(),version=f.task.sources[0].versions[0];let current=false;
@@ -217,7 +225,7 @@ it('a retired approval cannot block a new review or clear its in-flight review g
  task=await f.core.putSource(task.id,{kind:'window',label:'B',content:'B',role:'fact',windowId:nativeB.id,windowProcessId:88,documentToken:nativeB.documentToken,documentStamp:stampB});
  const sourceB=task.sources[1],oldGate=hold(),newGate=hold();let reviews=0,captures=0;
  const follow=new DocumentSourceFollow({core:f.core,observe:async(target,options)=>{options.assertCurrent();return {kind:'document',stamp:target.id===nativeA.id?stampA:stampB};},approve:async(scope)=>{
-  reviews++;const gate=scope.windowId===nativeA.id?oldGate:newGate;gate.enter();await gate.wait;return true;
+  reviews++;const gate=scope.windowId===nativeA.id?oldGate:newGate;gate.enter();await gate.wait;return 'address';
  },refresh:async()=>{captures++;return null;},retire:()=>{},changed:()=>{}});
  follow.bind({task,sourceId:sourceA.id,target:nativeA});const old=follow.enable();const oldOutcome=old.then(()=>null,error=>error);await oldGate.started;
  let current:Promise<unknown>|undefined;

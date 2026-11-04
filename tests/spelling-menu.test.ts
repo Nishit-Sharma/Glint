@@ -39,13 +39,13 @@ test('every native action rejects a different field, changed value/selection, di
 
 test('untrusted/readonly contexts never open a menu, replacement menu and window lifecycle retire old callbacks, and actual host installs/disposes the helper',async()=>{
  const f=fixture();try{await f.open({isEditable:false});await f.open({frame:{...f.params.frame} as WebFrameMain});expect(f.menus).toHaveLength(0);f.field.readOnly=true;await f.open();expect(f.menus).toHaveLength(0);f.field.readOnly=false;await f.open();const old=f.menus[0].items.find(item=>item.label==='the')!;await f.open();Reflect.apply(old.click!,undefined,[]);await f.flush();expect(f.calls).toEqual([]);f.window.emit('blur');expect(f.menus.at(-1)?.closes).toBe(1);await f.click('the');expect(f.calls).toEqual([]);f.controller.dispose();expect(f.contents.listenerCount('context-menu')).toBe(0);expect(f.window.listenerCount('blur')).toBe(0);
-  const host=await readFile(new URL('../src/host/index.ts',import.meta.url),'utf8');expect(host).toContain('nativeSpellingMenu=installSpellingMenu(panel,Menu,');expect(host).toContain("if(c.type==='context.view'||c.type.startsWith('surface.'))nativeSpellingMenu?.retire()");expect(host).toContain('async function stopForQuit(){\n nativeSpellingMenu?.retire();');
+  const host=await readFile(new URL('../src/host/index.ts',import.meta.url),'utf8');expect(host).toContain('nativeSpellingMenu=installSpellingMenu(panel,Menu,');expect(host).toContain("if(c.type==='context.view'||c.type.startsWith('surface.'))nativeSpellingMenu?.retire()");expect(host).toMatch(/async function stopForQuit\(\)\{[\s\S]*?nativeSpellingMenu\?\.retire\(\);[\s\S]*?await floatingSave;/);
  }finally{f.controller.dispose();}
 });
 
 test('actual stopForQuit hook retires only the open menu so Keep app open or failed Quit can reuse installation; actual window close still disposes',async()=>{
  const f=fixture();try{
-  await f.open();const host=await readFile(new URL('../src/host/index.ts',import.meta.url),'utf8'),hook=/async function stopForQuit\(\)\{([\s\S]*?)await floatingSave;/.exec(host)?.[1];if(!hook)throw Error('Actual stopForQuit prefix is missing.');runInNewContext(hook,{nativeSpellingMenu:f.controller});
+  await f.open();const host=await readFile(new URL('../src/host/index.ts',import.meta.url),'utf8'),hook=/async function stopForQuit\(\)\{([\s\S]*?)await floatingSave;/.exec(host)?.[1];if(!hook)throw Error('Actual stopForQuit prefix is missing.');runInNewContext(hook,{nativeSpellingMenu:f.controller,museConnectionTest:{cancel(){}}});
   expect(f.menus[0].closes).toBe(1);expect(f.contents.listenerCount('context-menu')).toBe(1);
   f.setScope(undefined);await f.open();expect(f.menus).toHaveLength(1);
   f.setScope('taskA:workspace:revision2');await f.open();await f.click('the');expect(f.calls).toEqual(['replace:the']);

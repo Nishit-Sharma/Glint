@@ -1,8 +1,8 @@
 import {createHash,randomUUID} from 'node:crypto';
 import type {Companion} from './companion';
-import type {Task} from './types';
+import type {Task,RequestInput} from './types';
 import {MODULE_MIME} from '../shared/module-contract';
-import {previewDocumentRecipe,readDocumentRecipeCreate,readDocumentRecipeSave,readDocumentRecipeInspection,type DocumentRecipeSaved} from '../shared/document-recipe';
+import {previewDocumentRecipe,readDocumentRecipeCreate,readDocumentRecipeSave,readDocumentRecipeInspection,type DocumentRecipeSaved,type DocumentRecipeSave} from '../shared/document-recipe';
 
 export async function createDocumentRecipe(core:Companion,value:unknown,assertCurrent:()=>void=()=>{}){
  const input=readDocumentRecipeCreate(value);assertCurrent();
@@ -12,7 +12,7 @@ export async function createDocumentRecipe(core:Companion,value:unknown,assertCu
  if(!revision||revision.digest!==request.answer.digest||revision.revision!==request.answer.revision)throw Error('The document recipe changed. Open its current version from Files.');
  return {task,artifactId:artifact!.id,revision:revision.revision};
 }
-function saveRequest(input:ReturnType<typeof readDocumentRecipeInspection>,attempt=0){return {taskId:input.taskId,requestId:`document-recipe-${input.binding}${attempt?`-retry-${attempt}`:''}`,kind:'create',prompt:'Save the explicitly reviewed local document recipe result as a new ordinary document.',executionScope:'local-document-recipe:save:v1',sourceIds:[input.sourceRef.sourceId],expectedSourceRefs:[input.sourceRef],expectedArtifacts:[{artifactId:input.artifactId,revision:input.artifactRevision,digest:input.artifactDigest}],expectedModuleStates:[{artifactId:input.artifactId,artifactRevision:input.artifactRevision,moduleId:input.moduleId,stateRevision:input.stateRevision}]};}
+function saveRequest(input:ReturnType<typeof readDocumentRecipeInspection>,attempt=0):RequestInput{return {taskId:input.taskId,requestId:`document-recipe-${input.binding}${attempt?`-retry-${attempt}`:''}`,kind:'create',prompt:'Save the explicitly reviewed local document recipe result as a new ordinary document.',executionScope:'local-document-recipe:save:v1',sourceIds:[input.sourceRef.sourceId],expectedSourceRefs:[input.sourceRef],expectedArtifacts:[{artifactId:input.artifactId,revision:input.artifactRevision,digest:input.artifactDigest}],expectedModuleStates:[{artifactId:input.artifactId,artifactRevision:input.artifactRevision,moduleId:input.moduleId,stateRevision:input.stateRevision}]};}
 /** A binding can have several finished no-output attempts, followed by at most one completed output. */
 function saveSeries(task:Task,input:ReturnType<typeof readDocumentRecipeInspection>):{receipt:DocumentRecipeSaved;nextAttempt:number}{
  const base=`document-recipe-${input.binding}`,attempts=new Map(task.requests.filter(item=>item.id===base||item.id.startsWith(base+'-retry-')).map(item=>[item.id,item]));
@@ -34,15 +34,12 @@ function saveSeries(task:Task,input:ReturnType<typeof readDocumentRecipeInspecti
 export async function inspectDocumentRecipeSave(core:Companion,value:unknown):Promise<DocumentRecipeSaved>{
  const input=readDocumentRecipeInspection(value);return saveSeries(await core.getTask(input.taskId),input).receipt;
 }
-export async function saveDocumentRecipe(core:Companion,value:unknown,assertCurrent:()=>void=()=>{}):Promise<DocumentRecipeSaved>{
- const input=readDocumentRecipeSave(value);assertCurrent();
- const {binding,confirmed:_confirmed,...request}=input;
- const task=await core.getTask(input.taskId),existing=saveSeries(task,{...request,binding});if(existing.receipt.kind==='saved')return existing.receipt;
- const preview=previewDocumentRecipe(task,request);assertCurrent();
- if(binding!==preview.binding||preview.result.kind!=='output')throw Error('This preview changed or did not produce a document. Review it again.');
- // Each explicit save after verified terminal no-output gets one deterministic successor ID.
- // Concurrent calls choose the same ID; core.runRequest deduplicates admission atomically.
- const result=await core.runRequest(saveRequest(input,existing.nextAttempt),async()=>({title:preview.title,mimeType:'text/plain',content:preview.result.kind==='output'?preview.result.text:''}),assertCurrent);
- if(result.status!=='completed')throw Error(result.error??'The save outcome is not confirmed. Keep this preview and check the save.');
- return inspectDocumentRecipeSave(core,{...request,binding});
+export function documentRecipeSaveResult(task:Task,value:DocumentRecipeSave):DocumentRecipeSaved{
+ const {confirmed:_confirmed,...inspection}=value;return saveSeries(task,inspection).receipt;
 }
+export function documentRecipePublication(task:Task,input:DocumentRecipeSave){
+ const {binding,confirmed:_confirmed,...request}=input,existing=saveSeries(task,{...request,binding});if(existing.receipt.kind==='saved')return {kind:'existing' as const,result:existing.receipt};
+ const preview=previewDocumentRecipe(task,request);if(binding!==preview.binding||preview.result.kind!=='output')throw Error('This preview changed or did not produce a document. Review it again.');
+ return {kind:'new' as const,request:saveRequest(input,existing.nextAttempt),artifact:{title:preview.title,mimeType:'text/plain',content:preview.result.text}};
+}
+export function saveDocumentRecipe(core:Companion,value:unknown,assertCurrent:()=>void=()=>{}):Promise<DocumentRecipeSaved>{return core.saveDocumentRecipe(value,assertCurrent);}

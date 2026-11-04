@@ -5,7 +5,7 @@ import {Button,Field,type Run} from '../ui';
 import './saved-work-search.css';
 
 type Selection={ownerTaskId:string;artifact:ArtifactRef;preview:ReturnType<typeof savedDocumentSourcePreview>};
-export function SavedDocumentSource({task,tasks,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;tasks:readonly Task[];busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void;onAdded:(reference:SourceRef)=>void;onCancel:()=>void}){
+export function SavedDocumentSource({task,tasks,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;tasks:readonly Task[];busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void|Promise<void>;onAdded:(reference:SourceRef)=>void;onCancel:()=>void}){
  const [query,setQuery]=useState(''),[role,setRole]=useState<SourceInput['role']>('fact'),[selected,setSelected]=useState<Selection>(),[working,setWorking]=useState(false),[message,setMessage]=useState('');
  const mounted=useRef(true),locked=useRef(false),epoch=useRef(0);
  useLayoutEffect(()=>{mounted.current=true;return()=>{mounted.current=false;epoch.current++;};},[]);
@@ -18,7 +18,7 @@ export function SavedDocumentSource({task,tasks,busy,run,isCurrent,beforeAdd,onA
   if(!selectionCurrent(selection)){setMessage('This saved document changed. Choose it again.');return;}
   const token=++epoch.current,current=()=>mounted.current&&epoch.current===token&&isCurrent();locked.current=true;setWorking(true);setMessage('');setSelected(selection);
   try{
-   beforeAdd();if(!current())return;
+   await beforeAdd();if(!current())return;
    const result=await run<SavedDocumentSourceResult>({type:'source.document',taskId:task.id,ownerTaskId:selection.ownerTaskId,artifact:selection.artifact,role,expectedSnapshot:selection.preview.snapshot},undefined,{isCurrent:current});
    if(!current())return;
    if(result)onAdded(result.reference);else setMessage('The copy was not confirmed. Review Context before trying the same selection again.');

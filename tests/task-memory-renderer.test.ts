@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
 import {TaskMemorySettings} from '../src/renderer/src/components/TaskMemorySettings';
 import {createControlledRenderer} from './controlled-renderer.fixture';
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 it('requires an explicit successful Reload after a committed save loses its acknowledgement',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'task-memory-unconfirmed-')),core=await createCompanion({dataDir:directory});
@@ -39,5 +39,17 @@ it('keeps a newer same-task authoritative policy after an older save acknowledge
   vi.stubGlobal('window',{companion:{subscribe:()=>()=>{},invoke:()=>new Promise(resolve=>{reply=resolve;})}});
   const r=createControlledRenderer(()=>createElement(TaskMemorySettings,{task,prompt:'Question'}));r.render();r.find(n=>n.type==='select').props.onChange({target:{value:'off'}});
   task={...task,session:{revision:2,draft:'',runs:[],moduleStates:[],memoryPolicy:{revision:2,mode:'inherit'},contextRevision:2}};r.render();reply({taskId:task.id,revision:1,mode:'off'});for(let i=0;i<12;i++)await Promise.resolve();r.render();expect(r.find(n=>n.type==='button'&&n.children.some(c=>c.props.text==='Reload task memory choice')).props.disabled).toBe(false);expect(r.find(n=>n.type==='select').props.disabled).toBe(true);expect(r.find(n=>n.type==='select').props.value).toBe('inherit');expect(r.nodes().filter(n=>n.type==='#text').map(n=>n.props.text).join('')).toContain('not confirmed');
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});
+
+it('retires an idle explicit project memory inspection at expiry and keeps the question for deliberate reinspection',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'task-memory-expiry-'));let now=Date.parse('2026-11-03T12:00:00.000Z');const core=await createCompanion({dataDir:directory,now:()=>new Date(now)});
+ try{
+  const owner=await core.createTask({title:'Synthetic inspection'}),project=await core.projectCommand({type:'projects.create',name:'Synthetic project'}),task=await core.projectCommand({type:'projects.assign',taskId:owner.id,projectId:project.id,expectedProjectId:null});await core.changeUserMemory({expectedRevision:0,change:{kind:'save',text:'ACCOUNT_REMAINS',topics:[]}});await core.changeUserMemory({expectedRevision:1,change:{kind:'enabled',enabled:true}});await core.projectCommand({type:'projects.memory.change',projectId:project.id,expectedRevision:0,change:{kind:'save',text:'INSPECTED_PROJECT_FACT',topics:[],expiresAt:new Date(now+1000).toISOString()}});await core.projectCommand({type:'projects.memory.change',projectId:project.id,expectedRevision:1,change:{kind:'enabled',enabled:true}});
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});vi.spyOn(Date,'now').mockImplementation(()=>now);const prompts:string[]=[];let held:((value:unknown)=>void)|undefined,hold=false;
+  vi.stubGlobal('window',{companion:{subscribe:()=>()=>{},invoke:(command:any)=>{prompts.push(command.prompt);return hold?new Promise(resolve=>held=resolve):core.previewUserMemory({taskId:command.taskId,prompt:command.prompt});}}});
+  const r=createControlledRenderer(()=>createElement(TaskMemorySettings,{task,prompt:'UNSENT_QUESTION_STAYS'})),text=()=>r.nodes().filter(n=>n.type==='#text').map(n=>n.props.text).join(''),inspect=()=>r.find(n=>n.type==='button'&&n.children.some(c=>c.props.text==='Inspect memory for this question'));async function settle(){await core.getUserMemory();for(let i=0;i<12;i++)await Promise.resolve();r.render();}
+  r.render();inspect().props.onClick();await settle();expect(text()).toContain('INSPECTED_PROJECT_FACT');const stale=await core.previewUserMemory({taskId:task.id,prompt:'UNSENT_QUESTION_STAYS'});now+=1000;await vi.advanceTimersByTimeAsync(1000);r.render();expect(text()).not.toContain('INSPECTED_PROJECT_FACT');expect(text()).toContain('inspection expired');expect(prompts).toHaveLength(1);
+  hold=true;inspect().props.onClick();r.render();held!(stale);await settle();expect(text()).not.toContain('INSPECTED_PROJECT_FACT');expect(text()).toContain('Memory could not be inspected');hold=false;inspect().props.onClick();await settle();expect(text()).toContain('ACCOUNT_REMAINS');expect(text()).not.toContain('INSPECTED_PROJECT_FACT');expect(prompts.every(prompt=>prompt==='UNSENT_QUESTION_STAYS')).toBe(true);expect((await core.getTask(task.id)).requests).toEqual([]);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });

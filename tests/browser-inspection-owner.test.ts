@@ -7,6 +7,8 @@ import { emptyTaskSession } from '../src/core/task-session';
 import { BrowserService } from '../src/host/browser/service';
 import { BrowserReconciliation } from '../src/host/browser/reconciliation';
 import { BrowserInspectionAttempts } from '../src/host/browser/inspection-attempts';
+import {LOOPBACK_FIXTURE_ARGS,LOOPBACK_FIXTURE_EXECUTABLE,installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 const external = vi.hoisted(() => ({ launch: vi.fn(), dialog: vi.fn() }));
 vi.mock('playwright-core', () => ({ chromium: { launch: external.launch } }));
@@ -34,7 +36,7 @@ function browserFixture(options: { missingOwner?: boolean; failClose?: boolean }
 }
 
 function service(core: Awaited<ReturnType<typeof createCompanion>>, owner?: ReturnType<typeof browserFixture>['owner']) {
-  return new BrowserService(core, { panel: () => ({}) as never, route: () => ({ key: 'fixture', provider: { status: vi.fn(), run: vi.fn() } }), changed: () => {}, progress: () => {}, onWindowOwner: owner });
+  return new BrowserService(core, { panel: () => ({}) as never, route: () => ({ key: 'fixture', provider: { accountScope:async()=> 'synthetic-account', status: vi.fn(), run: vi.fn() } }), changed: () => {}, progress: () => {}, onWindowOwner: owner });
 }
 
 it('registers the inspection owner before context and navigation, then releases after close', async () => {
@@ -46,7 +48,7 @@ it('registers the inspection owner before context and navigation, then releases 
     await s.inspect(f.input);
     expect(b.order).toEqual(['register', 'context', 'navigate', 'close', 'release']);
     expect(b.owner).toHaveBeenCalledOnce(); expect(b.release).toHaveBeenCalledOnce();
-    expect(external.launch).toHaveBeenCalledWith({ headless: true, chromiumSandbox: true });
+    expect(external.launch).toHaveBeenCalledWith({ executablePath: LOOPBACK_FIXTURE_EXECUTABLE, headless: true, chromiumSandbox: true, args: LOOPBACK_FIXTURE_ARGS });
   } finally { s.close(); await f.cleanup(); }
 });
 

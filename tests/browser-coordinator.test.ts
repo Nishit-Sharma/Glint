@@ -2,10 +2,12 @@ import { createServer } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { expect, it } from 'vitest';
+import { expect, it,vi} from 'vitest';
 import { createCompanion } from '../src/core/companion';
 import { BrowserCoordinator } from '../src/host/browser/coordinator';
 import { BrowserReconciliation } from '../src/host/browser/reconciliation';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 it.each(['source','detach'] as const)('a %s context switch persists and late browser observations cannot restore old routing',async change=>{
  const server=createServer((req,res)=>{res.setHeader('content-type','text/html');res.end(req.url==='/next'?'<h1>Observed next page</h1>':'<h1>Owned page</h1><a href="/next">Next page</a>');});

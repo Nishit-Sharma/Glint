@@ -1,3 +1,11 @@
+import {EXPERIMENT_RESULT_SLOT,readExperimentResultDraft} from '../shared/experiment-result-draft';
+import {teachbackReply,confirmedTeachback} from '../shared/explanation-teachback';
+import {EXPLANATION_MIME,readExplanation} from '../shared/explanation-modes';
+import {SOURCE_COMPARISON_SLOT,readSourceComparisonDraft} from '../shared/source-comparison-draft';
+import {EXPERIMENT_PRACTICE_SLOT,EXPERIMENT_PRACTICE_INTENT_SLOT} from '../shared/experiment-practice-draft';
+import {parseModelDraft} from '../core/model-drafts';
+import {SOURCE_FORMULA_MIME} from '../learning/source-formula';
+import {FORMULA_COMPARISON_SLOT,FORMULA_COMPARISON_INTENT_SLOT} from '../shared/formula-comparison-draft';
 import {DESIGN_CANVAS_SLOT,CANVAS_PROMPT_SLOT,readCanvasPrompt,emptyCanvasPrompt,canvasDraftBasis,canvasRevision,canvasRaw,readCanvasRaw} from '../shared/design-canvas';
 import {tableWorkflow} from '../learning/table-workflow';
 import {tableWorkflowForm,validateTableWorkflowRaw} from '../shared/table-workflow-draft';
@@ -9,6 +17,9 @@ import {SAVED_DOCUMENT_DRAFT_SLOT,parseSavedDocumentDraftBasis,parseSavedDocumen
 import {REVISION_INSTRUCTIONS_SLOT,parseRevisionInstructions} from '../shared/revision-instructions';
 import {createHash,randomUUID} from 'node:crypto';
 import {LOCAL_TASK_DRAFT_SLOT} from '../shared/local-task-draft';
+import {RECURRING_DRAFT_SLOT} from '../shared/recurring-work-draft';
+import {NEW_DOCUMENT_DRAFT_SLOT,parseNewDocumentDraft} from '../shared/authored-document';
+import {REQUEST_QUESTION_SLOT,requestQuestionDraftBasis,initialRequestQuestionDraft,readRequestQuestionRawDraft} from '../shared/request-question';
 import {isWorkflowSourceSlot} from '../shared/workflow-source-admission';
 import {SOURCE_TEXT_DRAFT_SLOT,parseSourceTextDraftBasis} from '../shared/source-text-draft';
 import {constants,type BigIntStats} from 'node:fs';
@@ -103,11 +114,33 @@ export class LearningDraftStore{
  }
  private async validTask(taskId:string):Promise<boolean>{return (await this.options.lookupTask(taskId))?.id===taskId;}
  private async validOwner(owner:LearningDraftOwner,slot:string,value:LearningDraftValue):Promise<boolean>{
-  if(!isTaskLearningDraftOwner(owner))return slot===LOCAL_TASK_DRAFT_SLOT;
+  if(!isTaskLearningDraftOwner(owner))return slot===(owner.kind==='recurring-work-form'||owner.kind==='recurring-work-edit'?RECURRING_DRAFT_SLOT:LOCAL_TASK_DRAFT_SLOT);
   const task=await this.options.lookupTask(owner.taskId);
   if(!task||task.id!==owner.taskId)return false;
+  if('kind' in owner&&owner.kind==='experiment-result-copy'){
+   try{if(slot!==EXPERIMENT_RESULT_SLOT)return false;const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision||revision.encoding==='base64')return false;readExperimentResultDraft(parseLearningDraftJson(value.value,'experiment-result-copy'));return revision.mimeType===SOURCE_FORMULA_MIME?!!reviewedSourceFormula(task,owner.artifactId,revision):revision.mimeType==='application/json'&&parseModelDraft(revision.content).kind==='experiment';}catch{return false;}
+  }
+  if('kind' in owner&&owner.kind==='new-document-edit'){
+   try{return slot===NEW_DOCUMENT_DRAFT_SLOT&&parseNewDocumentDraft(parseLearningDraftJson(value.value,'new-document-edit')).sourceRefs.every(ref=>task.sources.some(source=>source.id===ref.sourceId&&source.versions.some(version=>version.version===ref.version&&version.digest===ref.digest)));}catch{return false;}
+  }
+  if('kind' in owner&&owner.kind==='source-comparison'){
+   try{return slot===SOURCE_COMPARISON_SLOT&&readSourceComparisonDraft(parseLearningDraftJson(value.value)).refs.every(ref=>ref===null||task.sources.some(source=>source.id===ref.sourceId&&source.versions.some(version=>version.id===source.id&&version.version===ref.version&&version.digest===ref.digest&&version.kind==='text')));}catch{return false;}
+  }
+  if('kind' in owner&&owner.kind==='request-question'){
+   const request=task.requests.find(item=>item.id===owner.requestId),question=request?.questions?.find(item=>item.id===owner.questionId);
+   try{if(slot!==REQUEST_QUESTION_SLOT||request?.digest!==owner.requestDigest||question?.digest!==owner.questionDigest||value.basis!==requestQuestionDraftBasis(owner)||value.initial!==serializeLearningDraftJson(initialRequestQuestionDraft(question)))return false;readRequestQuestionRawDraft(parseLearningDraftJson(value.value));return true;}catch{return false;}
+  }
   if('kind' in owner&&owner.kind==='design-canvas-edit'){
    try{const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision||value.basis!==canvasDraftBasis(owner))return false;canvasRevision(revision);if(slot===CANVAS_PROMPT_SLOT){if(value.initial!==serializeLearningDraftJson(emptyCanvasPrompt))return false;readCanvasPrompt(parseLearningDraftJson(value.value));return true;}if(slot!==DESIGN_CANVAS_SLOT||value.initial!==serializeLearningDraftJson(canvasRaw(canvasRevision(revision))))return false;readCanvasRaw(parseLearningDraftJson(value.value));return true;}catch{return false;}
+  }
+  if('kind' in owner&&owner.kind==='explanation-teachback'){
+   try{const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(revision?.mimeType!==EXPLANATION_MIME||!readExplanation(revision.content)?.deep)return false;const reply=teachbackReply(slot);if(!reply)return true;const parent=task.artifacts.find(item=>item.id===reply.artifactId)?.revisions.find(item=>item.revision===reply.revision&&item.digest===reply.digest),body=parent&&confirmedTeachback(task,reply.artifactId,parent);return body?.turn===1&&body.input.basis.artifactId===owner.artifactId&&body.input.basis.revision===owner.artifactRevision&&body.input.basis.digest===owner.artifactDigest;}catch{return false;}
+  }
+  if('kind' in owner&&owner.kind==='experiment-practice'){
+   try{if(![EXPERIMENT_PRACTICE_SLOT,EXPERIMENT_PRACTICE_INTENT_SLOT].includes(slot))return false;const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision||revision.encoding==='base64')return false;return revision.mimeType===SOURCE_FORMULA_MIME?!!reviewedSourceFormula(task,owner.artifactId,revision):revision.mimeType==='application/json'&&parseModelDraft(revision.content).kind==='experiment';}catch{return false;}
+  }
+  if('kind' in owner&&owner.kind==='formula-comparison'){
+   try{if(![FORMULA_COMPARISON_SLOT,FORMULA_COMPARISON_INTENT_SLOT].includes(slot))return false;const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision)return false;reviewedSourceFormula(task,owner.artifactId,revision);return true;}catch{return false;}
   }
   if('kind' in owner&&owner.kind==='experiment-target-practice'){
    try{if(![TARGET_REVIEW_SLOT,TARGET_INTENT_SLOT].includes(slot))return false;const revision=task.artifacts.find(item=>item.id===owner.artifactId)?.revisions.find(item=>item.revision===owner.artifactRevision&&item.digest===owner.artifactDigest);if(!revision)return false;reviewedSourceFormula(task,owner.artifactId,revision);return true;}catch{return false;}
@@ -224,7 +257,7 @@ export class LearningDraftStore{
    const loaded=await this.load();if(loaded.kind==='unavailable')throw Error(loaded.message);
    if(loaded.file.epoch!==expectedEpoch)return {kind:'stale-epoch',epoch:loaded.file.epoch};
    const key=learningDraftKey(owner,slot),current=loaded.file.records.find(record=>learningDraftKey(record.owner,record.slot)===key)??null;
-   const allowed=()=>!isTaskLearningDraftOwner(owner)?Promise.resolve(slot===LOCAL_TASK_DRAFT_SLOT):value===null?this.validTask(owner.taskId):this.validOwner(owner,slot,value);
+   const allowed=()=>!isTaskLearningDraftOwner(owner)?Promise.resolve(slot===(owner.kind==='recurring-work-form'||owner.kind==='recurring-work-edit'?RECURRING_DRAFT_SLOT:LOCAL_TASK_DRAFT_SLOT)):value===null?this.validTask(owner.taskId):this.validOwner(owner,slot,value);
    if((value===null&&!current)||!await allowed())throw Error('The practice answer is no longer available.');
    if((current?.revision??0)!==expectedRevision)return {kind:'conflict',epoch:loaded.file.epoch,current};
    const record:LearningDraftRecord={owner,slot,revision:expectedRevision+1,value};

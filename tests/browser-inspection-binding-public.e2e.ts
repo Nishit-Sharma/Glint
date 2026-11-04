@@ -5,6 +5,9 @@ import {BrowserReconciliation,untilInspectionStopped} from '../src/host/browser/
 import {BrowserInspectionAttempts} from '../src/host/browser/inspection-attempts';
 import {LocalBrowser} from '../src/host/browser/local-browser';
 import {settleCapture} from './settled-capture';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+// Loopback-locked engine only: these specs never launch or select the person's installed browsers.
+installLoopbackTestEngine();
 
 let fixture:BrowserFixture;
 const open=LocalBrowser.open;

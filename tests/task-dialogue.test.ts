@@ -32,7 +32,8 @@ it('labels legacy completed answer identity unknown instead of guessing the orig
  const f=await fixture(),task=await f.core.createTask({title:'Legacy'});const request=await f.core.runRequest({taskId:task.id,requestId:'old',kind:'create',prompt:'Original.',sourceIds:[]},async()=>({title:'Old',content:'Original output.'}));
  await f.core.saveArtifact(task.id,{artifactId:request.artifactId,expectedRevision:1,title:'Old',content:'Latest manual edit.',sourceRefs:[]});await f.core.close();
  const store=JSON.parse(await readFile(join(f.dataDir,'tasks.json'),'utf8'));delete store.tasks[0].requests[0].answer;await writeFile(join(f.dataDir,'tasks.json'),JSON.stringify(store));await f.restart();
- const context=await follow(f.core,task.id);expect(context.previousTurns[0].answer).toMatchObject({available:false});expect(context.previousTurns[0].currentArtifact.content.text).toBe('Latest manual edit.');
+ const context=await follow(f.core,task.id);expect(context.previousTurns[0].answer).toMatchObject({available:false});expect(context.previousTurns[0]).not.toHaveProperty('currentArtifact');expect(JSON.stringify(context)).not.toContain('Latest manual edit.');
+ const local=await f.core.getTask(task.id);expect(local.artifacts.find(artifact=>artifact.id===request.artifactId)!.revisions.map(revision=>revision.content)).toEqual(['Original output.','Latest manual edit.']);
 });
 
 it('keeps failed and cancelled original requests unsuccessful and never fabricates an answer',async()=>{
@@ -49,9 +50,9 @@ it('distinguishes historical stale or withdrawn refs from explicit current selec
  await f.core.putSource(task.id,{id:'document',kind:'text',label:'Then',role:'fact',content:'OLD_SOURCE_BODY'});
  await f.core.runRequest({taskId:task.id,requestId:'source-turn',kind:'explain',prompt:'Explain this.',sourceIds:['document']},async()=>({title:'Answer',content:'An old illustration data:image/png;base64,TEVBSw=='}));
  await f.core.invalidateSource(task.id,'document','The user withdrew this old source.');await f.core.saveComposerDraft(task.id,0,{text:'UNSENT_DRAFT',kind:'create'});
- const context=await follow(f.core,task.id),turn=context.previousTurns[0];expect(turn.sourceRefs[0]).toMatchObject({availability:'refresh-required',selectedForThisRequest:false,evidence:'historical-reference'});expect(context.currentSelectedSourceRefs).toEqual([]);
- const text=JSON.stringify(context);expect(text).not.toMatch(/OLD_SOURCE_BODY|TEVBSw==|UNSENT_DRAFT|FOREIGN/);expect(text).toContain('historical image bytes excluded');
- const saved=await f.core.getTask(task.id),withdrawn=structuredClone(saved);withdrawn.sources=[];expect(JSON.parse(projectTaskDialogue(withdrawn,'future',[])).previousTurns[0].sourceRefs[0].availability).toBe('withdrawn');
+ const context=await follow(f.core,task.id);expect(context.previousTurns).toEqual([]);expect(context.currentSelectedSourceRefs).toEqual([]);
+ const text=JSON.stringify(context);expect(text).not.toMatch(/OLD_SOURCE_BODY|TEVBSw==|UNSENT_DRAFT|FOREIGN/);expect(text).not.toContain('An old illustration');
+ const saved=await f.core.getTask(task.id),withdrawn=structuredClone(saved);withdrawn.sources=[];expect(JSON.parse(projectTaskDialogue(withdrawn,'future',[])).previousTurns.map((turn:any)=>turn.requestId)).toEqual(['follow']);
 });
 
 it('projects exact saved module choices, checkpoints and all unresolved operations without granting their prior approval',async()=>{
@@ -79,7 +80,7 @@ it('both transport builders carry task history separately from the current promp
 
 it('marks a prior reference superseded while transmitting only the newly selected current version',async()=>{
  const f=await fixture(),task=await f.core.createTask({title:'Current source'});await f.core.putSource(task.id,{id:'doc',kind:'text',label:'Document',role:'fact',content:'OLD_VERSION_BYTES'});await f.core.runRequest({taskId:task.id,requestId:'old-version',kind:'explain',prompt:'Explain the old version.',sourceIds:['doc']},async()=>({title:'Old',content:'Historical answer.'}));await f.core.putSource(task.id,{id:'doc',kind:'text',label:'Document',role:'fact',content:'NEW_VERSION_BYTES'});
- let history:any,versions:any;await f.core.runRequest({taskId:task.id,requestId:'selected-current',kind:'explain',prompt:'What changed?',sourceIds:['doc']},async ctx=>{history=JSON.parse(ctx.taskHistory!);versions=ctx.task.sources[0].versions;return {title:'New',content:'Current answer.'};});expect(history.previousTurns[0].sourceRefs[0]).toMatchObject({version:1,availability:'superseded',selectedForThisRequest:false});expect(history.currentSelectedSourceRefs[0].version).toBe(2);expect(versions.map((version:any)=>version.content)).toEqual(['NEW_VERSION_BYTES']);expect(JSON.stringify(history)).not.toContain('OLD_VERSION_BYTES');
+ let history:any,versions:any;await f.core.runRequest({taskId:task.id,requestId:'selected-current',kind:'explain',prompt:'What changed?',sourceIds:['doc']},async ctx=>{history=JSON.parse(ctx.taskHistory!);versions=ctx.task.sources[0].versions;return {title:'New',content:'Current answer.'};});expect(history.previousTurns).toEqual([]);expect(history.currentSelectedSourceRefs[0].version).toBe(2);expect(versions.map((version:any)=>version.content)).toEqual(['NEW_VERSION_BYTES']);expect(JSON.stringify(history)).not.toContain('OLD_VERSION_BYTES');
 });
 
 it('never exposes raw unfamiliar module answers or hidden future cases in ordinary task history',async()=>{

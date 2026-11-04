@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {Schema} from 'effect';
 import type {Companion} from './companion';
-import type {Task} from './types';
+import type {Task,RequestInput} from './types';
 import {requirePackingDemonstration} from './packing-concept-host';
 import {packingPracticeDocument} from '../learning/packing-concept';
 const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));
@@ -17,23 +17,28 @@ function admitted(task:Task,value:Input){
 }
 const attemptId=(binding:ReturnType<typeof admitted>['binding'],index:number)=>'packing-practice-v1-'+hash(binding)+(index?'_'+index:'');
 const attemptNumber=(binding:ReturnType<typeof admitted>['binding'],id:string)=>{for(let i=0;i<maxAttempts;i++)if(attemptId(binding,i)===id)return i;return -1;};
-function savedResult(task:Task,value:Input,request:Task['requests'][number]){
+export function packingPracticeResult(task:Task,value:Input,request:Task['requests'][number]){
  const {sourceRefs}=admitted(task,value),saved=request.artifactId&&task.artifacts.find(a=>a.id===request.artifactId)?.revisions.at(-1);
  if(request.status!=='completed'||!request.artifactId||request.answer?.artifactId!==request.artifactId||JSON.stringify(request.sourceRefs)!==JSON.stringify(sourceRefs)||!saved||saved.revision!==request.answer?.revision||saved.digest!==request.answer.digest||saved.mimeType!=='text/markdown'||JSON.stringify(saved.sourceRefs)!==JSON.stringify(sourceRefs))throw Error('The saved practice changed. Review its source and history.');
  const match=/\nYour saved prediction: (0|[1-9][0-9]{0,4}) (?:box|boxes)\.\n/.exec(saved.content);if(!match||Number(match[1])>10000||saved.content!==packingPracticeDocument(value.quote,value.count,Number(match[1])))throw Error('The saved practice changed. Review its source and history.');
  return {task,artifactId:request.artifactId!,revision:saved.revision,digest:saved.digest};
 }
-export async function createPackingPractice(core:Companion,raw:unknown){
+export function readPackingPracticeSubmission(raw:unknown){
  let value:typeof create.Type;try{value=Schema.decodeUnknownSync(create,{onExcessProperty:'error'})(raw);}catch{throw Error('Review the source and enter supported counts.');}
- const task=await core.getTask(value.taskId),{binding,sourceRefs}=admitted(task,value);let index=0;
- if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(sourceRefs))throw Error('Check the previous practice before starting another.');index=previous+1;}
- const result=await core.runRequest({taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Record a prediction for a separate packing count.',executionScope:'packing-practice-v1:'+hash(binding),sourceIds:sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:sourceRefs,expectedArtifacts:[binding.basis,binding.preview]},async context=>{admitted(context.task,value);return {title:`Packing practice: ${value.count} items`,mimeType:'text/markdown',content:packingPracticeDocument(value.quote,value.count,value.prediction)};});
- if(result.status!=='completed'||!result.artifactId)throw Error(result.error??'The practice could not be saved.');return savedResult(await core.getTask(value.taskId),value,result);
+ return value;
 }
+export function packingPracticePublication(task:Task,value:ReturnType<typeof readPackingPracticeSubmission>){
+ const {binding,sourceRefs}=admitted(task,value);let index=0;
+ if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(sourceRefs))throw Error('Check the previous practice before starting another.');index=previous+1;}
+ const request:RequestInput={taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Record a prediction for a separate packing count.',executionScope:'packing-practice-v1:'+hash(binding),sourceIds:sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:sourceRefs,expectedArtifacts:[binding.basis,binding.preview]};
+ const artifact=(()=>{admitted(task,value);return {title:`Packing practice: ${value.count} items`,mimeType:'text/markdown',content:packingPracticeDocument(value.quote,value.count,value.prediction)};})();return {request,artifact};
+}
+export async function createPackingPractice(core:Companion,raw:unknown,assertCurrent:()=>void=()=>{}){return core.savePackingPractice(raw,assertCurrent);}
+
 export async function inspectPackingPractice(core:Companion,raw:unknown){
  let value:Input;try{value=Schema.decodeUnknownSync(input,{onExcessProperty:'error'})(raw);}catch{throw Error('Review the source and enter a supported count.');}
  const task=await core.getTask(value.taskId),{binding,sourceRefs}=admitted(task,value);let latest:Task['requests'][number]|undefined;
  for(let index=0;index<maxAttempts;index++){const request=task.requests.find(r=>r.id===attemptId(binding,index));if(!request)break;if(request.kind!=='experiment'||JSON.stringify(request.sourceRefs)!==JSON.stringify(sourceRefs))throw Error('The practice record needs review.');latest=request;}
- if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};if(latest.status==='completed'){const saved=savedResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision,digest:saved.digest};}
+ if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};if(latest.status==='completed'){const saved= packingPracticeResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision,digest:saved.digest};}
  if(latest.artifactId!==undefined)throw Error('The previous practice needs review.');return {kind:'terminal' as const,requestId:latest.id,status:latest.status,canRetry:attemptNumber(binding,latest.id)<maxAttempts-1};
 }

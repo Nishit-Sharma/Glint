@@ -1,3 +1,4 @@
+import {withOrdinaryAppBindings} from './concurrent-app-bindings.fixture';
 import {afterEach,expect,it} from 'vitest';
 import ts from 'typescript';
 import {mkdtemp,readFile,rm} from 'node:fs/promises';
@@ -19,6 +20,7 @@ function gate(){let enter!:()=>void,release!:()=>void;return {started:new Promis
 /** Actual App handlers with substituted React delivery/bridge, real core/store and local summary. */
 async function actualHandlers(environment:Record<string,unknown>){
  const source=await readFile(resolve('src/renderer/src/App.tsx'),'utf8'),file=ts.createSourceFile('App.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+ environment=withOrdinaryAppBindings(file,environment);
  const app=file.statements.find((node):node is ts.FunctionDeclaration=>ts.isFunctionDeclaration(node)&&node.name?.text==='App');if(!app?.body)throw Error('Actual App is unavailable');
  const functions=['run','refresh','selectTask','retireContext'].map(name=>{const node=app.body!.statements.find((node):node is ts.FunctionDeclaration=>ts.isFunctionDeclaration(node)&&node.name?.text===name&&!!node.body);if(!node)throw Error('Actual handler missing '+name);return node.getText(file);});
  let subscriber:ts.ArrowFunction|undefined;

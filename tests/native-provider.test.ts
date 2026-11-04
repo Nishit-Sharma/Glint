@@ -142,10 +142,12 @@ describe('Meta Standard adapter — local protocol fixtures only', () => {
     const pending = adapter.run({ prompt: 'First', sources: [], signal: controller.signal });
     const rejected = pending.catch(error => error);
     await new Promise(resolve => setTimeout(resolve, 10));
-    await expect(adapter.run({ prompt: 'Second', sources: [], signal: signal() })).rejects.toMatchObject({ code: 'BUSY' });
-    controller.abort();
-    expect(await rejected).toMatchObject({ code: 'CANCELLED' });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    const secondController=new AbortController(),second=adapter.run({prompt:'Second',sources:[],signal:secondController.signal}),secondRejected=second.catch(error=>error);
+    await vi.waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));
+    await expect(adapter.run({prompt:'Third exceeds the local limit',sources:[],signal:signal()})).rejects.toMatchObject({code:'BUSY'});
+    controller.abort();secondController.abort();
+    expect(await rejected).toMatchObject({code:'CANCELLED'});expect(await secondRejected).toMatchObject({code:'CANCELLED'});
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 

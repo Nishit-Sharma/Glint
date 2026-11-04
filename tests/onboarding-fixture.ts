@@ -14,7 +14,7 @@ import {TaskViewPreferences} from '../src/host/task-view-preferences';
 export class OnboardingFixture{
  learningDrafts!:LearningDraftStore;viewPreferences!:TaskViewPreferences;pendingActivation?:ContextActivation;
  private readonly flushReplies=new Map<string,(error?:string)=>void>();
- readonly commands:Command[]=[];readonly external:string[]=[];readonly rendererErrors:string[]=[];configured=false;denyCapture=false;viewReadBarrier?:Promise<void>;pendingReadBarrier?:Promise<void>;botGetBarrier?:Promise<void>;taskListBarrier?:Promise<void>;
+ readonly commands:Command[]=[];readonly external:string[]=[];readonly rendererErrors:string[]=[];configured=false;denyCapture=false;screenRecordingAllowed=false;viewReadBarrier?:Promise<void>;pendingReadBarrier?:Promise<void>;botGetBarrier?:Promise<void>;taskListBarrier?:Promise<void>;
  private constructor(readonly page:Page,readonly directory:string,public core:Companion,public bots:BotPreferences){}
  static async open(page:Page,input:number|{ready?:boolean;botGetBarrier?:Promise<void>;taskListBarrier?:Promise<void>;pendingActivation?:ContextActivation;viewReadBarrier?:Promise<void>;pendingReadBarrier?:Promise<void>;port?:number}={}){
   const options=typeof input==='number'?{}:input,port=typeof input==='number'?input:options.port??Number(process.env.WINDOW_COMPANION_TEST_PORT??4173);
@@ -59,6 +59,8 @@ export class OnboardingFixture{
    case 'task-view.get':if(this.viewReadBarrier)await this.viewReadBarrier;return this.viewPreferences.read();
    case 'context.view':return this.viewPreferences.select(command.taskId??null);
    case 'context.pending':{const snapshot=this.pendingActivation;if(this.pendingReadBarrier)await this.pendingReadBarrier;return snapshot?{kind:'ready',activation:snapshot}:{kind:'none'};}
+   case 'screen-recording.get':return {allowed:this.screenRecordingAllowed,confirmed:true,scope:'this-session'};
+   case 'screen-recording.set':{this.screenRecordingAllowed=command.allowed;const state={allowed:command.allowed,confirmed:true,scope:'this-session' as const};await this.emit({type:'screen-recording.changed',state});return state;}
    case 'capture.settings.get':return {kind:'available',current:{revision:0,policy:{policyVersion:1,setupApproval:'not-approved',privateApps:[]}},sessionPaused:false};
    case 'context.cancel':if(this.pendingActivation?.activationId===command.activationId)this.pendingActivation=undefined;return null;
    case 'context.capture':return {activationId:command.activationId,tucked:false,state:'no-room',...(command.taskId?{task:await this.core.getTask(command.taskId)}:{})};

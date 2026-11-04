@@ -65,3 +65,9 @@ describe('Public error and status copy',()=>{
 it('preserves exact recurring authorization recovery copy without accepting appended private data',()=>{
  for(const message of ['Recurring responses were not authorized. The schedule stays paused.','Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.','The account or instructions changed. Resume again to authorize the current scope.']){expect(publicErrorMessage(new Error(message))).toBe(message);expect(publicErrorMessage(message+' /Users/private/secret')).not.toContain('/Users/private');}
 });
+it('a provider that never answered names the connection, keeps raw detail private and keeps unrelated fallbacks',()=>{
+ for(const raw of ['Connection unavailable: the provider did not respond.','Codex connection is closed.','Meta could not complete the connection. No retry was made.','Error invoking remote method \'companion:invoke\': Error: Provider unavailable: no response /Users/private/trace.log'])expect(publicErrorMessage(raw)).toBe('The connection was interrupted. Check your connection before trying again.');
+ for(const [raw,wanted] of [['The requested Codex model choice is unavailable.','This action could not be completed. Review the task before continuing.'],['The selected model is not advertised by this connection. No substitute model was selected.','Connect an AI service in Settings before sending a request.'],['Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.','Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.']])expect(publicErrorMessage(raw)).toBe(wanted);
+ expect(publicErrorMessage('Window unavailable')).toBe('This file or window is no longer available. Choose it again.');
+ expect(publicErrorMessage('Something else failed /Users/private/trace.log')).toBe('This action could not be completed. Review the task before continuing.');
+});

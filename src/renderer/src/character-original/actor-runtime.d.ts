@@ -7,4 +7,4 @@ export interface OriginalActor {
  setPhase(phase:string):void;
  stats():{frames:number;near:boolean;phase:string;eye:number[];body:number[];active:boolean;idle:boolean;destroyed:boolean;activity:'quiet'|'playful';lift:number;gesture:boolean;color:CharacterProfile['look']['color']};
 }
-export function mountOriginal(canvas:HTMLCanvasElement,look:CharacterProfile['look'],onFailure?:(error:unknown)=>void,options?:{activity?:'quiet'|'playful';seed?:number}):OriginalActor;
+export function mountOriginal(canvas:HTMLCanvasElement,look:CharacterProfile['look'],onFailure?:(error:unknown)=>void,options?:{activity?:'quiet'|'playful';seed?:number;zoom?:number}):OriginalActor;

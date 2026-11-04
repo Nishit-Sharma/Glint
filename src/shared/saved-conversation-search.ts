@@ -4,8 +4,14 @@ export interface SavedConversationMessage {
  requestId:string;requestIdentity:string;message:'question'|'answer';text:string;
  answer?:{artifactId:string;revision:ArtifactRevision};
 }
+/** Store decoding may reorder object fields; every field and array position still binds the match. */
+function conversationIdentity(value:unknown):string{
+ if(Array.isArray(value))return '['+value.map(conversationIdentity).join(',')+']';
+ if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+conversationIdentity((value as Record<string,unknown>)[key])).join(',')+'}';
+ return JSON.stringify(value)??'undefined';
+}
 /** Bind the recorded turn, including its original answer, independently of later file edits. */
-export const savedConversationRequestIdentity=(request:RequestRecord)=>JSON.stringify([request.id,request.kind,request.prompt,request.digest,request.status,request.startedAt,request.finishedAt,request.artifactId,request.targetArtifactId,request.expectedRevision,request.answer]);
+export const savedConversationRequestIdentity=(request:RequestRecord)=>conversationIdentity([request.id,request.kind,request.prompt,request.digest,request.status,request.startedAt,request.finishedAt,request.artifactId,request.targetArtifactId,request.expectedRevision,request.answer]);
 export function savedConversationAnswer(task:Task,request:RequestRecord):SavedConversationMessage['answer']{
  if(request.status!=='completed')return;
  const artifacts=task.artifacts.filter(item=>item.id===request.artifactId),artifact=artifacts.length===1?artifacts[0]:undefined;
@@ -19,5 +25,5 @@ export function resolveSavedConversationMessage(task:Task,message:SavedConversat
  if(!request||request.status==='running'||savedConversationRequestIdentity(request)!==message.requestIdentity)return;
  if(message.message==='question')return request.kind!=='brief'&&request.prompt===message.text&&!message.answer?request:undefined;
  const answer=savedConversationAnswer(task,request);
- return answer&&answer.revision.content===message.text&&JSON.stringify(answer)===JSON.stringify(message.answer)?request:undefined;
+ return answer&&answer.revision.content===message.text&&conversationIdentity(answer)===conversationIdentity(message.answer)?request:undefined;
 }

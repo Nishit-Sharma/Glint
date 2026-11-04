@@ -1,5 +1,5 @@
 import {test,expect} from 'vitest';
-import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
@@ -28,7 +28,7 @@ test('existing host accepts a legal eighty-row Unicode form whose normalized sub
   const reopened=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await reopened.load();expect(reopened.readForm(owner,workflowSourceReviewSlot,initial,identity,['eventSequence'])).toMatchObject({status:'ready',value:raw});const token=reopened.capture(owner,workflowSourceReviewSlot)!;const result=await publishLiteralWorkflow({...input,cache:reopened,newId:()=>{throw Error('Must reuse persisted large intent');},publish});expect(result.result.task.requests).toHaveLength(1);expect(result.result.task.requests[0].status).toBe('completed');expect(result.result.task.artifacts).toHaveLength(2);expect(calls).toBe(2);
   const records=await store.read();if(records.kind!=='available')throw Error('Expected readable large owner');const intent=records.records.find(record=>record.slot==='workflow-source:publication')!;expect(Buffer.byteLength(intent.value!.value)).toBeLessThan(256);expect(JSON.parse(intent.value!.value).binding).toMatch(/^literal-workflow-review-v1:[0-9a-f]{64}$/);
   await expect(publishLiteralWorkflow({...input,cache:reopened,review:{...input.review,assumptions:['Changed large review binding']},publish})).rejects.toThrow('earlier input');expect(calls).toBe(2);expect(reopened.readForm(owner,workflowSourceReviewSlot,initial,identity,['eventSequence']).value).toEqual(raw);expect(reopened.acknowledge(token)).toBe(true);await reopened.flush();const cleared=await store.read();expect(cleared.kind==='available'&&cleared.records.find(record=>learningDraftKey(record.owner,record.slot)===learningDraftKey(owner,workflowSourceReviewSlot))?.value).toBeNull();
-  await writeFile('evidence/CAPACITY-COMPATIBILITY-AFTER.json',JSON.stringify({...sizes,hostResult:'completed',reviewCheck:checked.kind,newAdapterResult:'accepts-complete-legal-form',interpretation:'All eighty rows are individually legal; only twenty-four are selected. No App or provider ran.'},null,2)+'\n');
+  await mkdir('evidence',{recursive:true});await writeFile('evidence/CAPACITY-COMPATIBILITY-AFTER.json',JSON.stringify({...sizes,hostResult:'completed',reviewCheck:checked.kind,newAdapterResult:'accepts-complete-legal-form',interpretation:'All eighty rows are individually legal; only twenty-four are selected. No App or provider ran.'},null,2)+'\n');
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });
 function neverValid():never{throw Error('Expected actual host-valid review.');}

@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import { mkdtemp, readFile, rm, writeFile, mkdir, rename } from 'node:fs/promises';
 import * as fileSystem from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -120,7 +121,9 @@ describe('durable task and artifact history', () => {
 
 describe('owned request lifecycle', () => {
   it('provider revision updates existing lineage and refuses a concurrent edit', async () => {
-    const { task, artifact } = await prepared();
+    const task = await core.createTask({title:'Announcement',goal:'Write an event announcement'});
+    await core.putSource(task.id,source);
+    const artifact = await currentAnswerOrigin(core,task.id,'provider-revision-origin',{title:'Draft',content:'Join us on October 23.'},(await core.getTask(task.id)).sources.map(source=>({sourceId:source.id,version:source.currentVersion,digest:source.versions.at(-1)!.digest})));
     const revised = await core.runRequest({ taskId: task.id, requestId: 'targeted-revise', kind: 'revise', prompt: 'Make it shorter', artifactId: artifact.artifactId, expectedRevision: 1 }, async () => ({ title: 'Short draft', content: 'Join us October 23.' }));
     expect(revised.artifactId).toBe(artifact.artifactId);
     expect((await core.getTask(task.id)).artifacts[0]?.revisions).toHaveLength(2);

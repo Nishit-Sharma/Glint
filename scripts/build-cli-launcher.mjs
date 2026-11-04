@@ -7,5 +7,5 @@ unset NODE_OPTIONS NODE_PATH ELECTRON_RUN_AS_NODE ELECTRON_NO_ASAR ELECTRON_ENAB
 cli_dir=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
 contents=$(CDPATH= cd -P -- "$cli_dir/../../../.." && pwd)
 export ELECTRON_RUN_AS_NODE=1
-exec /usr/bin/env -i ELECTRON_RUN_AS_NODE=1 LANG=en_US.UTF-8 "$contents/MacOS/Window Companion" "$cli_dir/../main/cli.js" "$@"
+exec /usr/bin/env -i ELECTRON_RUN_AS_NODE=1 LANG=en_US.UTF-8 "$contents/MacOS/Glint" "$cli_dir/../main/cli.js" "$@"
 `,{mode:0o755});

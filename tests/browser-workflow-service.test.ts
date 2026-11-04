@@ -8,6 +8,8 @@ import {saveBrowserWorkflow} from '../src/core/browser-workflow-host';
 import {browserWorkflowStarter} from '../src/shared/browser-workflow';
 import {runAuthoredBrowserWorkflow} from '../src/host/browser/workflow-service';
 import {workflowSite} from './browser-workflow-site';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 const dialogs=vi.hoisted(()=>({show:vi.fn()}));vi.mock('electron',()=>({dialog:{showMessageBox:dialogs.show}}));
 afterEach(()=>{vi.restoreAllMocks();dialogs.show.mockReset();});
 it.each([false,true])('native approval wrapper %s preserves exact once-only form authority without a model route',async allow=>{

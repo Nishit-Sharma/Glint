@@ -24,7 +24,15 @@ it('rejects a captured add after navigation without changing source selection or
  const f=mount();const old=f.direct();f.setCurrent(false);old.props.onClick();expect(f.beforeAdd).not.toHaveBeenCalled();expect(f.send).not.toHaveBeenCalled();expect(f.onAdded).not.toHaveBeenCalled();
 });
 it('dispatches once and never opens a source in a different task after a held response',async()=>{
- let resolve!:(value:unknown)=>void;const pending=new Promise<unknown>(done=>{resolve=done;}),send=vi.fn((_command:unknown)=>pending),f=mount(send);const old=f.direct();old.props.onClick();old.props.onClick();expect(send).toHaveBeenCalledTimes(1);expect(f.beforeAdd).toHaveBeenCalledTimes(1);expect(send.mock.calls[0][0]).toMatchObject({type:'source.document',taskId:'destination',ownerTaskId:'owner',artifact:{artifactId:'document',revision:1,digest:'b'.repeat(64)}});f.setCurrent(false);resolve({reference:{sourceId:'copy',version:1,digest:'c'.repeat(64)}});await pending;for(let i=0;i<5;i++)await Promise.resolve();expect(f.onAdded).not.toHaveBeenCalled();
+ let resolve!:(value:unknown)=>void;const pending=new Promise<unknown>(done=>{resolve=done;}),send=vi.fn((_command:unknown)=>pending),f=mount(send);const old=f.direct();old.props.onClick();old.props.onClick();await Promise.resolve();expect(send).toHaveBeenCalledTimes(1);expect(f.beforeAdd).toHaveBeenCalledTimes(1);expect(send.mock.calls[0][0]).toMatchObject({type:'source.document',taskId:'destination',ownerTaskId:'owner',artifact:{artifactId:'document',revision:1,digest:'b'.repeat(64)}});f.setCurrent(false);resolve({reference:{sourceId:'copy',version:1,digest:'c'.repeat(64)}});await pending;for(let i=0;i<5;i++)await Promise.resolve();expect(f.onAdded).not.toHaveBeenCalled();
+});
+it('waits for durable source selection before adding, and leaves no copy when that save fails or the task changes',async()=>{
+ for(const outcome of ['saved','failed','navigated']){
+  const f=mount();let finish!:()=>void,fail!:(error:Error)=>void;f.beforeAdd.mockImplementationOnce(()=>new Promise<void>((resolve,reject)=>{finish=resolve;fail=reject;}));
+  f.direct().props.onClick();f.direct().props.onClick();expect(f.beforeAdd).toHaveBeenCalledOnce();expect(f.send).not.toHaveBeenCalled();
+  if(outcome==='navigated')f.setCurrent(false);if(outcome==='failed')fail(Error('Synthetic selection save failed'));else finish();
+  for(let tick=0;tick<8;tick++)await Promise.resolve();f.r.render();expect(f.send).toHaveBeenCalledTimes(outcome==='saved'?1:0);expect(f.onAdded).not.toHaveBeenCalled();
+ }
 });
 it('keeps an unconfirmed review intact and retries the same exact snapshot without copying new text',async()=>{
  const send=vi.fn(async(_command:unknown)=>undefined as unknown),f=mount(send);f.direct().props.onClick();await vi.waitFor(()=>{f.r.render();expect(f.r.nodes().some(node=>node.props.role==='status'&&text(node).startsWith('The copy was not confirmed.'))).toBe(true);});const first=send.mock.calls[0][0];f.add().props.onClick();await vi.waitFor(()=>expect(send).toHaveBeenCalledTimes(2));expect(send.mock.calls[1][0]).toEqual(first);expect(f.onAdded).not.toHaveBeenCalled();
@@ -41,9 +49,9 @@ it('adds a saved document directly with the source role chosen before any option
  expect(send).toHaveBeenCalledTimes(1);expect(send.mock.calls[0][0]).toMatchObject({type:'source.document',taskId:'destination',ownerTaskId:'owner',artifact:{artifactId:'document',revision:1,digest:'b'.repeat(64)},role:'style'});
  const snapshot=JSON.parse((send.mock.calls[0][0] as {expectedSnapshot:string}).expectedSnapshot);expect(snapshot.content).toBe('Saved document text');expect(snapshot.role).toBe('style');expect(JSON.stringify(snapshot)).not.toContain('PRIVATE_SOURCE_BODY');
 });
-it('adds the exact optional preview after a newer saved revision appears',()=>{
+it('adds the exact optional preview after a newer saved revision appears',async()=>{
  const f=mount();f.choose();const preview=f.r.find(node=>node.type==='textarea').props.value,tasks=structuredClone(f.tasks);tasks[0].artifacts[0].revisions.push({...tasks[0].artifacts[0].revisions[0],revision:2,digest:'d'.repeat(64),title:'Later plan',content:'Later saved text'});f.setTasks(tasks);
- expect(f.r.find(node=>node.type==='textarea').props.value).toBe(preview);expect(f.add().props.disabled).toBe(false);f.add().props.onClick();
+ expect(f.r.find(node=>node.type==='textarea').props.value).toBe(preview);expect(f.add().props.disabled).toBe(false);f.add().props.onClick();await Promise.resolve();
  const command=f.send.mock.calls[0][0] as {artifact:{revision:number};expectedSnapshot:string};expect(command.artifact.revision).toBe(1);expect(JSON.parse(command.expectedSnapshot).content).toBe('Saved document text');expect(command.expectedSnapshot).not.toContain('Later saved text');
 });
 it('allows leaving optional details without attaching or freezing the request selection',()=>{

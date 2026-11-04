@@ -11,7 +11,7 @@ test('Glint names the product while the companion and macOS permission entry sta
   await page.setViewportSize({width:320,height:640});await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeInViewport();await frame(page,'glint-onboarding-narrow');
   await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByText('Local example · Bundled on this device',{exact:true})).toBeVisible();await page.setViewportSize({width:1120,height:760});
   await page.locator('.task-sidebar').getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('tab',{name:'Screen & shortcut',exact:true}).click();await page.getByText('Enable screen snapshots',{exact:true}).click();
-  await expect(page.getByText('System Settings → Privacy & Security → Screen Recording → Window Companion (the current system name for Glint). Allow access, then reopen Glint.',{exact:true})).toBeVisible();await frame(page,'glint-system-permission-help');
+  await expect(page.getByText('System Settings → Privacy & Security → Screen & System Audio Recording (Screen Recording before macOS 15) → Glint. Allow access, then reopen Glint.',{exact:true})).toBeVisible();await frame(page,'glint-system-permission-help');
   await fixture.emit({type:'surface',mode:'anchor'});await page.setViewportSize({width:74,height:64});await expect(page.getByRole('button',{name:'Open Glint',exact:true})).toBeVisible();await frame(page,'glint-anchor',false);
   expect(fixture.commands.filter(command=>['model.run','browser.run','browser.inspect','context.start','context.capture','windows.capture'].includes(command.type))).toEqual([]);expect(fixture.external).toEqual([]);
  }finally{await fixture.close();}

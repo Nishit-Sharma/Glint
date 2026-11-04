@@ -1,4 +1,4 @@
-import {afterAll,afterEach,beforeAll,expect,it} from 'vitest';
+import {afterAll,afterEach,beforeAll,expect,it,vi} from 'vitest';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -7,6 +7,8 @@ import {saveBrowserWorkflow} from '../src/core/browser-workflow-host';
 import {browserWorkflowStarter,browserWorkflowRequest,type BrowserWorkflow} from '../src/shared/browser-workflow';
 import {executeBrowserWorkflow,type BrowserWorkflowControls} from '../src/host/browser/authored-workflow';
 import {workflowSite} from './browser-workflow-site';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 let site:Awaited<ReturnType<typeof workflowSite>>;const cleanups:(()=>Promise<unknown>)[]=[];
 beforeAll(async()=>{site=await workflowSite();});afterAll(async()=>{await site.close();});afterEach(async()=>{for(const cleanup of cleanups.splice(0).reverse())await cleanup();});
@@ -30,8 +32,8 @@ it('a failed post-check stops before selecting or submitting',async()=>{
 it('a missing intended submission field never reaches write approval',async()=>{
  const definition=JSON.parse(JSON.stringify(browserWorkflowStarter));definition.origin=site.origin;if(definition.steps[2].action.kind!=='click')throw Error('Expected submit');definition.steps[2].action.fields=definition.steps[2].action.fields.slice(0,1);const f=await fixture(definition),log:string[]=[],before=site.effects.length,result=await executeBrowserWorkflow(f.core,{taskId:f.task.id,requestId:'mismatch',workflow:f.workflow,url:site.origin+'/requests/mismatch',inputs:{title:'Wrong expected fields',delivery:'courier'}},approved(log));expect(result.status).toBe('failed');expect(log).toEqual(['fresh-browser','fill','fill']);expect(site.effects).toHaveLength(before);expect((await f.core.getTask(f.task.id)).session!.runs[0].operations.filter(operation=>operation.status==='retired').length).toBeGreaterThan(0);
 });
-it('a saved workflow edit while approval is pending retires its older action',async()=>{
- const f=await fixture(),before=site.effects.length,result=await executeBrowserWorkflow(f.core,{taskId:f.task.id,requestId:'edit-pending',workflow:f.workflow,url:site.origin+'/requests/edit-pending',inputs:{title:'Superseded',delivery:'courier'}},{headless:true,authorizeStart:async()=>{},approveAction:async()=>{await saveBrowserWorkflow(f.core,{taskId:f.task.id,requestId:'edit-workflow',artifact:f.workflow,definition:{...browserWorkflowStarter,origin:site.origin,name:'New workflow revision'}});return {approved:true};}});expect(result.status).toBe('failed');expect(result.error).toContain('changed');expect(site.effects).toHaveLength(before);const run=(await f.core.getTask(f.task.id)).session!.runs[0];expect(run.operations[0].status).toBe('retired');expect(run.operations[0].result).toBeUndefined();
+it('a same-task workflow save while approval is pending is refused and retires its action',async()=>{
+ const f=await fixture(),original=(await f.core.getTask(f.task.id)).artifacts[0],before=site.effects.length,result=await executeBrowserWorkflow(f.core,{taskId:f.task.id,requestId:'edit-pending',workflow:f.workflow,url:site.origin+'/requests/edit-pending',inputs:{title:'Superseded',delivery:'courier'}},{headless:true,authorizeStart:async()=>{},approveAction:async()=>{await saveBrowserWorkflow(f.core,{taskId:f.task.id,requestId:'edit-workflow',artifact:f.workflow,definition:{...browserWorkflowStarter,origin:site.origin,name:'New workflow revision'}});return {approved:true};}});expect(result.status).toBe('failed');expect(result.error).toBe('Wait for the current task response to finish or stop.');expect(site.effects).toHaveLength(before);const saved=await f.core.getTask(f.task.id);expect(saved.artifacts[0]).toEqual(original);expect(saved.requests.some(request=>request.id==='edit-workflow')).toBe(false);const run=saved.session!.runs[0];expect(run.operations[0].status).toBe('retired');expect(run.operations[0].result).toBeUndefined();
 });
 it('executes an authored choice step when the valid ordinary dropdown exposes its current options',async()=>{
  const definition:BrowserWorkflow={...browserWorkflowStarter,origin:site.origin,steps:browserWorkflowStarter.steps.map((step,index)=>index===1?{...step,name:'Choose delivery',action:{kind:'select',target:{role:'select',label:'Delivery'},value:'{{delivery}}'},after:[{kind:'value',target:{role:'select',label:'Delivery'},equals:'{{delivery}}'}]}:index===2?{...step,before:step.before.map(check=>check.kind==='value'&&check.target.label==='Delivery'?{...check,target:{role:'select',label:'Delivery'}}:check),action:{kind:'click',target:{role:'button',label:'Save draft'},fields:[{target:{role:'text',label:'Request title'},value:'{{title}}'},{target:{role:'select',label:'Delivery'},value:'{{delivery}}'}]}}:step)};

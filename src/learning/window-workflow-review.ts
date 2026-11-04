@@ -1,3 +1,4 @@
+import {windowReviewRowsMatch} from '../shared/learning-draft-form-policy';
 import {Schema} from 'effect';
 import {serializeLearningDraftJson} from '../shared/learning-drafts';
 import {WorkflowCaseSchema,validateWorkflowCase,type WorkflowCase} from './workflow-lab';
@@ -20,7 +21,7 @@ const candidateHeader=Schema.Struct({schemaVersion:Schema.Literal(1),kind:Schema
 export type WindowWorkflowReviewDraft=typeof draftSchema.Type;
 type Location=WindowWorkflowProposal['citations'][number]['location'];
 export type WindowWorkflowReviewedEvidence={readonly citationId:string;readonly sourceRef:WindowWorkflowReviewCandidate['provenance']['source']['ref'];readonly original:Location;readonly reviewed:Location;readonly classification:'confirmed-transcription'|'corrected-transcription';readonly reason:string};
-export type WindowWorkflowReviewedInput={readonly schemaVersion:1;readonly kind:'reviewed-window-workflow-input';readonly scope:'reviewed-frozen-transcription';readonly provenance:WindowWorkflowReviewCandidate['provenance'];readonly practice:WorkflowCase;readonly evidence:readonly WindowWorkflowReviewedEvidence[];readonly nameInterpretations:readonly {readonly category:'states'|'events';readonly id:string;readonly classification:'reviewed-transcription'|'user-interpreted';readonly citationId:string;readonly reason:string}[];readonly ruleInterpretations:readonly {readonly ruleId:string;readonly classification:'reviewed-image-interpretation';readonly citationIds:readonly string[];readonly reason:string}[];readonly assumptions:readonly string[];readonly reviewSnapshot:string};
+export type WindowWorkflowReviewedInput={readonly schemaVersion:1;readonly kind:'reviewed-window-workflow-input';readonly scope:'reviewed-frozen-transcription';readonly provenance:WindowWorkflowReviewCandidate['provenance'];readonly practice:WorkflowCase;readonly evidence:readonly WindowWorkflowReviewedEvidence[];readonly nameInterpretations:readonly {readonly category:'states'|'events';readonly id:string;readonly classification:'reviewed-transcription'|'user-interpreted';readonly citationId:string;readonly reason:string;readonly reviewerAdded?:true}[];readonly ruleInterpretations:readonly {readonly ruleId:string;readonly classification:'reviewed-image-interpretation';readonly citationIds:readonly string[];readonly reason:string;readonly reviewerAdded?:true}[];readonly assumptions:readonly string[];readonly reviewSnapshot:string};
 export type WindowWorkflowReviewCheck={readonly kind:'valid';readonly value:WindowWorkflowReviewedInput}|{readonly kind:'invalid';readonly issues:readonly {readonly code:string;readonly path:string}[]};
 
 class ReviewError extends Error {constructor(readonly code:string,readonly path='review'){super('Invalid finite window workflow review.');}}
@@ -61,22 +62,24 @@ function validateDraft(candidate:WindowWorkflowReviewCandidate,draft:WindowWorkf
  if(candidate.proposal.issues.some(issue=>issue.kind==='unsupported-timing'||issue.kind==='unsupported-concurrency'||issue.kind==='insufficient-diagram'))throw new ReviewError('unsupported-source','issues');
  const reviewed=new Map(evidence.map(entry=>[entry.citationId,entry])),supplied=new Set(candidate.proposal.citations.map(entry=>entry.id));
  const used=new Set<string>();
+ unique([...draft.states,...draft.events,...draft.transitions,...candidate.proposal.citations,...candidate.proposal.issues].map(entry=>entry.id),'identities');
  for(const category of ['states','events','transitions'] satisfies readonly ('states'|'events'|'transitions')[]){
-  const entries=draft[category],expected=candidate.proposal[category].map(entry=>entry.id);
+  const entries=draft[category];
   unique(entries.map(entry=>entry.id),category);
-  if(entries.length!==expected.length||entries.some(entry=>!expected.includes(entry.id)))throw new ReviewError('candidate-reference',category);
+  if(!windowReviewRowsMatch(entries,candidate.proposal[category],category))throw new ReviewError('candidate-reference',category);
   if(entries.some(entry=>entry.selected&&entry.value.kind==='unresolved'))throw new ReviewError('unresolved-selection',category);
  }
  for(const category of ['states','events'] satisfies readonly ('states'|'events')[]){
   unique(draft[category].flatMap(entry=>entry.selected&&entry.value.kind==='reviewed-name'?[entry.value.label]:[]),category);
   for(const entry of draft[category])if(entry.value.kind==='reviewed-name'){
    const value=entry.value,citation=reviewed.get(value.citationId);
+   if(!candidate.proposal[category].some(original=>original.id===entry.id)&&value.interpretation!=='user-interpreted')throw new ReviewError('added-name-interpretation',category);
    if(!supplied.has(value.citationId)||entry.selected&&!citation)throw new ReviewError('evidence-reference',category);
    if(entry.selected&&value.interpretation==='reviewed-transcription'&&citation?.reviewed.quote!==value.label)throw new ReviewError('transcription',category);
    if(entry.selected)used.add(value.citationId);
   }
  }
- const stateIds=new Set(candidate.proposal.states.map(entry=>entry.id)),eventIds=new Set(candidate.proposal.events.map(entry=>entry.id));
+ const stateIds=new Set(draft.states.map(entry=>entry.id)),eventIds=new Set(draft.events.map(entry=>entry.id));
  for(const entry of draft.transitions)if(entry.value.kind==='reviewed-image-interpretation'){
   if(!stateIds.has(entry.value.fromStateId)||!stateIds.has(entry.value.toStateId)||!eventIds.has(entry.value.eventId))throw new ReviewError('transition-reference','transitions');
   unique(entry.value.citationIds,'transitions');
@@ -104,8 +107,8 @@ export function checkWindowWorkflowReview(candidateInput:WindowWorkflowReviewCan
   const rules=draft.transitions.flatMap(entry=>entry.selected&&entry.value.kind==='reviewed-image-interpretation'?[{id:entry.id,fromStateId:entry.value.fromStateId,eventId:entry.value.eventId,toStateId:entry.value.toStateId,enabled:true}]:[]);
   const practice=decode(WorkflowCaseSchema,{id:'reviewed-window-practice',title:draft.title,states,events,rules,initialStateId:draft.initialStateId,eventIds:draft.eventIds});validateWorkflowCase(practice);
   const nameInterpretations:WindowWorkflowReviewedInput['nameInterpretations'][number][]=[];
-  for(const category of ['states','events'] satisfies readonly ('states'|'events')[])for(const entry of draft[category])if(entry.selected&&entry.value.kind==='reviewed-name')nameInterpretations.push({category,id:entry.id,classification:entry.value.interpretation,citationId:entry.value.citationId,reason:entry.value.reason});
-  const ruleInterpretations=draft.transitions.flatMap(entry=>entry.selected&&entry.value.kind==='reviewed-image-interpretation'?[{ruleId:entry.id,classification:entry.value.kind,citationIds:entry.value.citationIds,reason:entry.value.reason}]:[]);
+  for(const category of ['states','events'] satisfies readonly ('states'|'events')[])for(const entry of draft[category])if(entry.selected&&entry.value.kind==='reviewed-name')nameInterpretations.push({category,id:entry.id,classification:entry.value.interpretation,citationId:entry.value.citationId,reason:entry.value.reason,...(!candidate.proposal[category].some(original=>original.id===entry.id)?{reviewerAdded:true as const}:{})});
+  const ruleInterpretations=draft.transitions.flatMap(entry=>entry.selected&&entry.value.kind==='reviewed-image-interpretation'?[{ruleId:entry.id,classification:entry.value.kind,citationIds:entry.value.citationIds,reason:entry.value.reason,...(!candidate.proposal.transitions.some(original=>original.id===entry.id)?{reviewerAdded:true as const}:{})}]:[]);
   return {kind:'valid',value:structuredClone({schemaVersion:1,kind:'reviewed-window-workflow-input',scope:'reviewed-frozen-transcription',provenance:candidate.provenance,practice,evidence,nameInterpretations,ruleInterpretations,assumptions:draft.assumptions,reviewSnapshot})};
  }catch(error){return {kind:'invalid',issues:[{code:error instanceof ReviewError?error.code:'invalid-input',path:error instanceof ReviewError?error.path:'review'}]};}
 }

@@ -1,25 +1,46 @@
+// Renders Glint's app icon (iconset + icns) and menu-bar template images from the project's own character code.
+// No dev server: page requests are fulfilled from disk. Run from the repo root: node scripts/render-character-icon.mjs
 import {chromium} from 'playwright-core';
-import {writeFile,mkdir,readFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
+import {writeFile,mkdir,readFile,rm} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {resolve} from 'node:path';
+import {join,resolve} from 'node:path';
 
-const browser=await chromium.launch({headless:true,chromiumSandbox:true});
+const ORIGIN='http://glint-icon.invalid',charDir='src/renderer/src/character-original';
+// Chosen directions (icons proposals 2026-11-04, design review B fixes): A3 iris close-up app icon (top stop >=2:1 against the body,
+// small sizes keep tile visible round the body), T1 knockout menu-bar glyph on a 16 pt canvas with hinted 1x3 px @1x eye holes.
+const APP={tile:{top:'#7f8bcb',bottom:'#6f7bc2',edge:'rgba(255,255,255,.25)'},large:{zoom:1.0,lookY:.36,shadow:false},small:{zoom:.9,lookY:.12,shadow:false}};
+const TRAY={pt:16,eyeGrow:.7,holes1x:[[5,6,1,3],[10,6,1,3]]},MASK={cam:[0,.95,6],mode:'mask',lookY:0,hideMouth:true};
+const ICONSET=[['16x16',16],['16x16@2x',32],['32x32',32],['32x32@2x',64],['128x128',128],['128x128@2x',256],['256x256',256],['256x256@2x',512],['512x512',512],['512x512@2x',1024]];
+const sha=bytes=>createHash('sha256').update(bytes).digest('hex'),png=url=>Buffer.from(url.split(',')[1],'base64');
+// Helium (Chromium 156) only; Playwright's bundled Chromium is not used. Fail rather than fall back.
+const HELIUM='/Applications/Helium.app/Contents/MacOS/Helium';
+if(!existsSync(HELIUM))throw Error(`Helium is required at ${HELIUM}; the bundled Chromium is not used.`);
+const browser=await chromium.launch({executablePath:HELIUM,headless:true,chromiumSandbox:true});
 try{
- const page=await browser.newPage({viewport:{width:1024,height:1024},deviceScaleFactor:1,reducedMotion:'reduce'});
- await page.route('http://127.0.0.1:4173/character-icon-proof',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Owned character icon render</title><style>body{margin:0;background:transparent}canvas{display:block;width:1024px;height:1024px}</style></head><body><canvas></canvas></body></html>'}));
- await page.route('**/*',route=>new URL(route.request().url()).origin==='http://127.0.0.1:4173'?route.fallback():route.abort());
- await page.goto('http://127.0.0.1:4173/character-icon-proof');
- const data=await page.evaluate(async()=>{
-  const {mountOriginal}=await import('/src/character-original/actor-runtime.js');
-  const canvas=document.querySelector('canvas');
-  const actor=mountOriginal(canvas,{shape:'soup',color:'dough',face:'curious',motion:false});
-  try{actor.pause();return {width:canvas.width,height:canvas.height,png:canvas.toDataURL('image/png').split(',')[1]};}finally{actor.destroy();}
- });
- if(data.width!==1024||data.height!==1024)throw Error('Original actor did not render the expected icon size.');
- const bytes=Buffer.from(data.png,'base64');await writeFile('build/companion-icon.png',bytes);
+ const page=await browser.newPage({viewport:{width:1200,height:1200},deviceScaleFactor:1,reducedMotion:'reduce'});
+ await page.route('**/*',async route=>{const u=new URL(route.request().url());if(u.origin!==ORIGIN)return route.abort();
+  if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:'<!doctype html><title>Owned character icon render</title><body style="margin:0;background:transparent"></body>'});
+  const file=u.pathname.startsWith('/character/')?join(charDir,u.pathname.slice(11)):u.pathname==='/kit/icon-kit.js'?'scripts/icon-kit.js':null;
+  return file?route.fulfill({contentType:'text/javascript',body:await readFile(file)}):route.fulfill({status:404,body:''});});
+ await page.goto(ORIGIN+'/');
+ const out=await page.evaluate(async([APP,TRAY,MASK,sizes])=>{
+  const kit=await import('/kit/icon-kit.js'),r={};
+  for(const variant of ['large','small'])r[variant]=await kit.composeTile(kit.renderCharacter(APP[variant]),APP.tile);
+  r.sizes={};for(const px of sizes)r.sizes[px]=await kit.downscale(px<=64?r.small:r.large,px);
+  const glyph=await kit.templateGlyph({...TRAY,masks:{noMouth:kit.renderCharacter(MASK)}});r.tray=glyph;return r;
+ },[APP,TRAY,MASK,[16,32,64,128,256,512]]);
+ const files={};const put=async(path,url)=>{const b=png(url);await writeFile(path,b);files[path]=sha(b);return b;};
+ await put('build/companion-icon.png',out.large);
+ await rm('build/companion.iconset',{recursive:true,force:true});await mkdir('build/companion.iconset',{recursive:true});
+ for(const [name,px] of ICONSET)await put(`build/companion.iconset/icon_${name}.png`,px===1024?out.large:out.sizes[px]);
+ execFileSync('iconutil',['-c','icns','build/companion.iconset','-o','build/companion.icns']);files['build/companion.icns']=sha(await readFile('build/companion.icns'));
+ await mkdir('build/tray',{recursive:true});
+ const x1=await put('build/tray/glintTemplate.png',out.tray.x1),x2=await put('build/tray/glintTemplate@2x.png',out.tray.x2);
+ await writeFile('src/host/tray-image.ts',`// Generated by scripts/render-character-icon.mjs: Glint's soup character silhouette with eye knockouts.\n// macOS template image (black + alpha only), ${TRAY.pt} pt canvas, @1x and @2x representations.\nexport const trayImage={width:${TRAY.pt},height:${TRAY.pt},x1:"data:image/png;base64,${x1.toString('base64')}",x2:"data:image/png;base64,${x2.toString('base64')}"} as const;\n`);
  await mkdir('evidence/character',{recursive:true});
- const files=['src/renderer/src/character-original/core.js','src/renderer/src/character-original/actor-runtime.js'];
- const sources=[];for(const path of files)sources.push({path,sha256:createHash('sha256').update(await readFile(path)).digest('hex')});
- await writeFile('evidence/character/icon.json',JSON.stringify({utc:new Date().toISOString(),kind:'Rendered original approved actor with a neutral fixed pose, not new generated artwork',root:resolve('.'),width:data.width,height:data.height,output:'build/companion-icon.png',sha256:createHash('sha256').update(bytes).digest('hex'),sources,installedAppChanged:false},null,2));
- console.log(JSON.stringify({output:'build/companion-icon.png',bytes:bytes.length,width:data.width,height:data.height}));
+ const sources={};for(const f of ['core.js','actor-runtime.js','material-color.js'])sources[`${charDir}/${f}`]=sha(await readFile(join(charDir,f)));sources['scripts/icon-kit.js']=sha(await readFile('scripts/icon-kit.js'));
+ await writeFile('evidence/character/icon.json',JSON.stringify({utc:new Date().toISOString(),kind:'Rendered original approved actor (soup/dough/curious), composed on an owned macOS-grid tile; tray glyph derived from the same render. Not generated or third-party art.',root:resolve('.'),app:APP,tray:TRAY,files,sources,installedAppChanged:false},null,2));
+ console.log(JSON.stringify({files:Object.keys(files).length,icns:files['build/companion.icns']}));
 }finally{await browser.close();}

@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chromium, type Browser, type BrowserContext, type ElementHandle, type Page } from 'playwright-core';
 import { Schema } from 'effect';
+import { confirmRunningBrowser, requirePatchedBrowser, waitForBuiltInBlocker, type PatchedBrowser } from './patched-chromium';
+import { isBrowserPatchedUnavailable } from '../../shared/browser-control';
 import { BROWSER_LAUNCH_UNAVAILABLE,BROWSER_PAGE_OPEN_FAILED,BROWSER_CLEANUP_UNCONFIRMED } from '../../shared/public-messages';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -114,6 +116,8 @@ export class LocalBrowser {
   private releaseStop = () => {};
   private releaseWindowOwner = () => {};
   private closing?:Promise<void>;
+  /** The installed patched browser this session runs in; shown where the browser status is shown. */
+  engine?: { name: string; chromiumVersion: string; contentBlocker?: boolean };
   private constructor(private readonly browser: Browser, private readonly context: BrowserContext, private readonly page: Page, readonly taskId: string, readonly origin: string) {
     page.on('framenavigated', frame => { if (frame === page.mainFrame()) this.documentId = randomUUID(); });
     page.on('dialog', dialog => { void dialog.dismiss(); });
@@ -136,8 +140,12 @@ export class LocalBrowser {
     const prefix=options.pathPrefix;
     if(prefix!==undefined&&(!prefix.startsWith('/')||!prefix.endsWith('/')||/[?#\\]/.test(prefix)||new URL(prefix,origin).origin!==origin.origin||new URL(prefix,origin).pathname!==prefix))throw Error('Use a normalized browser path prefix beginning and ending with /.');
     if(prefix!==undefined&&!initial.pathname.startsWith(prefix))throw Error('Initial URL is outside the authorized path prefix.');
+    // Never fall back to Playwright's bundled Chromium.
+    const engine: PatchedBrowser = await requirePatchedBrowser();
+    if (options.signal?.aborted) throw Error('Browser request was stopped before launch.');
     let browser: Browser;
-    try { browser = await chromium.launch({ headless: options.headless ?? true, chromiumSandbox:true }); }
+    // No userDataDir: Playwright gives each launch a fresh temporary profile, never the person's own browser profile.
+    try { browser = await chromium.launch({ executablePath: engine.executablePath, headless: options.headless ?? true, chromiumSandbox:true, ...(engine.launchArgs ? { args: [...engine.launchArgs] } : {}) }); }
     catch (error) {
       if (options.signal?.aborted) throw Error('Browser request was stopped before launch.', { cause: error });
       throw Error(BROWSER_LAUNCH_UNAVAILABLE, { cause: error });
@@ -147,9 +155,17 @@ export class LocalBrowser {
     let opened:LocalBrowser|undefined;
     try {
       if (options.signal?.aborted) throw Error('Browser request was stopped before opening a page.');
+      // Disclose and enforce the version actually running, not only the one detected on disk.
+      const running = confirmRunningBrowser(engine, () => browser.version());
       const stop = () => { void browser.close().catch(()=>{}); };
       options.signal?.addEventListener('abort', stop, { once: true });
       releaseStop=()=>options.signal?.removeEventListener('abort',stop);
+      if (running.contentBlocker) {
+        const session = await browser.newBrowserCDPSession();
+        try { await waitForBuiltInBlocker(session, options.signal); }
+        catch (error) { throw Error(options.signal?.aborted ? 'Browser request was stopped before opening a page.' : BROWSER_LAUNCH_UNAVAILABLE, { cause: error }); }
+        finally { await session.detach().catch(()=>{}); }
+      }
       if(options.onWindowOwner){
         const connection=await browser.newBrowserCDPSession();
         try{
@@ -167,6 +183,7 @@ export class LocalBrowser {
       const page = await context.newPage();
       const owner = new LocalBrowser(browser, context, page, options.taskId, origin.origin);
       owner.pathPrefix=prefix;
+      owner.engine={ name: running.name, chromiumVersion: running.chromiumVersion, ...(running.contentBlocker?{contentBlocker:true}:{}) };
       opened=owner;
       owner.releaseStop = releaseStop;
       owner.releaseWindowOwner = releaseOwner;
@@ -211,8 +228,8 @@ export class LocalBrowser {
       try { await browser.close(); } catch { throw Error(BROWSER_CLEANUP_UNCONFIRMED); }
       releaseOwner();
       if(opened?.blockedRedirects)throw new BrowserRedirectError();
-      const safe=['Browser request was stopped before opening a page.','Browser request was stopped before navigation.','The owned browser process identity could not be established. No page was opened.',BROWSER_PAGE_OPEN_FAILED];
-      throw Error(error instanceof Error&&safe.includes(error.message)?error.message:BROWSER_PAGE_OPEN_FAILED);
+      const safe=['Browser request was stopped before opening a page.','Browser request was stopped before navigation.','The owned browser process identity could not be established. No page was opened.',BROWSER_LAUNCH_UNAVAILABLE,BROWSER_PAGE_OPEN_FAILED];
+      throw Error(error instanceof Error&&(safe.includes(error.message)||isBrowserPatchedUnavailable(error.message))?error.message:BROWSER_PAGE_OPEN_FAILED);
     }
   }
   get diagnostics() { return { browserId: this.id, taskId: this.taskId, closed: this.closed, blockedRequests: this.blocked, blockedRedirects:this.blockedRedirects, profile: 'fresh-ephemeral' as const }; }
@@ -357,12 +374,13 @@ export class LocalBrowser {
     if (write && (new URL(write.url).origin !== this.origin || new URL(write.url).username || new URL(write.url).password || this.pathPrefix!==undefined&&!new URL(write.url).pathname.startsWith(this.pathPrefix) || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(write.method) || write.body.length > 100_000)) throw Error('Write scope is outside this browser authority.');
     const token = randomUUID(); this.grants.set(proposalId, { token, used: false, ...(write ? { write: { method: write.method, url: write.url, digest: digest(write.body) } } : {}) }); return token;
   }
-  async execute(proposalId: string, token: string,signal?:AbortSignal): Promise<{ proposal: BrowserProposal; receipt?: Grant['receipt'] }> {
+  async execute(proposalId: string, token: string,signal?:AbortSignal,assertCurrent?:()=>Promise<void>): Promise<{ proposal: BrowserProposal; receipt?: Grant['receipt'] }> {
     this.assertAgentControl();
     const proposal = this.proposals.get(proposalId), grant = this.grants.get(proposalId);
     if (!proposal || proposal.status !== 'proposed') throw Error('Proposal is missing or already executed.');
     if (!grant || grant.token !== token) throw Error('Approval is required for this exact proposal.');
     this.grants.delete(proposalId);
+    await assertCurrent?.();
     const target = await this.validateTarget(proposal.intent);
     this.assertAgentControl();
     if(signal?.aborted)throw Error('Stopped before browser execution.');

@@ -1,6 +1,7 @@
+import {requestSourceAvailable} from './source-intake';
 import {Schema} from 'effect';
 import type {SourceRef,Task} from '../core/types';
-import {UserMemorySchema,MemoryChangeSchema,type UserMemory,type MemoryCommit} from './user-memory';
+import {ProjectMemorySchema,ProjectMemoryChangeSchema,type ProjectMemory} from './project-memory';
 import {ProjectDeleteCommandSchema,type ProjectDeletePreview,type ProjectDeleteResult} from './project-deletion';
 
 export const PROJECT_INSTRUCTIONS_LIMIT=8000;
@@ -12,7 +13,7 @@ const Reference=Schema.Struct({sourceId:Id,version:Revision,digest:bounded(128).
 const Name=bounded(200).pipe(Schema.filter(value=>value.trim().length>0));
 export const ProjectSourceSchema=Schema.Struct({id:Id,taskId:Id,reference:Reference});
 const ProjectArchiveSchema=Schema.Struct({revision:Revision,archived:Schema.Boolean,updatedAt:Schema.String.pipe(Schema.filter(value=>Number.isFinite(Date.parse(value))))});
-export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64)),memory:Schema.optional(UserMemorySchema),archive:Schema.optional(ProjectArchiveSchema)}));
+export const ProjectSchema=Schema.mutable(Schema.Struct({id:Id,name:Name,instructions:bounded(PROJECT_INSTRUCTIONS_LIMIT),useAccountMemory:Schema.optional(Schema.Boolean),addSharedSourcesOnJoin:Schema.optional(Schema.Boolean),revision:Revision,createdAt:Schema.String,updatedAt:Schema.String,sources:Schema.mutable(Schema.Array(ProjectSourceSchema)).pipe(Schema.maxItems(64)),memory:Schema.optional(ProjectMemorySchema),archive:Schema.optional(ProjectArchiveSchema)}));
 export type Project=typeof ProjectSchema.Type;
 export const isProjectArchived=(project:Project):boolean=>project.archive?.archived===true;
 export const activeProjects=(projects:readonly Project[]):Project[]=>projects.filter(project=>!isProjectArchived(project));
@@ -31,7 +32,7 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.delete.preview'),projectId:Id}),
  ProjectDeleteCommandSchema,
  Schema.Struct({type:Schema.Literal('projects.memory.get'),projectId:Id}),
- Schema.Struct({type:Schema.Literal('projects.memory.change'),projectId:Id,...MemoryChangeSchema.fields}).pipe(Schema.filter(command=>command.change.kind!=='forget')),
+ Schema.Struct({type:Schema.Literal('projects.memory.change'),projectId:Id,...ProjectMemoryChangeSchema.fields}),
  Schema.Struct({type:Schema.Literal('projects.pins.get')}),
  Schema.Struct({type:Schema.Literal('projects.pins.set'),projectId:Id,pinned:Schema.Boolean,expectedRevision:PinsRevision}),
  Schema.Struct({type:Schema.Literal('projects.sidebar.get')}),
@@ -46,12 +47,14 @@ const CommandSchema=Schema.Union(
  Schema.Struct({type:Schema.Literal('projects.sources.use'),projectId:Id,expectedRevision:Revision,sourceKey:Id,taskId:Id}),
 );
 export type ProjectCommand=typeof CommandSchema.Type;
-export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.delete.preview'}?ProjectDeletePreview:C extends {type:'projects.delete'}?ProjectDeleteResult:C extends {type:'projects.memory.get'}?UserMemory:C extends {type:'projects.memory.change'}?MemoryCommit:C extends {type:'projects.assign.bulk'}?Task[]:C extends {type:'projects.sidebar.get'|'projects.sidebar.set'}?ProjectSidebar:C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
+export type ProjectReply<C extends ProjectCommand>=C extends {type:'projects.delete.preview'}?ProjectDeletePreview:C extends {type:'projects.delete'}?ProjectDeleteResult:C extends {type:'projects.memory.get'}?ProjectMemory:C extends {type:'projects.memory.change'}?{kind:'saved'|'conflict';current:ProjectMemory}:C extends {type:'projects.assign.bulk'}?Task[]:C extends {type:'projects.sidebar.get'|'projects.sidebar.set'}?ProjectSidebar:C extends {type:'projects.pins.get'|'projects.pins.set'}?ProjectPins:C extends {type:'projects.list'}?Project[]:C extends {type:'projects.assign'|'projects.sources.use'}?Task:Project;
 export function readProjectCommand(value:unknown):ProjectCommand{return Schema.decodeUnknownSync(CommandSchema,{onExcessProperty:'error'})(value);}
 const sameReference=(left:SourceRef,right:SourceRef)=>left.sourceId===right.sourceId&&left.version===right.version&&left.digest===right.digest;
 export const projectSourceMatches=(source:ProjectSource,taskId:string,reference:SourceRef)=>source.taskId===taskId&&sameReference(source.reference,reference);
 export function projectSourceCopyExists(task:Task,projectId:string,shared:ProjectSource):boolean{return task.sources.some(source=>shared.taskId===task.id&&source.id===shared.reference.sourceId||source.projectOrigin?.projectId===projectId&&source.projectOrigin.sourceKey===shared.id);}
-export function projectSourceVersion(source:ProjectSource,tasks:readonly Task[]){return tasks.find(task=>task.id===source.taskId)?.sources.find(item=>item.id===source.reference.sourceId)?.versions.find(version=>version.version===source.reference.version&&version.digest===source.reference.digest);}
+export function projectSourceVersion(source:ProjectSource,tasks:readonly Task[]){const owner=tasks.find(task=>task.id===source.taskId),saved=owner?.sources.find(item=>item.id===source.reference.sourceId);return saved&&requestSourceAvailable(saved,tasks)&&saved.currentVersion===source.reference.version?saved.versions.find(version=>version.version===source.reference.version&&version.digest===source.reference.digest):undefined;}
+/** Local history inspection only; this does not grant request, join or copy eligibility. */
+export function projectSourceSnapshot(source:ProjectSource,tasks:readonly Task[]){return tasks.find(task=>task.id===source.taskId)?.sources.find(item=>item.id===source.reference.sourceId)?.versions.find(version=>version.id===source.reference.sourceId&&version.version===source.reference.version&&version.digest===source.reference.digest);}
 export function projectSourceInTask(task:Task,projectId:string,shared:ProjectSource):boolean{
  return task.sources.some(source=>{
   if(source.freshness!=='fresh')return false;

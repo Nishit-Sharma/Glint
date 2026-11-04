@@ -6,7 +6,7 @@ it('creates a target without changing other inputs and checks the proposed value
  const before=structuredClone(draft),problem=makeTargetProblem(draft,'time');expect(problem.challenge).toEqual({variable:'time',knownInputs:{rate:3,fee:2},minimum:0,maximum:100,inputUnit:'s',target:77,outputUnit:'USD',tolerance:7.7e-8});expect(Object.keys(problem.challenge)).not.toContain('witness');expect(checkTargetAnswer(draft,problem,20)).toMatchObject({matches:false,result:{value:62}});expect(checkTargetAnswer(draft,problem,25)).toMatchObject({matches:true,result:{value:77}});expect(draft).toEqual(before);
 });
 it('skips current shown outputs and reports unknown exposure rather than asserting a withheld case',()=>{
- const problem=makeTargetProblem(draft,'time',[{rate:3,time:25,fee:2}]);expect(problem.witness).toBe(75);expect(problem.challenge.target).toBe(227);expect(()=>makeTargetProblem(draft,'time',[draft.inputs,draft.inputs,draft.inputs])).toThrow(/two/);
+ const problem=makeTargetProblem(draft,'time',[{rate:3,time:25,fee:2}]);expect(problem.witness).toBe(75);expect(problem.challenge.target).toBe(227);expect(()=>makeTargetProblem(draft,'time',Array.from({length:15},()=>draft.inputs))).toThrow(/fourteen/);
 });
 it('accepts multiple nonlinear answers and applies target output tolerance',()=>{
  const squared:ExperimentDraft={...draft,spec:{...draft.spec,variables:[{name:'x',unit:'1',min:-10,max:10}],expression:{op:'power',base:{op:'variable',name:'x'},exponent:2}},inputs:{x:0}},problem=makeTargetProblem(squared,'x');expect(problem.witness).toBe(-5);expect(checkTargetAnswer(squared,problem,5).matches).toBe(true);expect(checkTargetAnswer(squared,problem,-5).matches).toBe(true);expect(checkTargetAnswer(squared,problem,5+1e-5).matches).toBe(false);

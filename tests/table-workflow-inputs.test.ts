@@ -31,7 +31,7 @@ test('declared checks require genuinely different resolved inputs, not numeric s
   await f.check();let draft=(await f.read()).draft;
   const only=draft.checks.filter(check=>check.expected.kind!=='output');
   draft={...draft,checks:[...only,{input:freshCsv,inputs:ready2,expected:{kind:'output',csv:readyExpected}},{input:demoCsv,inputs:[{name:'Rate',value:'2.0'},{name:'Status',value:'ready'}],expected:{kind:'output',csv:'team,total\nNorth,10\nSouth,2\n'}}]};expect(tableWorkflowSuite(draft)).toMatchObject({ready:false,issue:expect.stringContaining('two different')});
-  const original=(await f.read()).draft.checks[0];await f.act({kind:'table-workflow-check',input:original.input,inputs:queued3,expected:{kind:'output',csv:queuedExpected},replaces:pickingDigest(original)});expect((await f.read()).draft.checks.some(check=>pickingDigest(check)===pickingDigest(original))).toBe(false);await expect(f.act({kind:'table-workflow-check',input:original.input,inputs:ready2,expected:original.expected,replaces:pickingDigest(original)})).rejects.toThrow(/original declared check/);
+  const original=(await f.read()).draft.checks[0];await f.act({kind:'table-workflow-check',input:original.input,inputs:[{name:'Status',value:'queued'},{name:'Rate',value:'4'}],expected:{kind:'output',csv:'team,total\nNorth,36\n'},replaces:pickingDigest(original)});expect((await f.read()).draft.checks.some(check=>pickingDigest(check)===pickingDigest(original))).toBe(false);await expect(f.act({kind:'table-workflow-check',input:original.input,inputs:ready2,expected:original.expected,replaces:pickingDigest(original)})).rejects.toThrow(/original declared check/);
  }finally{await f.close();}
 });
 

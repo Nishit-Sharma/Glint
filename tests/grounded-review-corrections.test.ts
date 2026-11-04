@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -20,7 +21,7 @@ async function fixture(cited=false){
  const content=cited?f.content+reason:f.content;
  const proposal=cited?{...f.proposal,extraction:{...f.proposal.extraction,join:{kind:'mapped' as const,keys:{mode:'INNER' as const,leftColumnId:'p-key',rightColumnId:'p-rkey'},reason,citationId:'join-condition'}},citations:[...f.proposal.citations,{id:'join-condition',source:'S1',location}]}:f.proposal;
  await core.putSource(task.id,{kind:'text',role:'fact',label:'Owned synthetic source',content});
- const basis=await core.saveArtifact(task.id,{title:'Source basis',content:'Frozen source basis'});
+ const basis=await currentAnswerOrigin(core,task.id,'review-corrections-origin',{title:'Source basis',content:'Frozen source basis'},(await core.getTask(task.id)).sources.map(source=>({sourceId:source.id,version:source.currentVersion,digest:source.versions.at(-1)!.digest})));
  const input={id:'reviewed-join',title:'Review the join premise',version:1,basis:{artifactId:basis.artifactId,revision:1,digest:basis.revision.digest},proposal,transfer:f.transfer};
  return {taskId:task.id,input,reason,data:admitJoinExtraction(await core.getTask(task.id),input)};
 }

@@ -23,7 +23,7 @@ export const readSourceFormulaInput=(value:unknown)=>decode(SourceFormulaInputSc
 export const readSourceFormulaCommand=(value:unknown)=>decode(command,value);
 
 /** A finite arithmetic parser, never eval/JavaScript/HDL. Powers bind before unary minus. */
-export function parseSourceFormula(text:string):{expression:Expression;variables:string[];resultName:string|null}{
+export function parseSourceFormula(text:string,allowConstant=false):{expression:Expression;variables:string[];resultName:string|null}{
  if(typeof text!=='string'||!text.trim()||text.length>sourceFormulaLimits.formulaCharacters)throw Error('Enter a formula of 1–2,000 characters.');
  const tokens:string[]=[];let position=0;
  while(position<text.length){
@@ -43,7 +43,7 @@ export function parseSourceFormula(text:string):{expression:Expression;variables
  const sum=():Expression=>{let left=product();while(['+','-','−'].includes(tokens[at])){const operator=tokens[at++],right=product();left={op:operator==='+'?'add':'subtract',left,right};}return left;};
  const expression=sum();if(at!==tokens.length)throw Error('Unexpected formula text. Write multiplication explicitly and parenthesize chained powers.');
  let nodes=0;const inspect=(value:Expression,depth:number):void=>{if(++nodes>64||depth>12)throw Error('Use at most 64 expression nodes and depth 12.');if(value.op==='power')inspect(value.base,depth+1);else if(value.op!=='constant'&&value.op!=='variable'){inspect(value.left,depth+1);inspect(value.right,depth+1);}};inspect(expression,1);
- if(!names.length||names.length>12)throw Error('Use 1–12 named input variables.');if(resultName&&names.includes(resultName))throw Error('The result name cannot also be an input.');
+ if((!names.length&&!allowConstant)||names.length>12)throw Error('Use 1–12 named input variables.');if(resultName&&names.includes(resultName))throw Error('The result name cannot also be an input.');
  return {expression,variables:names,resultName};
 }
 export function sourceFormulaLines(text:string){

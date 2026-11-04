@@ -5,6 +5,8 @@ import {join} from 'node:path';
 import {expect,it,vi} from 'vitest';
 import {createCompanion} from '../src/core/companion';
 import {BrowserService} from '../src/host/browser/service';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 const external=vi.hoisted(()=>({dialog:vi.fn()}));
 vi.mock('electron',()=>({dialog:{showMessageBox:external.dialog}}));
 
@@ -12,7 +14,7 @@ it.each(['deny-then-return','stop-during-return','service-close','route-change']
  const server=createServer((_req,res)=>{res.setHeader('content-type','text/html');res.end('<h1>Owned current page</h1>');});await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const address=server.address();if(!address||typeof address==='string')throw Error('Missing port');
  const origin=`http://127.0.0.1:${address.port}`,directory=await mkdtemp(join(tmpdir(),'browser-control-host-')),core=await createCompanion({dataDir:directory}),task=await core.createTask({title:'Owned host control'});let plans=0,key='owned',ready!:()=>void,resolveReturn!:(value:{response:number})=>void;
  const waiting=new Promise<void>(resolve=>{ready=resolve;});external.dialog.mockReset().mockResolvedValue({response:1});
- const provider={status:async()=>({configured:true,provider:'Codex (temporary)' as const,endpoint:'owned-fixture',model:'scripted',state:'ready' as const,detail:'No model call',specialized:{sam:'off',computer:'off'}}),run:async(input:{signal:AbortSignal})=>{if(++plans===1){ready();return new Promise<string>((_resolve,reject)=>input.signal.addEventListener('abort',()=>reject(Error('Paused scripted transport')),{once:true}));}return JSON.stringify({kind:'answer',markdown:'Fresh owned page observed.'});}};
+ const provider={accountScope:async()=> 'synthetic-account',status:async()=>({configured:true,provider:'Codex (temporary)' as const,endpoint:'owned-fixture',model:'scripted',state:'ready' as const,detail:'No model call',specialized:{sam:'off',computer:'off'}}),run:async(input:{signal:AbortSignal})=>{if(++plans===1){ready();return new Promise<string>((_resolve,reject)=>input.signal.addEventListener('abort',()=>reject(Error('Paused scripted transport')),{once:true}));}return JSON.stringify({kind:'answer',markdown:'Fresh owned page observed.'});}};
  const service=new BrowserService(core,{panel:()=>({}) as never,route:()=>({key,provider}),changed:()=>{},progress:()=>{},headless:true}),input={taskId:task.id,requestId:'host'};
  let running:Promise<unknown>|undefined;
  try{
@@ -38,7 +40,7 @@ it('offers the same pause fence from a modal exact-action review without approvi
  let visits=0;const server=createServer((req,res)=>{res.setHeader('content-type','text/html');if(req.url==='/next'){visits++;res.end('<h1>Owned next page</h1>');}else res.end('<h1>Owned page</h1><a href="/next">Next</a>');});await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const address=server.address();if(!address||typeof address==='string')throw Error('Missing port');
  const origin=`http://127.0.0.1:${address.port}`,directory=await mkdtemp(join(tmpdir(),'browser-modal-pause-')),core=await createCompanion({dataDir:directory}),task=await core.createTask({title:'Modal owned handoff'});let plans=0;
  external.dialog.mockReset().mockResolvedValueOnce({response:1}).mockResolvedValueOnce({response:2}).mockResolvedValue({response:1});
- const provider={status:async()=>({configured:true,provider:'Codex (temporary)' as const,endpoint:'owned-fixture',model:'scripted',state:'ready' as const,detail:'No model call',specialized:{sam:'off',computer:'off'}}),run:async(input:{sources:readonly {content:string}[]})=>{plans++;const current=JSON.parse(input.sources[0].content).currentObservation,target=current.targets.find((item:{label:string})=>item.label==='Next');return JSON.stringify(target?{kind:'action',reason:'Read next owned page',action:{kind:'click',targetId:target.id}}:{kind:'answer',markdown:'The next owned page is visible.'});}};
+ const provider={accountScope:async()=> 'synthetic-account',status:async()=>({configured:true,provider:'Codex (temporary)' as const,endpoint:'owned-fixture',model:'scripted',state:'ready' as const,detail:'No model call',specialized:{sam:'off',computer:'off'}}),run:async(input:{sources:readonly {content:string}[]})=>{plans++;const current=JSON.parse(input.sources[0].content).currentObservation,target=current.targets.find((item:{label:string})=>item.label==='Next');return JSON.stringify(target?{kind:'action',reason:'Read next owned page',action:{kind:'click',targetId:target.id}}:{kind:'answer',markdown:'The next owned page is visible.'});}};
  const service=new BrowserService(core,{panel:()=>({}) as never,route:()=>({key:'owned',provider}),changed:()=>{},progress:()=>{},headless:true}),input={taskId:task.id,requestId:'modal'};let running:Promise<unknown>|undefined;
  try{
   running=service.run({...input,prompt:'Read next owned page',url:origin});void running.catch(()=>{});await expect.poll(()=>service.controlStatus(input).mode,{timeout:3000}).toBe('user');expect(visits).toBe(0);expect(plans).toBe(1);expect((await core.getTask(task.id)).session?.runs[0].operations[0].status).toBe('retired');

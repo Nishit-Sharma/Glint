@@ -1,3 +1,11 @@
+import {prepareExplanationMode} from '../src/host/explanation-modes';
+import {RequestNotifications} from '../src/host/request-notifications';
+import {TaskNotifications} from '../src/host/task-notifications';
+import {readRequestQuestionCommand,type RequestQuestionReply} from '../src/shared/request-question';
+import type {RequestNotice} from '../src/shared/request-notifications';
+import {build} from 'esbuild';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
 import {pendingFollowups} from '../src/shared/queued-followup';
 import {createRecurringWorkRunner} from '../src/host/recurring-work-runner';
 import {ConversationExports} from '../src/host/conversation-export';
@@ -5,7 +13,7 @@ import {readConversationExportCommand} from '../src/shared/conversation-export';
 import {prepareConceptMapGeneration} from '../src/host/concept-map-generation';
 import {ResponsePreferences} from '../src/host/response-preferences';
 import {LearningDraftStore} from '../src/host/learning-drafts';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm,symlink,realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -30,6 +38,11 @@ type ModelControl = { command: ModelCommand; resolve: (value: { title: string; c
  * Native capabilities and provider transport are explicit substitutes; this proves neither route. */
 export class BrowserFixture {
   conversationExports!:ConversationExports;
+  requestNotifications!:RequestNotifications;
+  taskNotifications!:TaskNotifications;
+  readonly requestDesktopEvents:RequestNotice[]=[];
+  notificationSettingsBarrier?:Promise<void>;
+  private createCore:typeof createCompanion=createCompanion;
   recurringWorkRunner?:ReturnType<typeof createRecurringWorkRunner>;
   readonly recurringAuthorizations=new Set<string>();
   startRecurringWork(){this.recurringWorkRunner=createRecurringWorkRunner({prepare:async guard=>{
@@ -47,6 +60,7 @@ export class BrowserFixture {
   loseBranchAcknowledgement=false;
   loseModelAcknowledgement=false;
   readonly commands: Command[] = [];
+  screenRecordingAllowed=false;
   readonly pending = new Map<string, ModelControl>();
   readonly modelInvocations: ModelCommand[] = [];
   readonly externalRequests: string[] = [];
@@ -83,7 +97,9 @@ export class BrowserFixture {
 
   static async open(page: Page, mode?:'companion'|'anchor',port=Number(process.env.WINDOW_COMPANION_TEST_PORT??4173)) {
     const directory = await mkdtemp(join(tmpdir(), 'window-companion-browser-'));
-    const core = await createCompanion({ dataDir: join(directory, 'store') });
+    let createCore=createCompanion,createDraftStore=LearningDraftStore;
+    if(process.env.GLINT_NOTIFICATION_PRODUCER_CORE){const outfile=join(directory,'p108-producer.cjs'),source=process.env.GLINT_NOTIFICATION_PRODUCER_CORE,learning=source.replace(/core\/companion\.ts$/,'host/learning-drafts.ts');await symlink(await realpath('node_modules'),join(directory,'node_modules'),'dir');await build({stdin:{contents:'export {createCompanion} from '+JSON.stringify(source)+';export {LearningDraftStore} from '+JSON.stringify(learning)+';',resolveDir:directory,loader:'ts'},bundle:true,platform:'node',format:'cjs',packages:'external',outfile});const pinned=createRequire(pathToFileURL(outfile))(outfile);createCore=pinned.createCompanion;createDraftStore=pinned.LearningDraftStore;}
+    const core = await createCore({ dataDir: join(directory, 'store') });
     let taskA = await core.createTask({ title: 'Task Alpha', goal: 'Keep Alpha sources and results separate.' });
     taskA = await core.putSource(taskA.id, { kind: 'text', label: 'Alpha brief', role: 'fact', content: 'Alpha event is on October 23.' });
     await core.saveArtifact(taskA.id, { title: 'Alpha draft', content: 'Alpha revision one.' });
@@ -92,11 +108,13 @@ export class BrowserFixture {
     await core.saveArtifact(taskB.id, { title: 'Beta draft', content: 'Beta revision one.' });
     const fixture = new BrowserFixture(page, directory, core, await core.getTask(taskA.id), await core.getTask(taskB.id));
     fixture.conversationExports=new ConversationExports(id=>fixture.core.getTask(id));
-    fixture.learningDrafts=new LearningDraftStore({directory:join(directory,'store'),lookupTask:async id=>(await fixture.core.listTasks()).find(task=>task.id===id)});
+    fixture.createCore=createCore;
+    fixture.learningDrafts=new createDraftStore({directory:join(directory,'store'),lookupTask:async id=>(await fixture.core.listTasks()).find(task=>task.id===id)});
     fixture.preferences=await CharacterPreferences.open(join(directory,'store'));
     fixture.responsePreferences=new ResponsePreferences(join(directory,'store'));
     fixture.viewPreferences=new TaskViewPreferences(join(directory,'store'),async id=>(await fixture.core.listTasks()).some(task=>task.id===id),id=>fixture.core.getTask(id));
     await fixture.viewPreferences.select(taskA.id);
+    fixture.initializeNotifications();
     if(mode==='companion')fixture.lastSurface='companion';if(mode)fixture.surface=mode;
     await page.exposeFunction('__browserFixtureInvoke',async(command:Command)=>{const result=await fixture.invoke(command);return isExportCommand(command)?readExportReply(command,result):result;});
     await page.addInitScript(() => {
@@ -117,7 +135,11 @@ export class BrowserFixture {
 
   emit(event: CompanionEvent) { if(event.type==='surface'){if(event.mode!=='panel')this.surface=event.mode;if(event.mode==='workspace'||event.mode==='companion')this.lastSurface=event.mode;}return this.page.evaluate(event => window.__browserFixtureEvent(event), event); }
   async changed(taskId?: string) { await this.emit({ type: 'changed', taskId }); }
-  async restartCore(){await this.recurringWorkRunner?.stop();this.recurringAuthorizations.clear();await this.core.close();this.core=await createCompanion({dataDir:join(this.directory,'store')});this.recurringWorkRunner?.start();await this.changed();}
+  private initializeNotifications(){
+    this.taskNotifications=new TaskNotifications(this.viewPreferences,()=>this.core.listTasks(),()=>({focused:true,mutedBotIds:[]}),()=>{void this.emit({type:'notifications.changed'}).catch(()=>{});});
+    this.requestNotifications=new RequestNotifications({preferences:this.viewPreferences,tasks:()=>this.core.listTasks(),scope:()=>({focused:true,mutedBotIds:[]}),changed:()=>{void this.emit({type:'notifications.changed'}).catch(()=>{});},inspectQuestion:binding=>{const source=this.core as Companion&{requestQuestionCommand?:(value:unknown)=>Promise<RequestQuestionReply>};return source.requestQuestionCommand?.({type:'request.question.inspect',...binding})??Promise.resolve(undefined);},desktop:{status:()=>({supported:true,permission:'not-verified',message:'Synthetic browser adapter; no OS notification is sent.'}),show:async notice=>{this.requestDesktopEvents.push(notice);return 'requested';},retire:()=>{},close:()=>{},resume:()=>{}}});
+  }
+  async restartCore(){await this.recurringWorkRunner?.stop();this.recurringAuthorizations.clear();await this.requestNotifications.close();await this.taskNotifications.close();await this.core.close();this.core=await this.createCore({dataDir:join(this.directory,'store')});this.initializeNotifications();this.recurringWorkRunner?.start();await this.changed();}
   async enter(mode:'workspace'|'companion',compactFit?:CompactFit){this.entranceId=crypto.randomUUID();await this.emit({type:'presentation.enter',entranceId:this.entranceId,mode});await this.emit({type:'surface',mode,...(compactFit?{compactFit}:{})});return this.entranceId;}
   async prepareExit(exitId:string,dataUrl?:string,purpose:'quit'|'collapse'='quit'){if(!this.exitCapture)this.exitCapture={id:exitId,purpose,started:false,dataUrl};await this.emit({type:'presentation.prepare',exitId,purpose});}
   async stream(text: string, requestId = [...this.pending.keys()].at(-1)) {
@@ -137,7 +159,7 @@ export class BrowserFixture {
   }
   async close() {
     for (const control of this.pending.values()) control.reject(new Error('Browser fixture closed.'));
-    await this.recurringWorkRunner?.stop();await this.core.close(); await rm(this.directory, { recursive: true, force: true });
+    await this.recurringWorkRunner?.stop();await this.requestNotifications.close();await this.taskNotifications.close();await this.core.close(); await rm(this.directory, { recursive: true, force: true });
   }
   private async mutation(taskId: string, action: () => Promise<unknown>) {
     await action(); await this.changed(taskId); return this.core.getTask(taskId);
@@ -165,7 +187,14 @@ export class BrowserFixture {
   };
   private async invoke(command: Command): Promise<unknown> {
     this.commands.push(structuredClone(command));
+    if(String(command.type).startsWith('request.question.')){const parsed=readRequestQuestionCommand(command),source=this.core as Companion&{requestQuestionCommand?:(value:unknown)=>Promise<RequestQuestionReply>};if(!source.requestQuestionCommand)throw Error('P108 producer is not installed in this fixture.');const result=await source.requestQuestionCommand(parsed);if(parsed.type!=='request.question.inspect')await this.changed(parsed.taskId);return result;}
     switch (command.type) {
+      case 'request-notifications.get':case 'request-notifications.context':case 'request-notifications.dismiss':case 'request-notifications.resolve':return this.requestNotifications.command(command);
+      case 'request-notifications.settings':{const result=await this.requestNotifications.command(command);if(this.notificationSettingsBarrier)await this.notificationSettingsBarrier;return result;}
+      case 'notifications.get':return this.taskNotifications.view();
+      case 'notifications.context':await this.taskNotifications.context(command.taskId);return null;
+      case 'notifications.opened':await this.taskNotifications.poll(true);return this.taskNotifications.view();
+      case 'notifications.change':await this.viewPreferences.changeNotifications(command.change);await this.emit({type:'notifications.changed'});return this.taskNotifications.view();
       case 'conversation.export.preview':{const parsed=readConversationExportCommand(command);if(parsed.type!=='conversation.export.preview')throw Error('Invalid conversation preview.');return this.conversationExports.preview(parsed);}
       case 'conversation.export.save':{const parsed=readConversationExportCommand(command);if(parsed.type!=='conversation.export.save')throw Error('Invalid conversation save.');return this.conversationExports.save(parsed,async preview=>this.cancelExport?null:this.exportPath??join(this.directory,'conversation.'+(preview.format==='markdown'?'md':'json')),()=>{});}
       case 'schedules.get':return {items:await this.core.getRecurringWork(),runtime:this.recurringWorkRunner?.read()??{state:'stopped',message:'Automatic draft preparation is stopped.'}};
@@ -174,6 +203,8 @@ export class BrowserFixture {
       case 'response-preferences.get':return this.responsePreferences.read();
       case 'response-preferences.update':return this.responsePreferences.update({expectedRevision:command.expectedRevision,enabled:command.enabled,text:command.text});
       case 'preferences.get':return this.preferences.read();
+      case 'screen-recording.get':return {allowed:this.screenRecordingAllowed,confirmed:true,scope:'this-session'};
+      case 'screen-recording.set':{this.screenRecordingAllowed=command.allowed;const state={allowed:command.allowed,confirmed:true,scope:'this-session' as const};await this.emit({type:'screen-recording.changed',state});return state;}
       case 'preferences.update':{if(this.preferenceSaveError)throw Error(this.preferenceSaveError);const result=await this.preferences.update({expectedRevision:command.expectedRevision,profile:command.profile});if(this.losePreferenceAcknowledgement){this.losePreferenceAcknowledgement=false;throw Error('Fixture lost acknowledgement after commit.');}return result;}
 
       case 'presentation.capture':{
@@ -196,7 +227,7 @@ export class BrowserFixture {
       case 'queue.cancel':return this.mutation(command.taskId,()=>this.core.cancelQueuedFollowup(command.taskId,command.id,command.expectedRevision));
       case 'queue.submit':case 'queue.edit':{
         const task=await this.core.getTask(command.taskId),items=task.session?.queuedFollowups??[],existing=items.find(item=>item.id===command.id),precedingRequestIds=existing?[...existing.precedingRequestIds]:[...task.requests.filter(request=>request.status==='running').map(request=>request.id),...pendingFollowups(items).map(item=>item.id)],basis=await this.core.queuedFollowupBasis(task.id,command.expectedSourceRefs,precedingRequestIds);
-        return this.mutation(task.id,()=>this.core.saveQueuedFollowup(task.id,{id:command.id,revision:(existing?.revision??0)+1,prompt:command.prompt,kind:command.kind,createdAt:existing?.createdAt??new Date().toISOString(),sourceRefs:command.expectedSourceRefs,precedingRequestIds,basis,scope:'a'.repeat(64),status:'queued'},existing?.revision??0,command.type==='queue.submit'?command.submittedDraft:undefined));
+        return this.mutation(task.id,()=>this.core.saveQueuedFollowup(task.id,{...(command.explainDepth?{explainDepth:command.explainDepth}:{}),id:command.id,revision:(existing?.revision??0)+1,prompt:command.prompt,kind:command.kind,createdAt:existing?.createdAt??new Date().toISOString(),sourceRefs:command.expectedSourceRefs,precedingRequestIds,basis,scope:'a'.repeat(64),status:'queued'},existing?.revision??0,command.type==='queue.submit'?command.submittedDraft:undefined));
       }
       case 'draft.save':if(this.draftSaveBarrier)await this.draftSaveBarrier;if(this.draftSaveError)throw Error(this.draftSaveError);return this.core.saveComposerDraft(command.taskId,command.expectedRevision,command.draft);
       case 'draft.flushed':return null;
@@ -236,12 +267,12 @@ export class BrowserFixture {
       case 'procedure.check': {const result=await this.core.checkProcedure(command.taskId, command.procedureId, { values: command.context });if(this.checkBarrier)await this.checkBarrier;return result;}
       case 'experiment.evaluate': {const result=evaluateExperiment(command.spec, command.inputs);if(this.calculationBarrier)await this.calculationBarrier;return result;}
       case 'model.run': {
-        const concept=prepareConceptMapGeneration(await this.core.getTask(command.taskId),command);
+        const explanation=prepareExplanationMode(await this.core.getTask(command.taskId),command),concept=prepareConceptMapGeneration(await this.core.getTask(command.taskId),command);
         const target = command.artifactId ? (await this.core.getTask(command.taskId)).artifacts.find(artifact => artifact.id === command.artifactId) : undefined;
-        const result = await this.core.runRequest(concept?.request??{ taskId: command.taskId, requestId: command.requestId, kind: command.kind, prompt: command.prompt, ...(command.submittedDraft?{submittedDraft:command.submittedDraft}:{}),...(command.conversationAttempt?{conversationAttempt:command.conversationAttempt}:{}),...(command.sourceIds!==undefined?{sourceIds:command.sourceIds}:{}),...(command.expectedSourceRefs?{expectedSourceRefs:command.expectedSourceRefs}:{}), ...(target ? { artifactId: target.id, expectedRevision: target.revisions.at(-1)?.revision } : {}) }, context => new Promise((resolve, reject) => {
+        const result = await this.core.runRequest(concept?.request??{ taskId: command.taskId, requestId: command.requestId, kind: command.kind, prompt: command.prompt, ...(explanation?{explainDepth:explanation.depth}:{}), ...(command.submittedDraft?{submittedDraft:command.submittedDraft}:{}),...(command.conversationAttempt?{conversationAttempt:command.conversationAttempt}:{}),...(command.sourceIds!==undefined?{sourceIds:command.sourceIds}:{}),...(command.expectedSourceRefs?{expectedSourceRefs:command.expectedSourceRefs}:{}), ...(target ? { artifactId: target.id, expectedRevision: target.revisions.at(-1)?.revision } : {}) }, context => new Promise((resolve, reject) => {
           this.modelInvocations.push(command);
           const bound=concept?.bind(context);
-          this.pending.set(command.requestId, { command, resolve:value=>{this.pending.delete(command.requestId);try{resolve(bound?bound.finish(value.content):value);}catch(error){reject(error);}}, reject:error=>{this.pending.delete(command.requestId);reject(error);} });
+          this.pending.set(command.requestId, { command, resolve:value=>{this.pending.delete(command.requestId);try{resolve(explanation?explanation.finish(value.content,context.task.sources.map(source=>source.versions[0])):bound?bound.finish(value.content):value);}catch(error){reject(error);}}, reject:error=>{this.pending.delete(command.requestId);reject(error);} });
           context.signal.addEventListener('abort', () => this.pending.get(command.requestId)?.reject(new Error('Stopped by browser fixture transport')), { once: true });
         }));
         await this.changed(command.taskId);

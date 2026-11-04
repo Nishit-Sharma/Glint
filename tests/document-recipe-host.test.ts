@@ -1,3 +1,4 @@
+import {legacyDocumentRecipeSave} from './legacy-helper-report-publication.fixture';
 import {afterEach,expect,test,vi} from 'vitest';
 import {createCompanion} from '../src/core/companion';
 import {createLearningDrafts} from '../src/renderer/src/learning-drafts';
@@ -90,7 +91,7 @@ test('an unrelated request using the same public save ID cannot masquerade as th
 test.each(['failed','cancelled','interrupted'] as const)('an exact admitted %s save can be inspected then explicitly retried once for the same valid preview',async status=>{
  const f=await fixture();await f.teach();const request=await f.source(),preview=previewDocumentRecipe(await f.core.getTask(request.taskId),request),inspection={...request,binding:preview.binding},acceptance={...inspection,confirmed:'save-reviewed-new-document' as const},run=f.core.runRequest.bind(f.core);let entered!:()=>void,release!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
  vi.spyOn(f.core,'runRequest').mockImplementationOnce((input,_runner,assertCurrent)=>run(input,async()=>{entered();if(status==='failed')throw Error('Owned admitted document failure.');await held;return {title:'Late ignored output',content:'Must not be committed.'};},assertCurrent));
- const saving=saveDocumentRecipe(f.core,acceptance);const rejected=saving.catch(error=>error);await started;let reopened:Awaited<ReturnType<typeof createCompanion>>|undefined;
+ const saving=legacyDocumentRecipeSave(f.core,acceptance);const rejected=saving.catch(error=>error);await started;let reopened:Awaited<ReturnType<typeof createCompanion>>|undefined;
  try{
   if(status==='cancelled')await f.core.cancelRequest(request.taskId,`document-recipe-${preview.binding}`);
   if(status==='interrupted'){await f.core.close();reopened=await createCompanion({dataDir:f.directory});}
@@ -107,14 +108,14 @@ test.each(['failed','cancelled','interrupted'] as const)('an exact admitted %s s
 test('an admitted running document save remains unconfirmed until a real terminal outcome',async()=>{
  const f=await fixture();await f.teach();const request=await f.source(),preview=previewDocumentRecipe(await f.core.getTask(request.taskId),request),inspection={...request,binding:preview.binding},run=f.core.runRequest.bind(f.core);let entered!:()=>void,release!:()=>void;const started=new Promise<void>(resolve=>{entered=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
  vi.spyOn(f.core,'runRequest').mockImplementationOnce((input,_runner,assertCurrent)=>run(input,async()=>{entered();await held;return {title:'Cancelled late output',content:'Must not be committed.'};},assertCurrent));
- const saving=saveDocumentRecipe(f.core,{...inspection,confirmed:'save-reviewed-new-document'}),rejected=saving.catch(error=>error);await started;
+ const saving=legacyDocumentRecipeSave(f.core,{...inspection,confirmed:'save-reviewed-new-document'}),rejected=saving.catch(error=>error);await started;
  try{const before=await f.core.getTask(request.taskId);expect(before.requests.at(-1)?.status).toBe('running');await expect(inspectDocumentRecipeSave(f.core,inspection)).rejects.toThrow(/not confirmed/);await expect(saveDocumentRecipe(f.core,{...inspection,confirmed:'save-reviewed-new-document'})).rejects.toThrow(/not confirmed/);expect(await f.core.getTask(request.taskId)).toEqual(before);}
  finally{await f.core.cancelRequest(request.taskId,`document-recipe-${preview.binding}`);release();await rejected;}
 });
 
 test.each(['gap','wrong-digest','after-completed'] as const)('a %s retry history cannot admit another recipe output',async history=>{
  const f=await fixture();await f.teach();const request=await f.source(),preview=previewDocumentRecipe(await f.core.getTask(request.taskId),request),inspection={...request,binding:preview.binding},acceptance={...inspection,confirmed:'save-reviewed-new-document' as const};
- if(history==='wrong-digest'){const run=f.core.runRequest.bind(f.core);vi.spyOn(f.core,'runRequest').mockImplementationOnce((input,_runner,assertCurrent)=>run(input,async()=>{throw Error('Owned terminal predecessor.');},assertCurrent));await expect(saveDocumentRecipe(f.core,acceptance)).rejects.toThrow();}
+ if(history==='wrong-digest'){const run=f.core.runRequest.bind(f.core);vi.spyOn(f.core,'runRequest').mockImplementationOnce((input,_runner,assertCurrent)=>run(input,async()=>{throw Error('Owned terminal predecessor.');},assertCurrent));await expect(legacyDocumentRecipeSave(f.core,acceptance)).rejects.toThrow();}
  if(history==='after-completed')await saveDocumentRecipe(f.core,acceptance);
  await f.core.runRequest({taskId:request.taskId,requestId:`document-recipe-${preview.binding}-retry-1`,kind:'create',prompt:'Different local operation.',sourceIds:[]},async()=>({title:'Unrelated output',content:'This does not belong to the reviewed recipe.'}));
  const before=await f.core.getTask(request.taskId);await expect(inspectDocumentRecipeSave(f.core,inspection)).rejects.toThrow(/save history|different local operation/);await expect(saveDocumentRecipe(f.core,acceptance)).rejects.toThrow(/save history|different local operation/);expect(await f.core.getTask(request.taskId)).toEqual(before);
@@ -123,7 +124,7 @@ test.each(['gap','wrong-digest','after-completed'] as const)('a %s retry history
 test('two successive verified terminal attempts admit one deterministic retry-2 output and completed replay',async()=>{
  const f=await fixture();await f.teach();const request=await f.source(),preview=previewDocumentRecipe(await f.core.getTask(request.taskId),request),inspection={...request,binding:preview.binding},acceptance={...inspection,confirmed:'save-reviewed-new-document' as const},base=`document-recipe-${preview.binding}`,run=f.core.runRequest.bind(f.core),admission=vi.spyOn(f.core,'runRequest');
  for(let attempt=0;attempt<2;attempt++){
-  admission.mockImplementationOnce((input,_runner,assertCurrent)=>run(input,async()=>{throw Error(`Owned terminal attempt ${attempt}.`);},assertCurrent));await expect(saveDocumentRecipe(f.core,acceptance)).rejects.toThrow();const failed=await f.core.getTask(request.taskId);
+  admission.mockImplementationOnce((input,_runner,assertCurrent)=>run(input,async()=>{throw Error(`Owned terminal attempt ${attempt}.`);},assertCurrent));await expect(legacyDocumentRecipeSave(f.core,acceptance)).rejects.toThrow();const failed=await f.core.getTask(request.taskId);
   expect(failed.artifacts).toHaveLength(1);expect(failed.requests.at(-1)).toMatchObject({id:attempt===0?base:base+'-retry-1',status:'failed'});expect(failed.requests.at(-1)?.answer).toBeUndefined();expect(failed.requests.at(-1)?.artifactId).toBeUndefined();
   await expect(inspectDocumentRecipeSave(f.core,inspection)).resolves.toEqual({kind:'not-saved',taskId:request.taskId,binding:preview.binding,terminalStatus:'failed'});expect(await f.core.getTask(request.taskId)).toEqual(failed);
  }

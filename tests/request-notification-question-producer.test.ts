@@ -1,0 +1,24 @@
+import {createCompanion} from '../src/core/companion';
+import {afterEach,expect,it} from 'vitest';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {TaskViewPreferences} from '../src/host/task-view-preferences';
+import {RequestNotifications} from '../src/host/request-notifications';
+import type {RequestNotice} from '../src/shared/request-notifications';
+const cleanups:Array<()=>Promise<void>>=[];afterEach(async()=>{for(const close of cleanups.splice(0))await close();});
+async function fixture(){
+ // Exercise the recovered current producer directly; original P108 pins are retained in the recovery manifest.
+ const directory=await mkdtemp(join(tmpdir(),'glint-p108-notification-')),core=await createCompanion({dataDir:join(directory,'store')}),preferences=new TaskViewPreferences(directory,async id=>(await core.listTasks()).some((task:any)=>task.id===id),id=>core.getTask(id)),shown:RequestNotice[]=[],retired:string[]=[];let holdRead=false,entered!:()=>void,release!:()=>void;const reached=new Promise<void>(done=>entered=done),waiting=new Promise<void>(done=>release=done);
+ const service=new RequestNotifications({preferences:{mutateNotifications:update=>preferences.mutateNotifications(update),readNotifications:async()=>{const state=await preferences.readNotifications();if(holdRead){holdRead=false;entered();await waiting;}return state;}},tasks:()=>core.listTasks(),inspectQuestion:binding=>core.requestQuestionCommand({type:'request.question.inspect',...binding}),scope:()=>({focused:false,mutedBotIds:[]}),changed:()=>{},desktop:{status:()=>({supported:true,permission:'not-verified',message:'Synthetic OS'}),show:async notice=>{shown.push(notice);return 'requested';},retire:ids=>retired.push(...ids),close:()=>{},resume:()=>{}}});
+ cleanups.push(async()=>{release();await service.close();await core.close();await rm(directory,{recursive:true,force:true});});await service.poll();await service.command({type:'request-notifications.settings',expectedRevision:0,preferences:{completion:'always',questions:true,permissions:false,suppressVisible:false}});return {core,service,shown,retired,reached,release,hold:()=>{holdRead=true;}};
+}
+const definition={question:'Which synthetic visit should this original turn explain?',mode:'single',options:[{id:'orchard',label:'Orchard'},{id:'garden',label:'Garden'}]};
+async function ask(f:Awaited<ReturnType<typeof fixture>>,id:string){const task=await f.core.createTask({title:'Synthetic P108 conversation'});let published!:()=>void;const ready=new Promise<void>(done=>published=done),running=f.core.runRequest({taskId:task.id,requestId:id,kind:'explain',prompt:'Synthetic original request'},async(ctx:any)=>{const answer=await ctx.askQuestion(definition,published,ctx.signal);return {title:'Synthetic final response',content:'Original turn resumed with '+answer.kind};});await ready;const current=await f.core.getTask(task.id),request=current.requests.find((item:any)=>item.id===id)!,question=request.questions![0],binding={taskId:task.id,requestId:id,requestDigest:request.digest,questionId:question.id,questionDigest:question.digest};return {task,running,binding,question};}
+it('consumes a genuine original running P108 question and wakes only its original waiter through separate existing answer controls',async()=>{
+ const f=await fixture(),a=await ask(f,'real-question-turn');expect((await f.core.getTask(a.task.id)).requests[0].status).toBe('running');await f.service.poll();expect(f.shown).toHaveLength(1);expect(f.shown[0].category).toBe('question');expect((await f.service.resolve(f.shown[0].id)).kind).toBe('available');expect((await f.core.requestQuestionCommand({type:'request.question.inspect',...a.binding})).active).toBe(true);
+ await f.core.requestQuestionCommand({type:'request.question.answer',...a.binding,expectedRevision:1,decision:{kind:'choices',ids:['orchard']}});expect((await a.running).status).toBe('completed');await f.service.poll();expect(f.shown.map(notice=>notice.category)).toEqual(['question','completion']);expect(f.retired).toContain(f.shown[0].id);expect((await f.service.resolve(f.shown[0].id)).kind).toBe('unavailable');expect((await f.core.getTask(a.task.id)).requests).toHaveLength(1);
+});
+it('rechecks the real waiter after deferred notification-state reads and suppresses a question resolved before publication',async()=>{
+ const f=await fixture(),a=await ask(f,'question-closes-during-read');f.hold();const polling=f.service.poll();await f.reached;await f.core.requestQuestionCommand({type:'request.question.skip',...a.binding,expectedRevision:1});await a.running;f.release();await polling;expect(f.shown.filter(notice=>notice.category==='question')).toEqual([]);await f.service.poll();expect((await f.service.resolve('unretained')).kind).toBe('unavailable');
+});

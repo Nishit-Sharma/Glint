@@ -1,3 +1,7 @@
+import {readExperimentResultDraft} from '../../shared/experiment-result-draft';
+import {readSourceComparisonDraft} from '../../shared/source-comparison-draft';
+import {parseNewDocumentDraft} from '../../shared/authored-document';
+import {parseWindowReviewRaw,windowReviewRawKeepsIdentity} from '../../shared/learning-draft-form-policy';
 import {readCanvasRaw,readCanvasPrompt} from '../../shared/design-canvas';
 import {emptySavedDocumentDraft,parseSavedDocumentDraft,parseSavedDocumentDraftBasis,SAVED_DOCUMENT_DRAFT_SLOT,type SavedDocumentDraft,type SavedDocumentDraftOwner} from '../../shared/saved-document-draft';
 import {samePickingCaseShape} from '../../shared/picking-draft-form-policy';
@@ -30,6 +34,10 @@ type Failure={kind:'uncertain'|'stale-epoch';message:string;attempt:Attempt}|{ki
 type Entry={owner:LearningDraftOwner;slot:string;epoch:string;generation:number;savedGeneration:number;local:LearningDraftValue|null;remote:LearningDraftRecord|null;pending?:Promise<void>;failure?:Failure};
 
 function sameShape(left:LearningDraftJson,right:LearningDraftJson,variableArrays:readonly string[]=[],path='',policy?:LearningDraftJsonPolicy):boolean{
+ if(path===''&&policy==='experiment-result-copy'){readExperimentResultDraft(left);readExperimentResultDraft(right);return true;}
+ if(path===''&&policy==='new-document-edit'){parseNewDocumentDraft(left);parseNewDocumentDraft(right);return true;}
+ if(path===''&&policy==='source-comparison'){readSourceComparisonDraft(left);readSourceComparisonDraft(right);return true;}
+ if(path===''&&policy==='window-workflow-review'&&left!==null&&typeof left==='object'&&!Array.isArray(left)&&Object.hasOwn(left,'states'))return windowReviewRawKeepsIdentity(parseWindowReviewRaw(left),parseWindowReviewRaw(right));
  if(path===''&&policy==='design-canvas-prompt'){readCanvasPrompt(left);readCanvasPrompt(right);return true;}
  if(path===''&&policy==='design-canvas-edit'){readCanvasRaw(left);readCanvasRaw(right);return true;}
  if(path===''&&policy==='saved-document-edit'){parseSavedDocumentDraft(left);parseSavedDocumentDraft(right);return true;}

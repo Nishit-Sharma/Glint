@@ -1,6 +1,8 @@
 import {createServer} from 'node:http';
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {LocalBrowser} from '../src/host/browser/local-browser';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 it('enforces the workflow path on initial URLs, assets, GET/HEAD requests and exact form writes',async()=>{
  const received:string[]=[],server=createServer((request,response)=>{
@@ -23,7 +25,8 @@ it('enforces the workflow path on initial URLs, assets, GET/HEAD requests and ex
   expect(()=>browser!.approve(proposal.id,{method:'POST',url:origin+'/outside/submit',body:''})).toThrow('outside this browser authority');
   observation=await browser.observe();target=observation.targets.find(target=>target.label==='Try outside request')!;proposal=await browser.propose({kind:'click',snapshotId:observation.id,targetId:target.id});
   const token=browser.approve(proposal.id);await browser.execute(proposal.id,token);
-  expect(browser.diagnostics.blockedRequests).toBeGreaterThanOrEqual(5);
+  // The click's page-initiated request reaches the route asynchronously (later in Helium); it must still be blocked.
+  await expect.poll(()=>browser!.diagnostics.blockedRequests).toBeGreaterThanOrEqual(5);
   expect(received.filter(request=>!request.split(' ')[1].startsWith('/requests/'))).toEqual([]);
  }finally{await browser?.close();await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });

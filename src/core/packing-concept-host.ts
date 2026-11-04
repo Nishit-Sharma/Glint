@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {Schema} from 'effect';
 import type {Companion} from './companion';
-import type {Task} from './types';
+import type {Task,RequestInput} from './types';
 import {prepareWorkflowSourceContext} from './workflow-lab-host';
 import {prepareWorkflowPassages} from '../learning/workflow-review';
 import {packingDocument,parsePackingCapacity} from '../learning/packing-concept';
@@ -22,23 +22,28 @@ export function admittedPackingConcept(task:Task,value:Input){
 }
 const attemptId=(binding:ReturnType<typeof admittedPackingConcept>['binding'],index:number)=>'packing-v1-'+hash(binding)+(index?'_'+index:'');
 const attemptNumber=(binding:ReturnType<typeof admittedPackingConcept>['binding'],id:string)=>{for(let i=0;i<maxAttempts;i++)if(attemptId(binding,i)===id)return i;return -1;};
-function savedResult(task:Task,value:Input,request:Task['requests'][number]){
+export function packingConceptResult(task:Task,value:Input,request:Task['requests'][number]){
  const {binding,content}=admittedPackingConcept(task,value),saved=request.artifactId&&task.artifacts.find(a=>a.id===request.artifactId)?.revisions.at(-1);
  if(request.status!=='completed'||!saved||saved.revision!==request.answer?.revision||saved.digest!==request.answer.digest||saved.mimeType!=='text/markdown'||saved.content!==content||JSON.stringify(saved.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The saved calculation changed. Review its source and history.');
  return {task,artifactId:request.artifactId!,revision:saved.revision,digest:saved.digest};
 }
-export async function createPackingConcept(core:Companion,raw:unknown){
+export function readPackingConceptSubmission(raw:unknown){
  let value:typeof create.Type;try{value=Schema.decodeUnknownSync(create,{onExcessProperty:'error'})(raw);}catch{throw Error('Review the source and enter a supported count.');}
- const task=await core.getTask(value.taskId),{binding}=admittedPackingConcept(task,value);let index=0;
- if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
- const result=await core.runRequest({taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Explore a reviewed packing capacity.',executionScope:'packing-v1:'+hash(binding),sourceIds:binding.sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]},async context=>{const fresh=admittedPackingConcept(context.task,value);return {title:`Packing ${value.count} items`,mimeType:'text/markdown',content:fresh.content};});
- if(result.status!=='completed'||!result.artifactId)throw Error(result.error??'The reviewed calculation could not be created.');return savedResult(await core.getTask(value.taskId),value,result);
+ return value;
 }
+export function packingConceptPublication(task:Task,value:ReturnType<typeof readPackingConceptSubmission>){
+ const {binding}=admittedPackingConcept(task,value);let index=0;
+ if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
+ const request:RequestInput={taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Explore a reviewed packing capacity.',executionScope:'packing-v1:'+hash(binding),sourceIds:binding.sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]};
+ const artifact=(()=>{const fresh=admittedPackingConcept(task,value);return {title:`Packing ${value.count} items`,mimeType:'text/markdown',content:fresh.content};})();return {request,artifact};
+}
+export async function createPackingConcept(core:Companion,raw:unknown,assertCurrent:()=>void=()=>{}){return core.savePackingConcept(raw,assertCurrent);}
+
 export async function inspectPackingConcept(core:Companion,raw:unknown){
  let value:Input;try{value=Schema.decodeUnknownSync(input,{onExcessProperty:'error'})(raw);}catch{throw Error('Review one exact capacity line and enter a supported count.');}
  const task=await core.getTask(value.taskId),{binding}=admittedPackingConcept(task,value);let latest:Task['requests'][number]|undefined;
  for(let index=0;index<maxAttempts;index++){const request=task.requests.find(r=>r.id===attemptId(binding,index));if(!request)break;if(request.kind!=='experiment'||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The publication record needs review.');latest=request;}
- if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};if(latest.status==='completed'){const saved=savedResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision,digest:saved.digest};}
+ if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};if(latest.status==='completed'){const saved= packingConceptResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision,digest:saved.digest};}
  if(latest.artifactId!==undefined)throw Error('The previous publication needs review.');return {kind:'terminal' as const,requestId:latest.id,status:latest.status,canRetry:attemptNumber(binding,latest.id)<maxAttempts-1};
 }
 
@@ -47,5 +52,5 @@ export function requirePackingDemonstration(task:Task,value:Input,expected:{arti
  const {binding}=admittedPackingConcept(task,value);let latest:Task['requests'][number]|undefined;
  for(let index=0;index<maxAttempts;index++){const request=task.requests.find(item=>item.id===attemptId(binding,index));if(!request)break;latest=request;}
  if(!latest||latest.kind!=='experiment'||latest.status!=='completed'||!latest.artifactId||latest.answer?.artifactId!==latest.artifactId||JSON.stringify(latest.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Save and review the demonstrated calculation first.');
- const saved=savedResult(task,value,latest);if(saved.artifactId!==expected.artifactId||saved.revision!==expected.revision||saved.digest!==expected.digest)throw Error('The demonstrated calculation changed. Review it again.');return {binding,saved};
+ const saved= packingConceptResult(task,value,latest);if(saved.artifactId!==expected.artifactId||saved.revision!==expected.revision||saved.digest!==expected.digest)throw Error('The demonstrated calculation changed. Review it again.');return {binding,saved};
 }

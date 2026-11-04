@@ -1,4 +1,38 @@
+import {readExperimentResultInput,experimentResultId,experimentResultBinding,experimentResultArtifact,inspectExperimentResult,EXPERIMENT_RESULT_PROMPT} from '../learning/experiment-result-copy';
+import {WITHHELD_ARTIFACT_CONTEXT} from '../shared/artifact-context-origin';
+import {documentRecipePublication,documentRecipeSaveResult} from './document-recipe-host';
+import {readDocumentRecipeSave,type DocumentRecipeSaved} from '../shared/document-recipe';
+import {readTableWorkflowDocumentSave,tableWorkflowDocumentPublication} from './table-workflow-host';
+import {readModuleNotesInput,moduleNotesPublication} from './module-notes';
+import {readSourceComparisonInput,sourceComparisonArtifact,type SourceComparisonInput,type SourceComparisonSaved,type SourceComparisonInspection} from '../shared/source-comparison';
+import {findSourceComparisonReceipt,encodeSourceComparisonReceipt} from './source-comparison-receipt';
+import {readPackingConceptSubmission,packingConceptPublication,packingConceptResult} from './packing-concept-host';
+import {readPackingPracticeSubmission,packingPracticePublication,packingPracticeResult} from './packing-practice-host';
+import {readSignalConceptSubmission,signalConceptPublication,signalConceptResult} from './signal-concept-host';
+import {readSignalPracticeSubmission,signalPracticePublication,signalPracticeResult} from './signal-sequential-practice-host';
+import {readSignalOverwriteSubmission,signalOverwritePublication,signalOverwriteResult} from './signal-overwrite-host';
+import {readTruthTableSubmission,truthTablePublication,truthTableResult} from './truth-table-host';
+import {readExperimentPracticeSubmission,experimentPracticePublication,experimentPracticeResult} from './experiment-practice-host';
+import {formulaComparisonPublication,inspectFormulaComparisonTask} from './formula-comparison-host';
+import {readFormulaComparisonSubmission} from '../learning/formula-comparison';
+import {sourceFormulaPublication,sourceFormulaResult} from './source-formula-host';
+import {readSourceFormulaCommand} from '../learning/source-formula';
+import {targetPracticePublication,targetPracticeResult} from './experiment-target-practice-host';
+import {readTargetPracticeSubmission} from '../learning/experiment-target-practice';
+import {designCanvasPublication,canvasSvgPublication} from './design-canvas';
+import {readCanvasSave,readCanvasSvg,type CanvasSaved} from '../shared/design-canvas';
+import {prepareWorkflowPublication,type WorkflowArtifactPublication} from './workflow-lab-host';
+import {prepareWindowWorkflowPublication,assertWindowWorkflowPublicationContext,type WindowWorkflowCaptureFence} from './window-workflow-host';
+import {experimentRunRequest,inspectExperimentRun} from './experiment-runs-host';
+import {EXPERIMENT_RUN_MIME,readExperimentRun,readExperimentRunCommand,experimentRunId,admitExperimentRun,makeExperimentRun} from '../learning/experiment-runs';
+import {sourceDependencyRefs} from '../shared/source-dependencies';
+import {TEACHBACK_MIME,readTeachbackInput,readTeachbackBody,teachbackBody,teachbackQuestion,type TeachbackInput} from '../shared/explanation-teachback';
+import {readSourceSelectionCommand} from '../shared/source-selection';
+import {EXPLANATION_MIME,EXPLANATION_ERROR,explanationSourcesValid,readExplainDepth,readExplanation} from '../shared/explanation-modes';
 import {ResponseModeSchema,taskResponseMode,type ResponseMode} from '../shared/task-response-mode';
+import {DOCUMENT_SUGGESTIONS_MIME,documentSuggestions,readDocumentSuggestions,readDocumentSuggestionDecision,suggestionDocument,suggestionText,inspectSuggestionDecision,type DocumentSuggestionDecision,type DocumentSuggestionInspection} from '../shared/document-edit-suggestions';
+import {assertRevisionInstructionRequest} from '../shared/revision-instructions';
+import {createTaskConcurrency,isConcurrentOrdinary} from '../shared/task-concurrency';
 import {readSavedWorkLibraryCommand,readSavedLinkDefinition,savedLink,SAVED_LINK_MIME,type SavedWorkLibraryCommand,type SavedLinkResult} from '../shared/saved-work-library';
 import {outputArchiveBasisText,readOutputArchiveReceipt,readOutputArchivePending,type OutputArchiveReceipt,type OutputArchivePending} from '../shared/task-output-archive';
 import {CSV_STATISTICS_MIME,readCsvStatisticsCommand,readCsvStatistics,csvStatistics,type CsvStatisticsData,type CsvStatisticsSave,type CsvStatisticsSaved} from '../shared/csv-statistics';
@@ -17,10 +51,13 @@ import {emptyLocalContacts,readLocalContactsChange,type LocalContacts,type Local
 import {changeLocalContacts} from './local-contacts';
 import {assertConversationAttempt,readConversationAttemptReceipt} from '../shared/conversation-attempt';
 import {QueuedFollowupSchema,pendingFollowups,type QueuedFollowup} from '../shared/queued-followup';
+import {QUESTION_LIMITS,readRequestQuestionDefinition,readRequestQuestionCommand,requestQuestionDecision,sameRequestQuestionDecision,closeRequestQuestions,type RequestQuestionDefinition,type RequestQuestionDecision,type RequestQuestionReply,type RequestQuestionRecord} from '../shared/request-question';
+import {pickingDigest} from '../shared/picking-digest';
 import {readRecurringWorkChange,RECURRING_WORK_LIMIT,RECURRING_HISTORY_LIMIT,type RecurringWork} from '../shared/recurring-work';
+import {readTaskHistoryPreviewCommand,type TaskHistoryPreview} from '../shared/task-history-preview';
 import {taskMemoryPolicy,readTaskMemoryPolicyCommand} from '../shared/task-memory-policy';
 import {MEMORY_HISTORY_LIMIT,memoryUndoRetention,memoryUndoReason,memoryValueText,type MemoryHistoryEvent,emptyUserMemory,readMemoryChange,readMemoryUse,MEMORY_CHANGED,MEMORY_FACT_COUNT,type UserMemory,type MemoryCommit} from '../shared/user-memory';
-import {selectTaskMemory as selectScopedTaskMemory,taskMemoryConsent,readMemoryPreviewInput} from '../shared/project-memory';
+import {selectTaskMemory as selectScopedTaskMemory,taskMemoryConsent,readMemoryPreviewInput,projectMemoryFactActive} from '../shared/project-memory';
 import {readBrowserContinuationReceipt,readBrowserContinuationInput,prepareBrowserContinuation,pendingBrowserContinuation,sameBrowserContinuationInput,type BrowserContinuationInput,type BrowserContinuationReceipt,type BrowserContinuationRelease,reviewBrowserContinuation,BROWSER_CONTINUATION_CHANGED,BROWSER_CONTINUATION_UNCERTAIN} from '../shared/browser-continuation';
 import {helperSourceBatchPreview,readHelperSourceBatchSave,readHelperSourceBatchInspection,helperSourceBatchRequestIdentity,HELPER_SOURCE_REPORT_TITLE,type HelperSourceBatchRequest,type HelperSourceBatchInspection,type HelperSourceBatchSaved,type HelperSourceBatchSaveInspection} from '../shared/helper-source-batch';
 import {encodeHelperSourceReportReceipt,findHelperSourceReportReceipt} from './helper-source-report-receipt';
@@ -32,7 +69,7 @@ import { isCode, readState, StateValidationError, writeState, type State } from 
 import { parseModelDraft } from './model-drafts';
 import {sourceResumeContext} from './source-resume';
 import type {DocumentBinding,DocumentReconciliation} from '../shared/document-source';
-import { projectTaskDialogue, projectConversationAttemptDialogue } from './task-dialogue';
+import { projectTaskDialogue, projectConversationAttemptDialogue,readTaskArtifactText } from './task-dialogue';
 import {readResponseBranchInput,responseBranchSnapshot} from './response-branch';
 import {readTaskHandoffSave,taskHandoffIdentity,taskHandoffPreview,type TaskHandoffSaved} from '../shared/task-handoff';
 import {readTaskArchiveChange} from '../shared/task-archive';
@@ -53,8 +90,15 @@ import {assertRawModuleOperationAllowed} from '../shared/module-contract';
 import {readLocalTaskStart,type LocalTaskStartResult} from '../shared/local-task-start';
 import {readSuggestedTaskInput,resolveTaskStarter,taskStarterPayload,type SuggestedTaskResult} from '../shared/task-starters';
 import {encodeLocalStartReceipt,findLocalStartReceipt,type LocalStartReceipt} from './local-start-receipt';
+import {readAuthoredDocumentInput,type AuthoredDocumentResult} from '../shared/authored-document';
+import {encodeAuthoredDocumentReceipt,findAuthoredDocumentReceipt} from './authored-document-receipt';
 import {readSourceTextSave,readSourceTextSaveInspection,sourceTextSaveBindingText,SOURCE_TEXT_SAVE_BINDING_PREFIX,type SourceTextSaveConfirmed,type SourceTextSaveInspection,type SourceTextSaveInspectionInput} from '../shared/source-text-save';
 import {encodeSourceTextSaveReceipt,findSourceTextSaveReceipt,sourceTextSaveClaim,type SourceTextSaveReceipt} from './source-text-save-receipt';
+import {projectRequestTask,requestSourceAvailable,artifactSkillRefs,requestSkillRefs,artifactContextUncertain,assertArtifactContextCertain,artifactContextSources} from './request-context';
+import {readHelperSuggestionCommand,previewHelperSuggestions,openHelperSuggestion} from '../shared/helper-suggestions';
+import {localResearchRequest,previewLocalResearch,LOCAL_RESEARCH_CHANGED,type LocalResearchPreferences} from '../shared/local-research-suggestions';
+import {applySourceRestore,applySourceRevocation} from './source-intake';
+import {redactSpans,type RedactionSpan} from '../shared/source-intake';
 import { emptyTaskSession, recoverTaskSession,readComposerDraft,ComposerKindSchema,BrowserStartReceiptSchema,type BrowserStartReceipt,type ComposerDraft,type ComposerKind, type TaskSession } from './task-session';
 import type {
   Artifact,ArtifactInput, ArtifactRevision, CompanionOptions, ExportAction, ExportEvidence,
@@ -81,10 +125,6 @@ const ComposerTextSchema=Schema.String.pipe(Schema.maxLength(100_000),Schema.fil
 const ComposerValueSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema});
 const SubmittedComposerDraftSchema=Schema.Struct({text:ComposerTextSchema,kind:ComposerKindSchema,revision:Schema.Int.pipe(Schema.nonNegative())});
 const sameComposerDraft=(a:ComposerDraft,b:ComposerDraft)=>a.revision===b.revision&&a.text===b.text&&a.kind===b.kind;
-function requestSession(session:TaskSession):TaskSession{
-  const {responseMode:_responseMode,outputArchivePending:_outputArchivePending,outputArchives:_outputArchives,memoryPolicy:_memoryPolicy,instructionSkill:_instructionSkill,requestInference:_requestInference,speech:_speech,readingPreferences:_readingPreferences,draft:_draft,draftKind:_kind,draftRevision:_revision,browserContinuationAttempt:_pendingBrowserInput,queuedFollowups:_queuedInput,...rest}=session;
-  return {...rest,draft:''};
-}
 const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?: 'utf8' | 'base64' }): Buffer => {
   if (artifact.encoding !== undefined && artifact.encoding !== 'utf8' && artifact.encoding !== 'base64') reject('invalid', 'Unsupported artifact encoding.');
   if (artifact.encoding === 'base64') {
@@ -103,7 +143,9 @@ const artifactBytes = (artifact: { content: string; mimeType?: string; encoding?
 export class Companion {
   private state: State;
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly modelConcurrency=createTaskConcurrency();
   private readonly controllers = new Map<string, AbortController>();
+  private readonly questionWaiters = new Map<string,{taskId:string;requestId:string;resolve:(decision:RequestQuestionDecision)=>void}>();
   private memoryChanges = new AbortController();
   private readonly taskMemoryChanges = new Map<string,AbortController>();
   private readonly projectMemoryChanges = new Map<string,AbortController>();
@@ -168,8 +210,9 @@ export class Companion {
         for (const request of task.requests) if (request.status === 'running') {
           request.status = 'interrupted'; request.finishedAt = time;
           request.error = 'The host stopped before the result was committed. Start a new request explicitly.';
+          closeRequestQuestions(request.questions,time,'The host restarted. This question is closed; no response was resent.');
         }
-        for (const source of task.sources) if (latest(source.versions).kind === 'window') {
+        for (const source of task.sources) if (latest(source.versions).kind === 'window' && !source.revoked) {
           source.freshness = 'refresh-required'; source.staleReason = 'Window content must be captured again after restart.';
         }
         for (const action of task.actions) {
@@ -192,8 +235,17 @@ export class Companion {
     this.queue = result.then(() => undefined, () => undefined);
     return result;
   }
-  private async commit<T>(operation: (draft: State) => T): Promise<T> {
+  private async commit<T>(operation: (draft: State) => T, sourceChange: 'privacy'|'currentness' = 'privacy'): Promise<T> {
     const draft = clone(this.state), result = operation(draft);
+    const changedSources=draft.tasks.flatMap(task=>task.sources.filter(source=>{const before=this.state.tasks.find(owner=>owner.id===task.id)?.sources.find(saved=>saved.id===source.id);return before&&(before.currentVersion!==source.currentVersion||before.freshness!==source.freshness||JSON.stringify(before.revoked)!==JSON.stringify(source.revoked));}).map(source=>({task,source})));
+    for(const {task,source} of changedSources){
+      const before=this.state.tasks.find(owner=>owner.id===task.id)!.sources.find(saved=>saved.id===source.id)!;
+      this.sourceIntakeChanged(draft,task,source.id,source.staleReason??'Source context changed. Review queued requests again.',sourceChange==='currentness'&&JSON.stringify(before.revoked)===JSON.stringify(source.revoked));
+    }
+    for(const before of this.state.tasks)if(!draft.tasks.some(task=>task.id===before.id))this.sourceIntakeChanged(draft,before,undefined,'A source owner became unavailable. Review queued requests again.');
+    for(const task of draft.tasks)for(const request of task.requests)if(request.status==='running'&&request.kind==='revise'&&request.targetArtifactId){
+      try{this.assertRevisionSkills(draft,task,request.contextSkillRefs??[]);}catch(error){request.status='cancelled';request.finishedAt=this.time();request.error=error instanceof Error?error.message:String(error);}
+    }
     const persisted = await Effect.runPromise(Effect.either(writeState(this.options.dataDir, draft)));
     if (Either.isLeft(persisted)) {
       if (!(persisted.left instanceof StateValidationError)) {
@@ -203,6 +255,7 @@ export class Companion {
       throw persisted.left;
     }
     this.state = draft;
+    for(const task of draft.tasks)this.abortCancelled(task);
     return clone(result);
   }
   getRecurringWork():Promise<RecurringWork[]>{return this.exclusive(()=>clone(this.state.recurringWork??[]));}
@@ -212,6 +265,7 @@ export class Companion {
     return this.exclusive(()=>this.commit(state=>{
       assertCurrent();const items=state.recurringWork??=[],current=items.find(item=>item.id===change.id);
       if((current?.revision??0)!==change.expectedRevision)reject('conflict','This schedule changed. Reload schedules before saving again. Your edits are kept.');
+      if(change.kind==='save'&&change.expectedDigest!==undefined&&(!current||pickingDigest(current)!==change.expectedDigest))reject('conflict','This schedule changed. Reload schedules before saving again. Your edits are kept.');
       if(current?.revision===Number.MAX_SAFE_INTEGER)reject('conflict','Schedule revision limit reached. Saved work was preserved.');
       if(change.kind==='save'){
         if(!current&&items.length>=RECURRING_WORK_LIMIT)reject('invalid',`Keep at most ${RECURRING_WORK_LIMIT} schedules. Delete one before adding another.`);
@@ -365,10 +419,21 @@ export class Companion {
       return result;
     });
   }
-  private selectTaskMemory(task:Task,prompt:string){return selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined,taskMemoryPolicy(task.session));}
+  private selectTaskMemory(task:Task,prompt:string){return selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:task.title,goal:task.goal,prompt},task.projectId?this.project(this.state,task.projectId):undefined,taskMemoryPolicy(task.session),Date.parse(this.time()));}
   previewUserMemory(input:unknown){
     const value=readMemoryPreviewInput(input);
     return this.exclusive(()=>clone(value.taskId?this.selectTaskMemory(this.task(this.state,value.taskId),value.prompt):selectScopedTaskMemory(this.state.userMemory??emptyUserMemory(),{title:'',goal:'',prompt:value.prompt})));
+  }
+  async leaseLocalResearch(taskId:string,preferences:LocalResearchPreferences,assertCurrent:()=>void=()=>{}){
+    if(!preferences.enabled)throw Error('Local research suggestions are off.');
+    const query=await this.exclusive(()=>{assertCurrent();const request=localResearchRequest(this.task(this.state,taskId),this.state.tasks);return request?{id:request.id,digest:request.digest,prompt:request.prompt}:undefined;});
+    const memory=preferences.enabled&&preferences.memory&&query?await this.leaseUserMemory(taskId,query.prompt):undefined;
+    try{
+      const current=()=>{assertCurrent();memory?.assertCurrent();const task=this.task(this.state,taskId),request=localResearchRequest(task,this.state.tasks);if(request?.id!==query?.id||request?.digest!==query?.digest||request?.prompt!==query?.prompt)throw Error(LOCAL_RESEARCH_CHANGED);return previewLocalResearch(task,preferences,this.state.tasks,memory);};
+      const view=await this.exclusive(()=>clone(current()));
+      const checkCurrent=()=>{if(current().binding!==view.binding)throw Error(LOCAL_RESEARCH_CHANGED);};
+      return {view,assertCurrent:checkCurrent,check:()=>this.exclusive(checkCurrent),signal:memory?.signal,release:()=>memory?.release()};
+    }catch(error){memory?.release();throw error;}
   }
   leaseUserMemory(taskId:string,prompt:string){
     return this.exclusive(()=>{
@@ -376,9 +441,13 @@ export class Companion {
       if(project&&!this.projectMemoryChanges.has(project.id))this.projectMemoryChanges.set(project.id,new AbortController());
       if(!this.taskMemoryChanges.has(taskId))this.taskMemoryChanges.set(taskId,new AbortController());
       const policyRevision=taskMemoryPolicy(task.session).revision,taskSignal=this.taskMemoryChanges.get(taskId)!.signal;
-      const selected=clone(this.selectTaskMemory(task,prompt)),projectSignal=project?this.projectMemoryChanges.get(project.id)!.signal:undefined,signal=AbortSignal.any([this.memoryChanges.signal,taskSignal,...(projectSignal?[projectSignal]:[])]);
-      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||taskMemoryPolicy(current.session).revision!==policyRevision||current.projectId!==projectId||currentProject?.revision!==projectRevision||(currentProject?.memory?.revision??0)!==projectMemoryRevision)throw Error(MEMORY_CHANGED);};
-      return {...selected,signal,assertCurrent,consent:taskMemoryConsent(selected),check:async()=>{assertCurrent();}};
+      const selected=clone(this.selectTaskMemory(task,prompt)),projectSignal=project?this.projectMemoryChanges.get(project.id)!.signal:undefined,deadline=new AbortController(),signal=AbortSignal.any([this.memoryChanges.signal,taskSignal,...(projectSignal?[projectSignal]:[]),deadline.signal]);
+      const expiresAt=Math.min(...selected.projectFacts.flatMap(fact=>fact.expiresAt?[Date.parse(fact.expiresAt)]:[]));let timer:ReturnType<typeof setTimeout>|undefined;
+      const release=()=>{if(timer)clearTimeout(timer);timer=undefined;signal.removeEventListener('abort',release);};
+      const arm=()=>{const remaining=expiresAt-Date.parse(this.time());if(remaining<=0){deadline.abort(Error(MEMORY_CHANGED));return;}timer=setTimeout(arm,Math.min(remaining,2_147_483_647));timer.unref();};
+      if(Number.isFinite(expiresAt)){signal.addEventListener('abort',release,{once:true});arm();}
+      const assertCurrent=()=>{const current=this.state.tasks.find(item=>item.id===taskId),currentProject=current?.projectId?this.state.projects?.find(item=>item.id===current.projectId):undefined;if(selected.projectFacts.some(fact=>!projectMemoryFactActive(fact,Date.parse(this.time()))))deadline.abort(Error(MEMORY_CHANGED));if(signal.aborted||memory.revision!==(this.state.userMemory??emptyUserMemory()).revision||!current||taskMemoryPolicy(current.session).revision!==policyRevision||current.projectId!==projectId||currentProject?.revision!==projectRevision||(currentProject?.memory?.revision??0)!==projectMemoryRevision)throw Error(MEMORY_CHANGED);};
+      return {...selected,signal,assertCurrent,release,consent:taskMemoryConsent(selected),check:async()=>{assertCurrent();}};
     });
   }
 
@@ -388,25 +457,28 @@ export class Companion {
     return task;
   }
   private refs(task: Task): SourceRef[] {
-    return task.sources.map(source => { const version = latest(source.versions); return { sourceId: source.id, version: source.currentVersion, digest: version.digest }; });
+    return task.sources.filter(source => !source.revoked).map(source => { const version = latest(source.versions); return { sourceId: source.id, version: source.currentVersion, digest: version.digest }; });
   }
   private requestRefs(task: Task, sourceIds: string[] | undefined): SourceRef[] {
+    if (sourceIds === undefined) sourceIds=task.session?.sourceSelection?.sourceIds.filter(id=>!task.sources.find(source=>source.id===id)?.revoked);
     if (sourceIds === undefined) return this.refs(task);
     if (!Array.isArray(sourceIds) || sourceIds.length > 64) reject('invalid', 'Select at most 64 source IDs.');
     const selected = new Set<string>();
     for (const id of sourceIds) {
       text(id, 'Source ID', 200);
       if (selected.has(id)) reject('invalid', 'Duplicate selected source ID.');
-      if (!task.sources.some(source => source.id === id)) reject('invalid', 'Selected source was not found in this task.');
+      const source = task.sources.find(item => item.id === id);
+      if (!source) return reject('invalid', 'Selected source was not found in this task.');
+      if (source.revoked||source.projectOrigin&&!requestSourceAvailable(source,this.state.tasks)) reject('stale', 'This source or its shared original is unavailable. Restore or review it before including it.');
       selected.add(id);
     }
     return this.refs(task).filter(ref => selected.has(ref.sourceId));
   }
-  private validRefs(task: Task, refs: SourceRef[]) {
+  private validRefs(task: Task, refs: SourceRef[], owners: readonly Task[] = this.state.tasks) {
     if (new Set(refs.map(ref => ref.sourceId)).size !== refs.length) reject('invalid', 'Duplicate source reference.');
     for (const ref of refs) {
       const source = task.sources.find(item => item.id === ref.sourceId);
-      if (!source || source.freshness !== 'fresh' || source.currentVersion !== ref.version || latest(source.versions).digest !== ref.digest) reject('stale', 'Source changed or requires an explicit refresh.');
+      if (!source || !requestSourceAvailable(source,owners) || source.freshness !== 'fresh' || source.currentVersion !== ref.version || latest(source.versions).digest !== ref.digest) reject('stale', 'Source changed or requires an explicit refresh.');
     }
   }
   private validArtifacts(task:Task,refs:ArtifactRef[]) {
@@ -438,9 +510,10 @@ export class Companion {
       action.status = 'retired'; action.error = reason; action.approvalRetiredAt = this.time();
     }
   }
-  private cancelRunning(task: Task, reason: string, sourceId?: string) {
-    for (const request of task.requests) if (request.status === 'running' && (!sourceId || request.sourceRefs.some(ref => ref.sourceId === sourceId))) {
+  private cancelRunning(task: Task, reason: string, sourceId?: string, matches: (request: RequestRecord) => boolean = () => true) {
+    for (const request of task.requests) if (request.status === 'running' && (!sourceId || request.sourceRefs.some(ref => ref.sourceId === sourceId)) && matches(request)) {
       request.status = 'cancelled'; request.error = reason; request.finishedAt = this.time();
+      closeRequestQuestions(request.questions,request.finishedAt,'This request was stopped before the question was answered.');
     }
   }
   private abortCancelled(task: Task) {
@@ -455,6 +528,10 @@ export class Companion {
 
   listTasks(): Promise<Task[]> { return this.exclusive(() => clone(this.state.tasks)); }
   getTask(taskId: string): Promise<Task> { return this.exclusive(() => clone(this.task(this.state, taskId))); }
+  helperSuggestions(input:unknown,assertCurrent:()=>void=()=>{}){
+    const command=readHelperSuggestionCommand(input);
+    return this.exclusive(()=>{assertCurrent();const task=this.task(this.state,command.taskId),result=command.type==='helper.suggestions.preview'?previewHelperSuggestions(task,this.state.tasks):openHelperSuggestion(task,command,this.state.tasks);assertCurrent();return clone(result);});
+  }
   previewCsvStatistics(taskId:string,reference:SourceRef):Promise<CsvStatisticsData>{return this.exclusive(()=>clone(csvChartSource(this.task(this.state,taskId),reference)));}
   saveCsvStatistics(input:CsvStatisticsSave,assertCurrent:()=>void=()=>{}):Promise<CsvStatisticsSaved>{
     const command=readCsvStatisticsCommand(input);if(command.type!=='statistics.save')throw Error('Choose a statistics save.');
@@ -583,11 +660,14 @@ export class Companion {
         const result=await this.commit(state=>{
           assertCurrent();const project=this.project(state,command.projectId),next={...clone(current),revision:current.revision+1},change=command.change;
           if(change.kind==='enabled')next.enabled=change.enabled;
-          else if(change.kind==='save'){
+          else if(change.kind==='forget'){
+            if(!next.facts.some(fact=>fact.id===change.id))reject('not-found','This project memory fact is no longer available.');
+            next.facts=next.facts.filter(fact=>fact.id!==change.id);if(next.history)next.history=next.history.filter(event=>event.factId!==change.id);
+          }else if(change.kind==='save'){
             const previous=change.id?next.facts.find(fact=>fact.id===change.id):undefined;
             if(change.id&&!previous)reject('not-found','This project memory fact is no longer available.');
             if(!previous&&next.facts.length>=MEMORY_FACT_COUNT)reject('invalid','The project memory fact limit is reached. Edit an existing fact.');
-            const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:[...new Set(change.topics.map(topic=>topic.trim()).filter(Boolean))]};
+            const fact={id:previous?.id??randomUUID(),revision:next.revision,text:change.text,topics:[...new Set(change.topics.map(topic=>topic.trim()).filter(Boolean))],...(change.expiresAt?{expiresAt:change.expiresAt}:{})};
             if(previous)next.facts[next.facts.indexOf(previous)]=fact;else next.facts.push(fact);
           }else reject('invalid','Project memory supports explicit saved facts and opt-in only.');
           project.memory=next;return {kind:'saved' as const,current:next};
@@ -821,8 +901,28 @@ export class Companion {
       if(reviewedQueue){const item=task.session?.queuedFollowups?.find(item=>item.id===reviewedQueue.id&&item.revision===reviewedQueue.revision&&sameInstructionSkill(item.instructionSkill,chosen));if(!item||item.status!=='queued'&&!(item.status==='dispatched'&&task.requests.some(request=>request.id===item.dispatchedRequestId&&request.status==='running')))throw Error('The original reviewed queued skill snapshot is unavailable.');return clone(instructionSkillEntry(this.state.tasks,chosen));}
       return clone(availableInstructionSkillEntry(this.state.tasks,chosen));});
   }
+  setSourceSelection(input:unknown,assertCurrent:()=>void=()=>{}):Promise<Task>{
+    const command=readSourceSelectionCommand(input);
+    return this.exclusive(async()=>{
+      const saved=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,command.taskId),session=task.session??emptyTaskSession(),current=session.sourceSelection;
+        if(task.status!=='active'||task.archive)throw Error('Resume this task before choosing sources.');
+        if((current?.revision??0)!==command.expectedRevision)throw Error('Source selection changed. Reload this task before choosing sources again.');
+        if(command.sourceIds.some(id=>!task.sources.some(source=>source.id===id&&!source.revoked)))throw Error('A selected source is unavailable in this task.');
+        if(current&&JSON.stringify(current.sourceIds)===JSON.stringify(command.sourceIds))return task;
+        if((current?.revision??0)===Number.MAX_SAFE_INTEGER||(session.contextRevision??0)===Number.MAX_SAFE_INTEGER)throw Error('The source selection revision limit was reached.');
+        const reason='Source selection changed. Review queued context before sending again.';
+        task.session={...session,sourceSelection:{revision:(current?.revision??0)+1,sourceIds:[...command.sourceIds]},revision:session.revision+1,contextRevision:(session.contextRevision??0)+1,...(session.queuedFollowups?{queuedFollowups:session.queuedFollowups.map(item=>item.status==='queued'?{...item,status:'held' as const,reason}:item)}:{})};
+        this.cancelRunning(task,reason);task.updatedAt=this.time();return task;
+      });this.abortCancelled(saved);return saved;
+    });
+  }
+  previewTaskHistory(input:unknown):Promise<TaskHistoryPreview>{
+    const command=readTaskHistoryPreviewCommand(input);
+    return this.exclusive(()=>{const task=this.task(this.state,command.taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect history in an active ordinary text task.');const sourceRefs=this.requestRefs(task,command.sourceIds);this.validRefs(task,sourceRefs);if(JSON.stringify(sourceRefs)!==JSON.stringify(command.expectedSourceRefs))throw Error('The selected sources changed. Reload the task before inspecting history.');return {taskId:task.id,taskUpdatedAt:task.updatedAt,sessionRevision:task.session?.revision??0,sourceRefs,history:projectTaskDialogue(task,'',sourceRefs,this.state.tasks)};});
+  }
   previewInstructionRequest(taskId:string,expectedRevision:number,sourceIds:string[]):Promise<Omit<RequestContext,'signal'>>{
-    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection,selected=new Set(sourceIds);return clone({responseMode:taskResponseMode(task.session).mode,task:{...task,sources:task.sources.filter(source=>selected.has(source.id)).map(source=>({...source,versions:[latest(source.versions)]}))},sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:availableInstructionSkillEntry(this.state.tasks,chosen)}:{})});});
+    return this.exclusive(()=>{const task=this.task(this.state,taskId);if(task.status!=='active'||task.archive||task.session?.browserContext)throw Error('Inspect skills in an active ordinary text task.');const current=instructionSkillSelection(task.session);if(current.revision!==expectedRevision)throw Error('The task skill choice changed. Reload before inspecting.');const sourceRefs=this.requestRefs(task,sourceIds),chosen=current.selection;return clone({responseMode:taskResponseMode(task.session).mode,task:projectRequestTask(task,sourceRefs,this.state.tasks),sourceRefs,taskHistory:projectTaskDialogue(task,'skill-composition-preview',sourceRefs,this.state.tasks),projectInstructions:this.projectGuidance(this.state,task),...(chosen?{instructionSkill:availableInstructionSkillEntry(this.state.tasks,chosen)}:{})});});
   }
   setTaskResponseMode(taskId:string,expectedRevision:number,mode:ResponseMode,assertCurrent:()=>void=()=>{}):Promise<Task>{
     mode=Schema.decodeUnknownSync(ResponseModeSchema)(mode);
@@ -987,7 +1087,8 @@ export class Companion {
           task.sources.push({id:targetId,currentVersion:1,freshness:'fresh',versions:[{...source,id:targetId,version:1,digest:hash(JSON.stringify(source)),capturedAt:time}]});
           task.session={...emptyTaskSession(),revision:1,contextRevision:1};
         }else{
-          targetId=this.appendArtifact(task,{title:value.title,content:value.content,mimeType:'text/markdown',sourceRefs:[]}).artifactId;
+          const saved=this.appendArtifact(task,{title:value.title,content:value.content,mimeType:'text/markdown',sourceRefs:[]},[],[]);targetId=saved.artifactId;
+          saved.revision.contextOrigin={kind:'authored-document-v1',taskId:task.id,artifactId:targetId,intentHash,payloadDigest,contentDigest:saved.revision.digest};
         }
         const nextReceipt:LocalStartReceipt={intentHash,payloadDigest,taskId:task.id,kind:value.kind,targetId};
         // One commit owns both the ordinary claim and its opaque replay receipt.
@@ -1021,8 +1122,16 @@ export class Companion {
     const value=clone(readResponseBranchInput(input)),title=value.title.trim();if(!title)reject('invalid','Name the new task.');
     const intentId='response-branch-v1:'+hash(JSON.stringify({taskId:value.taskId,requestId:value.requestId,answer:{artifactId:value.answer.artifactId,revision:value.answer.revision,digest:value.answer.digest},title,expectedSnapshot:value.expectedSnapshot}));
     return this.startLocalTask({intentId,kind:'text',title,content:value.expectedSnapshot},assignedBotId,assertCurrent,()=>{
-      const snapshot=responseBranchSnapshot(this.task(this.state,value.taskId),value);
+      const owner=this.task(this.state,value.taskId),snapshot=responseBranchSnapshot(owner,value);
       if(snapshot.content!==value.expectedSnapshot)reject('conflict','The copied conversation changed. Close this review and open it again before creating a task.');
+      const through=owner.requests.findIndex(request=>request.id===value.requestId),turns=owner.requests.slice(0,through+1);
+      // Check every actually copied text body first, so UNKNOWN never becomes a generic authority error.
+      const bodies=turns.flatMap(turn=>{const ref=turn.answer,revision=ref&&owner.artifacts.find(artifact=>artifact.id===ref.artifactId)?.revisions.find(saved=>saved.revision===ref.revision&&saved.digest===ref.digest);return turn.status==='completed'&&ref&&revision?.mimeType.startsWith('text/')&&revision.encoding!=='base64'&&readTaskArtifactText(owner,ref.artifactId,ref.revision).available?[{artifactId:ref.artifactId,revision}]:[];});
+      for(const body of bodies)assertArtifactContextCertain(owner,body.artifactId,body.revision);
+      for(const body of bodies)this.assertAutomaticCopyContext(this.state,owner,body.artifactId,body.revision);
+      const selected=this.refs(owner).filter(ref=>!owner.session?.sourceSelection||owner.session.sourceSelection.sourceIds.includes(ref.sourceId)),projected=projectRequestTask(owner,selected,this.state.tasks,instructionSkillSelection(owner.session).selection);
+      // Failed/cancelled turns also contribute copied prompts, so their recorded context must be eligible.
+      for(const turn of turns){this.validRefs(owner,turn.contextSourceRefs??turn.sourceRefs);this.assertRevisionSkills(this.state,owner,requestSkillRefs(owner,turn));if(!projected.requests.some(request=>request.id===turn.id&&request.digest===turn.digest))throw Error(WITHHELD_ARTIFACT_CONTEXT);}
     });
   }
   async deleteTask(taskId: string): Promise<void> {
@@ -1078,7 +1187,7 @@ export class Companion {
         if(unchanged){source!.freshness='fresh';delete source!.staleReason;delete source!.documentChange;}
         task.publicGithub={repository:snapshot.repository,sourceId:reference.sourceId,checkedAt:snapshot.snapshotAt,readmeSha:snapshot.blobSha};task.updatedAt=this.time();
         return {task,reference,unchanged};
-      });this.abortCancelled(result.task);return result;
+      },'currentness');this.abortCancelled(result.task);return result;
     });
   }
   async disconnectPublicGithub(command:Extract<PublicGithubCommand,{type:'github.disconnect'}>,assertCurrent:()=>void=()=>{}):Promise<Task>{
@@ -1090,6 +1199,7 @@ export class Companion {
     if (!['text', 'image', 'window'].includes(input.kind) || !['fact', 'style', 'inspiration'].includes(input.role)) reject('invalid', 'Invalid source kind or role.');
     if (input.kind === 'window' && (!input.windowId || !input.documentToken)) reject('invalid', 'A window source requires a host window ID and explicit capture/document token.');
     const id = input.id ?? randomUUID(), source = task.sources.find(item => item.id === id);
+    if (source?.revoked) reject('conflict', 'Restore this removed source before refreshing it.');
     const version: SourceVersion = { ...clone(input), id, version: (source?.currentVersion ?? 0) + 1, digest: hash(JSON.stringify(input)), capturedAt: this.time() };
     if (source) { source.versions.push(version); source.currentVersion = version.version; source.freshness = 'fresh'; delete source.staleReason; delete source.documentChange; }
     else task.sources.push({ id, currentVersion: 1, versions: [version], freshness: 'fresh' });
@@ -1121,7 +1231,7 @@ export class Companion {
         const reference=this.appendSource(task,value.source);
         state.usedRequestIds.push(sourceTextSaveClaim(intentHash),encodeSourceTextSaveReceipt({intentHash,payloadDigest,taskId:task.id,...reference}));
         return {kind:'confirmed' as const,task,reference,intentId:value.intentId,binding:value.binding};
-      });
+      },'currentness');
       this.abortCancelled(result.task);return result;
     });
   }
@@ -1149,6 +1259,7 @@ export class Companion {
           if(existing.currentVersion!==1||existing.versions.length!==1||existing.freshness!=='fresh'||version.content!==preview.content||version.label!==preview.label||version.role!==value.role)return reject('conflict','This copied source already exists and has changed. Open it in Context; no edits were replaced.');
           return {task,reference:{sourceId,version:1,digest:version.digest},alreadyAdded:true};
         }
+        this.assertAutomaticCopyContext(state,owner,value.artifact.artifactId,preview.revision);
         const browserContext=task.session?.browserContext;
         const reference=this.appendSource(task,{id:sourceId,kind:'text',label:preview.label,content:preview.content,role:value.role});
         // Adding an unselected saved snapshot does not detach the current browser route.
@@ -1182,7 +1293,7 @@ export class Companion {
         if(options?.preserveBrowserContextForNewText&&(input.kind!=='text'||task.sources.some(source=>source.id===input.id)))return reject('conflict','Only a new unselected text source can keep the current browser route.');
         const browserContext=options?.preserveBrowserContextForNewText?task.session?.browserContext:undefined;
         this.appendSource(task,input);if(browserContext)task.session={...task.session!,browserContext};return task;
-      });
+      },'currentness');
       this.abortCancelled(task); return task;
     });
   }
@@ -1192,9 +1303,103 @@ export class Companion {
       const task = await this.commit(state => {
         const task = this.task(state, taskId), source = task.sources.find(item => item.id === sourceId);
         if (!source) return reject('not-found', 'Source was not found.');
+        if (source.revoked) return reject('conflict', 'This source is removed from requests. Restore it first.');
         text(reason, 'Reason', 1000); source.freshness = 'refresh-required'; source.staleReason = reason;
         this.retire(task, reason, sourceId); this.cancelRunning(task, reason, sourceId); task.updatedAt = this.time(); return task;
-      }); this.abortCancelled(task); return task;
+      },'currentness'); this.abortCancelled(task); return task;
+    });
+  }
+  private assertIntakeSource(task:Task,source:Source,expected?:SourceRef){
+    if(task.status!=='active'||task.archive)reject('conflict','Resume the source owner task first.');
+    const version=source.versions.at(-1)!;
+    if(expected&&(expected.sourceId!==source.id||expected.version!==source.currentVersion||expected.digest!==version.digest))reject('conflict','The source changed. Review its current version first.');
+  }
+
+  /** A new automatic context copy is an outgoing boundary; local readers and replay are separate. */
+  private assertAutomaticCopyContext(state:State,owner:Task,artifactId:string,revision:ArtifactRevision){
+    assertArtifactContextCertain(owner,artifactId,revision);
+    this.validRefs(owner,artifactContextSources(owner,artifactId,revision));this.assertRevisionSkills(state,owner,artifactSkillRefs(owner,artifactId,revision));
+    const selected=this.refs(owner).filter(ref=>!owner.session?.sourceSelection||owner.session.sourceSelection.sourceIds.includes(ref.sourceId)),projected=projectRequestTask(owner,selected,state.tasks,instructionSkillSelection(owner.session).selection);
+    if(!projected.artifacts.some(artifact=>artifact.id===artifactId&&artifact.revisions.some(saved=>saved.revision===revision.revision&&saved.digest===revision.digest)))throw Error(WITHHELD_ARTIFACT_CONTEXT);
+  }
+
+  private assertRevisionSkills(state:State,task:Task,references:readonly InstructionSkillReference[]){
+    const chosen=instructionSkillSelection(task.session).selection;
+    for(const reference of references){
+      if(!sameInstructionSkill(chosen,reference))throw Error('The selected skill changed. Review the saved revision before asking again.');
+      availableInstructionSkillEntry(state.tasks,reference);
+    }
+  }
+  private sourceContextCurrent(state:State,task:Task,request:RequestRecord,privacyOwnerId?:string):boolean{
+    if(request.contextSourceRefs===undefined)return false;
+    try{
+      this.validRefs(task,sourceDependencyRefs(request),state.tasks);
+      const skills=[...(request.instructionSkill?[request.instructionSkill]:[]),...requestSkillRefs(task,request)];
+      for(const ref of request.contextArtifactRefs??[]){
+        const artifact=task.artifacts.find(artifact=>artifact.id===ref.artifactId),revision=artifact?.revisions.find(saved=>saved.revision===ref.revision&&saved.digest===ref.digest);
+        if(!revision||artifact!.revisions.some(saved=>saved.revision<=ref.revision&&saved.contextSourceRefs===undefined))return false;
+        assertArtifactContextCertain(task,ref.artifactId,revision);
+        this.validRefs(task,artifactContextSources(task,ref.artifactId,revision),state.tasks);
+        skills.push(...artifactSkillRefs(task,ref.artifactId,revision));
+      }
+      for(const reference of skills){if(reference.ownerTaskId===privacyOwnerId)return false;instructionSkillEntry(state.tasks,reference);}
+      return true;
+    }catch{return false;}
+  }
+  private sourceIntakeChanged(state:State,task:Task,sourceId:string|undefined,reason:string,currentness=false){
+    for(const owner of state.tasks){
+      for(const source of owner.sources)if(source.projectOrigin&&!source.revoked&&source.freshness==='fresh'&&!requestSourceAvailable(source,state.tasks)){
+        source.freshness='refresh-required';source.staleReason='The original shared source changed or was removed. Review the current project source before using this copy.';
+      }
+      const skillUnavailable=(reference:NonNullable<RequestRecord['instructionSkill']>|undefined)=>{if(!reference)return false;try{instructionSkillEntry(state.tasks,reference);return false;}catch{return true;}};
+      const dependent=owner===task||owner.requests.some(request=>request.status==='running'&&!this.sourceContextCurrent(state,owner,request,currentness?undefined:task.id))||owner.sources.some(source=>source.projectOrigin&&(source.projectOrigin.taskId===task.id||!requestSourceAvailable(source,state.tasks)))||owner.requests.some(request=>request.status==='running'&&requestSkillRefs(owner,request).some(reference=>reference.ownerTaskId===task.id||skillUnavailable(reference)))||owner.session?.queuedFollowups?.some(item=>(item.instructionSkill?.ownerTaskId===task.id||skillUnavailable(item.instructionSkill)));
+      if(!dependent)continue;
+      this.cancelRunning(owner,reason,undefined,request=>!currentness||!this.sourceContextCurrent(state,owner,request));
+      const session=owner.session??emptyTaskSession();
+      owner.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1,...(session.queuedFollowups?{queuedFollowups:session.queuedFollowups.map(item=>item.status==='queued'?{...item,status:'held' as const,reason}:item)}:{})};
+      if(owner===task)this.retire(owner,reason,sourceId);else this.retire(owner,reason);
+    }
+  }
+  /** Removed sources stay in history but are never sent; results citing them read as outdated. */
+  revokeSource(taskId:string,sourceId:string,assertCurrent:()=>void=()=>{},expected?:SourceRef):Promise<Task>{
+    expected=expected&&clone(expected);
+    return this.exclusive(async()=>{
+      const task=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,taskId),source=task.sources.find(item=>item.id===sourceId);
+        if(!source)return reject('not-found','Source was not found.');
+        this.assertIntakeSource(task,source,expected);
+        if(!applySourceRevocation(source,this.time()))return task;
+        const reason=source.staleReason!;this.retire(task,reason,sourceId);
+        task.updatedAt=this.time();return task;
+      });for(const owner of this.state.tasks)this.abortCancelled(owner);return clone(task);
+    });
+  }
+  restoreSource(taskId:string,sourceId:string,assertCurrent:()=>void=()=>{},expected?:SourceRef,revokedAt?:string,revocationId?:string):Promise<Task>{
+    expected=expected&&clone(expected);
+    return this.exclusive(async()=>{const task=await this.commit(state=>{
+      assertCurrent();const task=this.task(state,taskId),source=task.sources.find(item=>item.id===sourceId);
+      if(!source)return reject('not-found','Source was not found.');
+      this.assertIntakeSource(task,source,expected);
+      if(revokedAt!==undefined&&source.revoked?.at!==revokedAt||revocationId!==undefined&&source.revoked?.id!==revocationId)return reject('conflict','The removal changed. Review this source again before restoring.');
+      if(!applySourceRestore(source))return task;
+      task.updatedAt=this.time();return task;
+    });for(const owner of this.state.tasks)this.abortCancelled(owner);return task;});
+  }
+  /** Saves a redacted copy as the new current text version; only the current version is ever sent. */
+  redactSource(taskId:string,expected:SourceRef,spans:readonly RedactionSpan[],assertCurrent:()=>void=()=>{}):Promise<Task>{
+    expected=clone(expected);spans=clone(spans);
+    return this.exclusive(async()=>{
+      const task=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,taskId),source=task.sources.find(item=>item.id===expected.sourceId),current=source?.versions.at(-1);
+        if(!source||!current)return reject('not-found','Source was not found.');
+        this.assertIntakeSource(task,source,expected);
+        if(source.revoked)return reject('conflict','Restore this removed source before redacting it.');
+        if(source.freshness!=='fresh')return reject('stale','Refresh this source before redacting its text.');
+        if(source.currentVersion!==expected.version||current.version!==expected.version||current.digest!==expected.digest)return reject('conflict','The source changed after you reviewed it. Review it again before redacting.');
+        if(current.kind!=='text'||current.publicGithub||current.pdfPage)return reject('invalid','Only saved text sources can be redacted here. Crop images or recapture windows instead.');
+        this.appendSource(task,{id:source.id,kind:'text',label:current.label,content:redactSpans(current.content,spans),role:current.role});
+        this.retire(task,'Source redacted.',source.id);task.updatedAt=this.time();return task;
+      });for(const owner of this.state.tasks)this.abortCancelled(owner);return clone(task);
     });
   }
   observeWindow(taskId: string, observation: { windowId: string; documentToken: string; title?: string; boundsToken?: string }): Promise<Task> {
@@ -1215,14 +1420,14 @@ export class Companion {
           }
         }
         return task;
-      }); this.abortCancelled(task); return task;
+      },'currentness'); this.abortCancelled(task); return task;
     });
   }
   reconcileDocumentSource(binding:DocumentBinding,observation:DocumentReconciliation,assertCurrent?:()=>void):Promise<{kind:'unchanged'|'invalidated'|'superseded';task:Task}>{
     const guard=()=>{if(observation.kind==='edited-transition'&&!assertCurrent)reject('invalid','An edited transition requires its current host-session guard.');assertCurrent?.();};
     return this.exclusive(async()=>{
       guard();const before=this.task(this.state,binding.taskId),source=before.sources.find(source=>source.id===binding.ref.sourceId),version=source?.versions.at(-1);
-      if(!source||!version||version.kind!=='window'||version.version!==binding.ref.version||version.digest!==binding.ref.digest||version.windowId!==binding.windowId||version.windowProcessId!==binding.processId)return {kind:'superseded',task:clone(before)};
+      if(!source||source.revoked||!version||version.kind!=='window'||version.version!==binding.ref.version||version.digest!==binding.ref.digest||version.windowId!==binding.windowId||version.windowProcessId!==binding.processId)return {kind:'superseded',task:clone(before)};
       const editedTransition=observation.kind==='edited-transition';
       if(editedTransition){
         if(typeof observation.before.edited!=='boolean'||typeof observation.after.edited!=='boolean'||observation.before.edited===observation.after.edited||!version.documentStamp||version.documentStamp.digest!==observation.before.digest||version.documentStamp.digest!==observation.after.digest||observation.before.method!=='ax-document'||observation.after.method!=='ax-document'||observation.before.evidence!=='foreground-application-correlation'||observation.after.evidence!=='foreground-application-correlation')reject('invalid','The edited transition does not match the exact captured document.');
@@ -1243,11 +1448,11 @@ export class Companion {
         this.retire(task,reason,source.id);this.cancelRunning(task,reason,source.id);
         const {browserContext:_browser,...session}=task.session??emptyTaskSession();task.session={...session,revision:session.revision+1,contextRevision:(session.contextRevision??0)+1};
         task.updatedAt=this.time();return task;
-      });
+      },'currentness');
       this.abortCancelled(task);return {kind:'invalidated',task};
     });
   }
-  private appendArtifact(task: Task, input: ArtifactInput): { artifactId: string; revision: ArtifactRevision } {
+  private appendArtifact(task: Task, input: ArtifactInput,contextSourceRefs?:SourceRef[],contextSkillRefs?:InstructionSkillReference[]): { artifactId: string; revision: ArtifactRevision } {
     text(input.title, 'Artifact title', 500); text(input.content, 'Artifact content', 12_000_000);
     if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
     if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
@@ -1255,8 +1460,9 @@ export class Companion {
     const artifact = input.artifactId ? task.artifacts.find(item => item.id === input.artifactId) : undefined;
     if (input.artifactId && !artifact) return reject('not-found', 'Artifact was not found.');
     if (artifact && input.expectedRevision !== latest(artifact.revisions).revision) reject('conflict', 'Artifact changed. Reload before saving.');
-    const bytes = artifactBytes(input);
-    const revision: ArtifactRevision = { revision: (artifact ? latest(artifact.revisions).revision : 0) + 1, title: input.title, content: input.content, mimeType: input.mimeType ?? 'text/plain', ...(input.encoding ? { encoding: input.encoding } : {}), sourceRefs, digest: hash(bytes), createdAt: this.time() };
+    const bytes = artifactBytes(input),contextSources=clone(contextSourceRefs??[...sourceRefs,...(artifact?.revisions.at(-1)?.contextSourceRefs??[])]),contextSkills=clone(contextSkillRefs??(artifact?artifactSkillRefs(task,artifact.id,latest(artifact.revisions)):[]));
+    const uncertain=!!artifact&&artifactContextUncertain(task,artifact.id,latest(artifact.revisions))||!!input.expectedArtifacts?.some(ref=>{const basis=task.artifacts.find(item=>item.id===ref.artifactId)!.revisions.at(-1)!;return basis.contextSourceRefs===undefined||artifactContextUncertain(task,ref.artifactId,basis);});
+    const revision: ArtifactRevision = { ...(uncertain?{contextUncertain:true as const}:{}),revision: (artifact ? latest(artifact.revisions).revision : 0) + 1, title: input.title, content: input.content, mimeType: input.mimeType ?? 'text/plain', ...(input.encoding ? { encoding: input.encoding } : {}), sourceRefs,...(contextSkillRefs!==undefined||contextSkills.length||task.requests.some(request=>request.instructionSkill||request.contextSkillRefs?.length)?{contextSkillRefs:contextSkills}:{}),...(contextSourceRefs!==undefined||contextSources.length||task.sources.length?{contextSourceRefs:contextSources}:{}), digest: hash(bytes), createdAt: this.time() };
     const id = artifact?.id ?? randomUUID();
     if (artifact) { artifact.revisions.push(revision); this.retire(task, 'Artifact revised.'); }
     else task.artifacts.push({ id, revisions: [revision] });
@@ -1269,8 +1475,499 @@ export class Companion {
       if(task.status!=='active'||task.archive)return reject('conflict','Open an active task before saving a new link.');return this.commit(state=>{assertCurrent();const owner=this.task(state,value.taskId),saved=this.appendArtifact(owner,{title:definition.label,content,mimeType:SAVED_LINK_MIME,sourceRefs:[]});return {taskId:owner.id,...saved};});
     });
   }
+  beginExplanationTeachback(taskId:string,requestId:string,value:TeachbackInput,assertCurrent:()=>void=()=>{}){
+    const input=clone(readTeachbackInput(value));
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();text(requestId,'Teach-back request ID',200);const task=this.task(state,taskId);
+      if(task.status!=='active'||task.archive)throw Error('Resume this task before requesting feedback.');
+      const {revision,question}=teachbackQuestion(task,input);this.validRefs(task,revision.sourceRefs);
+      if(task.session?.sourceSelection&&revision.sourceRefs.some(ref=>!task.session!.sourceSelection!.sourceIds.includes(ref.sourceId)))throw Error('Review the selected explanation sources before requesting feedback.');
+      const projected=projectRequestTask(task,revision.sourceRefs,state.tasks,instructionSkillSelection(task.session).selection);teachbackQuestion(projected,input);
+      const inherited=[revision,...(input.replyTo?[task.artifacts.find(artifact=>artifact.id===input.replyTo!.artifactId)!.revisions.at(-1)!]:[])],contextSources=inherited.flatMap(saved=>saved.contextSourceRefs??saved.sourceRefs).filter((ref,index,all)=>all.findIndex(other=>JSON.stringify(ref)===JSON.stringify(other))===index),contextSkills=inherited.flatMap((saved,index)=>artifactSkillRefs(task,index===0?input.basis.artifactId:input.replyTo!.artifactId,saved)).filter((ref,index,all)=>all.findIndex(other=>JSON.stringify(ref)===JSON.stringify(other))===index);
+      this.validRefs(task,contextSources);this.assertRevisionSkills(state,task,contextSkills);
+      const prior=task.artifacts.find(artifact=>teachbackBody(artifact.revisions[0])?.requestId===requestId);
+      if(prior){const original=teachbackBody(prior.revisions[0])!;if(JSON.stringify(original.input)!==JSON.stringify(input)||original.taskId!==taskId)throw Error('This feedback identity belongs to different learner input.');return {artifactId:prior.id};}
+      const body=readTeachbackBody({kind:'explanation-teachback',schemaVersion:1,taskId,requestId,input,question,turn:input.replyTo?2:1,phase:'pending'});
+      return {artifactId:this.appendArtifact(task,{title:input.replyTo?'Follow-up feedback pending':'Teach-back feedback pending',content:JSON.stringify(body),mimeType:TEACHBACK_MIME,sourceRefs:revision.sourceRefs},contextSources,contextSkills).artifactId};
+    }));
+  }
+  beginDocumentEditSuggestions(input:{taskId:string;artifactId:string;basis:string;requestId:string;prompt:string},assertCurrent:()=>void=()=>{}){
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();text(input.requestId,'Suggestion request ID',200);text(input.prompt,'Revision instructions',16000);
+      const task=this.task(state,input.taskId);if(task.status!=='active'||task.archive)throw Error('Resume this document task before asking for suggestions.');
+      const revision=task.artifacts.find(item=>item.id===input.artifactId)?.revisions.at(-1);
+      if(!revision||!suggestionDocument(revision))throw Error('Suggestions support saved Markdown/plain text up to 100,000 characters.');
+      assertArtifactContextCertain(task,input.artifactId,revision);
+      assertRevisionInstructionRequest(task,input.artifactId,input.basis,revision.sourceRefs.map(item=>item.sourceId),revision.sourceRefs);
+      this.validRefs(task,revision.sourceRefs);this.assertRevisionSkills(state,task,artifactSkillRefs(task,input.artifactId,revision));
+      if(!projectRequestTask(task,revision.sourceRefs,state.tasks,instructionSkillSelection(task.session).selection).artifacts.some(artifact=>artifact.id===input.artifactId))throw Error('The saved document is unavailable in the selected request context.');
+      const proposals=task.artifacts.flatMap(artifact=>{const body=documentSuggestions(artifact.revisions.at(-1)!);return body?[{artifact,body}]:[];});
+      const previous=proposals.find(item=>item.body.requestId===input.requestId);
+      if(previous){if(previous.body.basis!==input.basis||previous.body.prompt!==input.prompt||previous.body.target.artifactId!==input.artifactId)throw Error('This suggestion identity belongs to a different request.');return {artifactId:previous.artifact.id,body:documentSuggestions(previous.artifact.revisions[0])!};}
+      if(proposals.some(item=>item.body.target.artifactId===input.artifactId&&item.body.phase!=='closed'))throw Error('Review or reject the remaining suggestions before requesting another proposal.');
+      const target={artifactId:input.artifactId,revision:revision.revision,digest:revision.digest},body=readDocumentSuggestions({kind:'document-edit-suggestions',schemaVersion:1,taskId:task.id,requestId:input.requestId,prompt:input.prompt,basis:input.basis,target:{...target,title:revision.title,mimeType:revision.mimeType,...(revision.encoding?{encoding:revision.encoding}:{}),content:revision.content},sourceRefs:revision.sourceRefs,phase:'pending',candidate:'',hunks:[],decisions:[],applied:target,events:[]});
+      const saved=this.appendArtifact(task,{title:'Suggestions for '+revision.title,content:JSON.stringify(body),mimeType:DOCUMENT_SUGGESTIONS_MIME,sourceRefs:revision.sourceRefs},revision.contextSourceRefs??revision.sourceRefs,artifactSkillRefs(task,input.artifactId,revision));return {artifactId:saved.artifactId,body};
+    }));
+  }
+  decideDocumentEditSuggestions(value:DocumentSuggestionDecision,assertCurrent:()=>void=()=>{}):Promise<Task>{
+    const command=readDocumentSuggestionDecision(value),commandDigest=hash(JSON.stringify(command));
+    return this.exclusive(()=>this.commit(state=>{
+      assertCurrent();const task=this.task(state,command.taskId),artifact=task.artifacts.find(item=>item.id===command.proposal.artifactId),current=artifact?.revisions.at(-1),body=current&&documentSuggestions(current);
+      if(!artifact||!current||!body||body.taskId!==task.id)throw Error('The suggestion proposal is unavailable.');
+      const prior=body.events.find(item=>item.intentId===command.intentId);
+      if(prior){if(prior.commandDigest!==commandDigest)throw Error('This decision identity belongs to a different action.');return clone(task);}
+      if(task.status!=='active'||task.archive)throw Error('Resume this task before reviewing suggestions.');
+      if(current.revision!==command.proposal.revision||current.digest!==command.proposal.digest)throw Error('These suggestion decisions changed. Read the current review before continuing.');
+      const initial=documentSuggestions(artifact.revisions[0]);if(!initial||initial.phase!=='pending'||initial.requestId!==body.requestId||initial.basis!==body.basis||JSON.stringify(initial.target)!==JSON.stringify(body.target)||JSON.stringify(initial.sourceRefs)!==JSON.stringify(body.sourceRefs)||JSON.stringify(artifact.revisions[0].sourceRefs)!==JSON.stringify(body.sourceRefs)||JSON.stringify(current.sourceRefs)!==JSON.stringify(body.sourceRefs))throw Error('The original suggestion intent is unavailable.');
+      const request=task.requests.find(item=>item.id===body.requestId);
+      if(request?.status==='running')throw Error('Stop or wait for the current suggestion request first.');
+      const undoing=command.choice==='undo';
+      if(body.phase==='closed'&&!undoing)throw Error('These suggestions are already resolved.');
+      const accepting=command.choice==='accept'||command.choice==='accept-all';
+      if(body.phase==='pending'&&(accepting||command.choice!=='reject-all'))throw Error('No completed changes are available to accept.');
+      if(body.phase==='ready'||undoing){
+        const answer=request?.answer,ready=artifact.revisions[1];
+        if(request?.status!=='completed'||request.kind!=='revise'||request.targetArtifactId!==artifact.id||request.expectedRevision!==1||answer?.artifactId!==artifact.id||answer.revision!==2||ready?.digest!==answer.digest||JSON.stringify(request.sourceRefs)!==JSON.stringify(body.sourceRefs)||JSON.stringify(ready.sourceRefs)!==JSON.stringify(body.sourceRefs))throw Error('The generated proposal receipt is unconfirmed.');
+      }
+      if(body.events.length>=2000)throw Error('This review reached its decision limit. Keep its saved result and request a fresh proposal.');
+      const next=structuredClone(body);if(undoing)delete next.undo;
+      if(undoing){
+        if(!body.undo||body.undo.intentId!==command.undoOf||JSON.stringify(body.undo.target)!==JSON.stringify(command.undoTarget))throw Error('This undo does not match the latest saved acceptance receipt.');
+        next.decisions=body.decisions.map((decision,index)=>decision==='rejected'?'rejected':body.undo!.decisions[index]);
+      }else if(command.index!==undefined){if(next.decisions[command.index]!=='pending')throw Error('This exact suggestion is no longer pending.');next.decisions[command.index]=accepting?'accepted':'rejected';}
+      else next.decisions=next.decisions.map(item=>item==='pending'?(accepting?'accepted':'rejected'):item);
+      if(accepting&&body.hunks.some(hunk=>!hunk.evidence))throw Error('This historical proposal has no quoted evidence. Reject it and request fresh corrections.');
+      if(accepting||undoing){
+        if(accepting)for(const hunk of body.hunks)for(const anchor of hunk.evidence!.anchors){const source=task.sources.find(source=>source.id===anchor.source.sourceId),version=source?.versions.at(-1);if(!version||version.version!==anchor.source.version||version.digest!==anchor.source.digest||version.kind!=='text'||version.content.slice(anchor.start,anchor.start+anchor.quote.length)!==anchor.quote)throw Error('The correction evidence changed. Review a fresh proposal.');}
+        this.validArtifacts(task,[body.applied]);
+        const contextRefs=[...body.sourceRefs,...(current.contextSourceRefs??[])].filter((ref,index,all)=>all.findIndex(other=>JSON.stringify(ref)===JSON.stringify(other))===index);
+        this.validRefs(task,contextRefs);this.assertRevisionSkills(state,task,artifactSkillRefs(task,artifact.id,current));
+        const target=task.artifacts.find(item=>item.id===body.target.artifactId)!,revision=latest(target.revisions);
+        this.validRefs(task,(revision.contextSourceRefs??revision.sourceRefs).filter((ref,index,all)=>all.findIndex(other=>JSON.stringify(ref)===JSON.stringify(other))===index));this.assertRevisionSkills(state,task,artifactSkillRefs(task,target.id,revision));
+        if(revision.title!==body.target.title||revision.mimeType!==body.target.mimeType||revision.encoding!==body.target.encoding||JSON.stringify(revision.sourceRefs)!==JSON.stringify(body.sourceRefs))throw Error('The document or its links changed. Keep the saved document and review this proposal.');
+        const content=suggestionText(body.target.content,body.hunks,next.decisions.map(item=>item==='accepted'));
+        if(revision.content!==content){
+          // A reviewed deletion may empty this exact document; generic saves
+          // retain their existing nonempty-content boundary.
+          let saved:ArtifactRevision;
+          if(content===''){saved={...revision,contextSourceRefs:clone(current.contextSourceRefs??body.sourceRefs),contextSkillRefs:clone(artifactSkillRefs(task,artifact.id,current)),revision:revision.revision+1,content,sourceRefs:clone(body.sourceRefs),digest:hash(artifactBytes({...revision,content})),createdAt:this.time()};target.revisions.push(saved);this.retire(task,'Artifact revised.');}
+          else saved=this.appendArtifact(task,{artifactId:target.id,expectedRevision:revision.revision,title:revision.title,content,mimeType:revision.mimeType,encoding:revision.encoding,sourceRefs:body.sourceRefs},current.contextSourceRefs??body.sourceRefs,artifactSkillRefs(task,artifact.id,current)).revision;
+          next.applied={artifactId:target.id,revision:saved.revision,digest:saved.digest};
+        }
+      }
+      next.phase=next.decisions.includes('pending')?'ready':'closed';next.events.push({intentId:command.intentId,commandDigest});
+      if(accepting)next.undo={intentId:command.intentId,commandDigest,target:next.applied,decisions:[...body.decisions]};
+      // Decision metadata retains the original canonical historical provenance.
+      // It cannot create content or authorize stale refs through artifact.save.
+      const content=JSON.stringify(readDocumentSuggestions(next));
+      artifact.revisions.push({...current,revision:current.revision+1,title:current.title,content,mimeType:DOCUMENT_SUGGESTIONS_MIME,sourceRefs:clone(initial.sourceRefs),digest:hash(Buffer.from(content,'utf8')),createdAt:this.time()});
+      task.updatedAt=this.time();
+      return clone(task);
+    }));
+  }
+  inspectDocumentEditSuggestionDecision(value:DocumentSuggestionDecision):Promise<DocumentSuggestionInspection>{
+    const command=readDocumentSuggestionDecision(value);
+    return this.exclusive(()=>clone(inspectSuggestionDecision(this.task(this.state,command.taskId),command)));
+  }
+  private sourceComparisonSaved(input:SourceComparisonInput):SourceComparisonSaved|undefined{
+    const claimHash=hash('source-comparison:'+input.intentId),receipt=findSourceComparisonReceipt(this.state.usedRequestIds,claimHash);if(!receipt)return;
+    const task=this.task(this.state,input.taskId),artifact=task.artifacts.find(item=>item.id===receipt.artifactId),revisions=artifact?.revisions.filter(revision=>revision.revision===receipt.revision),revision=revisions?.[0];
+    if(receipt.taskId!==task.id||receipt.binding!==input.binding||receipt.revision!==1||revisions?.length!==1||!revision||revision.digest!==receipt.digest||hash(revision.content)!==receipt.digest||revision.title!==input.notes.question.trim()||revision.mimeType!=='text/markdown'||revision.encoding==='base64'||JSON.stringify(revision.sourceRefs)!==JSON.stringify(input.refs))throw Error('The original comparison revision is unavailable or changed. Your notes are kept. Inspect Files before another save.');
+    return clone({kind:'saved',taskId:task.id,intentId:input.intentId,binding:input.binding,artifact:artifact!,revision});
+  }
+  inspectSourceComparison(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<SourceComparisonInspection>{
+    const input=readSourceComparisonInput(raw);return this.exclusive(()=>{assertCurrent();this.task(this.state,input.taskId);return this.sourceComparisonSaved(input)??{kind:'not-saved',taskId:input.taskId,intentId:input.intentId,binding:input.binding};});
+  }
+  saveSourceComparison(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<SourceComparisonSaved>{
+    const input=readSourceComparisonInput(raw),intent='source-comparison:'+input.intentId;
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=this.sourceComparisonSaved(input);if(prior)return prior;
+      await this.commit(state=>{
+        assertCurrent();const task=this.task(state,input.taskId),artifact=sourceComparisonArtifact(task,input.refs,input.notes);this.validRefs(task,[...input.refs]);this.claimRequest(state,intent);
+        const saved=this.appendArtifact(task,artifact);saved.revision.contextOrigin={kind:'source-comparison-v1',contentDigest:saved.revision.digest,claimHash:hash(intent),binding:input.binding};state.usedRequestIds.push(encodeSourceComparisonReceipt({claimHash:hash(intent),binding:input.binding,taskId:task.id,artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}));
+      });assertCurrent();return this.sourceComparisonSaved(input)!;
+    });
+  }
   saveArtifact(taskId: string, input: ArtifactInput): Promise<{ artifactId: string; revision: ArtifactRevision }> {
-    return this.exclusive(() => this.commit(state => this.appendArtifact(this.task(state, taskId), input)));
+    if(Object.keys(input).some(key=>['contextOrigin','contextUncertain','local'].includes(key)))return Promise.reject(Error('Document provenance is resolved from its saved origin.'));
+    return this.exclusive(() => this.commit(state => {const task=this.task(state,taskId),current=input.artifactId?task.artifacts.find(item=>item.id===input.artifactId)?.revisions.at(-1):undefined;if([TEACHBACK_MIME,DOCUMENT_SUGGESTIONS_MIME].includes(input.mimeType??'')||[TEACHBACK_MIME,DOCUMENT_SUGGESTIONS_MIME].includes(current?.mimeType??''))throw Error('Use the document suggestion review controls or original explanation.');return this.appendArtifact(task,input);}));
+  }
+  inspectExperimentResult(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const input=readExperimentResultInput(raw);return this.exclusive(()=>{assertCurrent();const result=inspectExperimentResult(this.task(this.state,input.calculation.taskId),input);if(result.kind==='not-saved'&&this.state.usedRequestIds.includes(hash(experimentResultId(input))))throw Error('The original result receipt is unavailable. Check Files before another copy.');return clone(result);});
+  }
+  saveExperimentResult(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const input=readExperimentResultInput(raw),id=experimentResultId(input);
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,input.calculation.taskId),prior=inspectExperimentResult(task,input);if(prior.kind==='saved')return clone(prior);
+      if(this.state.usedRequestIds.includes(hash(id)))throw Error('The original result receipt is unavailable. Check Files before another copy.');
+      const release=this.modelConcurrency.acquire(input.calculation.taskId,false);try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,input.calculation.taskId),value=input.calculation;admitExperimentRun(owner,value);this.validArtifacts(owner,[value.basis]);
+        const base=owner.artifacts.find(item=>item.id===value.basis.artifactId)!.revisions.at(-1)!;this.assertAutomaticCopyContext(state,owner,value.basis.artifactId,base);
+        const sourceRefs=artifactContextSources(owner,value.basis.artifactId,base),skills=artifactSkillRefs(owner,value.basis.artifactId,base),artifact=experimentResultArtifact(owner,input);this.claimRequest(state,id);
+        const startedAt=this.time(),saved=this.appendArtifact(owner,artifact,sourceRefs,skills);
+        owner.requests.push({id,kind:'experiment',prompt:EXPERIMENT_RESULT_PROMPT,digest:experimentResultBinding(input),status:'completed',concurrency:'exclusive',sourceRefs:[...value.sourceRefs],contextSourceRefs:sourceRefs,contextSkillRefs:skills,contextArtifactRefs:[value.basis],startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}});
+        return inspectExperimentResult(owner,input);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async createAuthoredDocument(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<AuthoredDocumentResult>{
+    const input=readAuthoredDocumentInput(raw),{intentId,...payload}=input,intentHash=hash(intentId),payloadDigest=hash(JSON.stringify({operation:'authored-document:v1',...payload}));
+    const result=(task:Task,receipt:NonNullable<ReturnType<typeof findAuthoredDocumentReceipt>>):AuthoredDocumentResult=>({task,artifactId:receipt.artifactId,revision:1,digest:receipt.contentDigest,intentHash,payloadDigest});
+    return this.exclusive(()=>{
+      assertCurrent();const receipt=findAuthoredDocumentReceipt(this.state.usedRequestIds,intentHash);
+      if(receipt){
+        if(receipt.taskId!==input.taskId||receipt.payloadDigest!==payloadDigest)throw Error('This document save was already submitted with different input. Check Files before starting a new save.');
+        const task=this.task(this.state,receipt.taskId),first=task.artifacts.find(item=>item.id===receipt.artifactId)?.revisions[0];
+        if(!first||first.revision!==1||first.digest!==receipt.contentDigest||JSON.stringify(first.contextOrigin)!==JSON.stringify(receipt)||artifactContextUncertain(task,receipt.artifactId,first))throw Error('The original document save is unavailable. Check Files; retry cannot create a replacement.');
+        return clone(result(task,receipt));
+      }
+      return this.commit(state=>{
+        assertCurrent();const task=this.task(state,input.taskId);if(task.status!=='active'||task.archive)throw Error('Open and resume this task before saving a new document.');
+        this.validRefs(task,input.sourceRefs);if(task.session?.sourceSelection&&input.sourceRefs.some(ref=>!task.session!.sourceSelection!.sourceIds.includes(ref.sourceId)))throw Error('Review the selected sources before saving this new document.');
+        this.claimRequest(state,intentId);
+        const saved=this.appendArtifact(task,{title:input.title,content:input.content,mimeType:'text/markdown',sourceRefs:input.sourceRefs},input.sourceRefs,[]),origin={kind:'authored-document-v1' as const,taskId:task.id,artifactId:saved.artifactId,intentHash,payloadDigest,contentDigest:saved.revision.digest};
+        saved.revision.contextOrigin=origin;state.usedRequestIds.push(encodeAuthoredDocumentReceipt(origin));return result(task,origin);
+      });
+    });
+  }
+  async saveModuleNotes(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<{artifactId:string;revision:number}>{
+    const input=readModuleNotesInput(raw);assertCurrent();
+    return this.exclusive(async()=>{
+      assertCurrent();const owner=this.task(this.state,input.taskId),publication=moduleNotesPublication(owner,input);
+      const context=(task:Task,prepared:ReturnType<typeof moduleNotesPublication>)=>{
+        const bases=prepared.expectedArtifacts.map(ref=>({ref,revision:task.artifacts.find(item=>item.id===ref.artifactId)!.revisions.at(-1)!}));
+        const sourceRefs=sourceDependencyRefs({sourceRefs:[...prepared.guardedSourceRefs,...bases.flatMap(({revision})=>sourceDependencyRefs(revision))]});
+        const skills=bases.flatMap(({ref,revision})=>artifactSkillRefs(task,ref.artifactId,revision)).filter((ref,index,all)=>all.findIndex(other=>sameInstructionSkill(other,ref))===index);
+        return {sourceRefs,skills};
+      };
+      this.validArtifacts(owner,publication.expectedArtifacts);this.validModuleStates(owner,publication.expectedModuleStates);
+      const lineage=context(owner,publication),sameSources=(a:readonly SourceRef[],b:readonly SourceRef[])=>a.length===b.length&&a.every((ref,index)=>ref.sourceId===b[index].sourceId&&ref.version===b[index].version&&ref.digest===b[index].digest);
+      const existing=owner.artifacts.find(item=>{const revision=item.revisions.at(-1)!;return !artifactContextUncertain(owner,item.id,revision)&&revision.title===publication.title&&revision.content===publication.content&&revision.mimeType==='text/markdown'&&revision.encoding!=='base64'&&sameSources(revision.sourceRefs,publication.sourceRefs)&&revision.contextSourceRefs!==undefined&&sameSources(revision.contextSourceRefs,lineage.sourceRefs)&&revision.contextSkillRefs!==undefined&&revision.contextSkillRefs.length===lineage.skills.length&&revision.contextSkillRefs.every((ref,index)=>sameInstructionSkill(ref,lineage.skills[index]));});
+      if(existing)return {artifactId:existing.id,revision:existing.revisions.at(-1)!.revision};
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,input.taskId),prepared=moduleNotesPublication(task,input);
+        this.validArtifacts(task,prepared.expectedArtifacts);this.validModuleStates(task,prepared.expectedModuleStates);const inherited=context(task,prepared);this.validRefs(task,inherited.sourceRefs);this.assertRevisionSkills(state,task,inherited.skills);
+        const saved=this.appendArtifact(task,{title:prepared.title,content:prepared.content,mimeType:prepared.mimeType,sourceRefs:prepared.sourceRefs,expectedArtifacts:prepared.expectedArtifacts,expectedModuleStates:prepared.expectedModuleStates},inherited.sourceRefs,inherited.skills);
+        // Explicit empty arrays distinguish a verified local snapshot from metadata-poor historical copies.
+        saved.revision.contextSourceRefs=clone(inherited.sourceRefs);saved.revision.contextSkillRefs=clone(inherited.skills);saved.revision.contextOrigin={kind:'module-notes-v1',contentDigest:saved.revision.digest,basis:prepared.expectedArtifacts[0],sessionRevision:input.sessionRevision};
+        return {artifactId:saved.artifactId,revision:saved.revision.revision};
+      });assertCurrent();return result;
+    });
+  }
+  private localTeachingLineage(state:State,task:Task,request:RequestInput){
+    if(task.status!=='active'||task.archive)throw Error('Resume the source owner task before saving new local work.');
+    const references=request.expectedArtifacts??[];this.validArtifacts(task,references);
+    const revisions=references.map(reference=>({reference,revision:latest(task.artifacts.find(item=>item.id===reference.artifactId)!.revisions)}));
+    const sourceRefs=sourceDependencyRefs({sourceRefs:[...(request.expectedSourceRefs??[]),...revisions.flatMap(({revision})=>sourceDependencyRefs(revision))]});
+    // The full union stays as lineage metadata. Only inherited history is relaxed: an older version that is neither a
+    // request ref nor any basis revision's direct link is skipped once a newer version of that source is directly cited.
+    // Every direct link (request or basis) is still validated, so a stale direct basis link still blocks.
+    const direct=[...(request.expectedSourceRefs??[]),...revisions.flatMap(({revision})=>revision.sourceRefs)],exact=(a:SourceRef,b:SourceRef)=>a.sourceId===b.sourceId&&a.version===b.version&&a.digest===b.digest;
+    this.validRefs(task,sourceRefs.filter(ref=>direct.some(link=>exact(link,ref))||!direct.some(link=>link.sourceId===ref.sourceId&&link.version>ref.version)));
+    const skills=revisions.flatMap(({reference,revision})=>artifactSkillRefs(task,reference.artifactId,revision)).filter((ref,index,all)=>all.findIndex(other=>sameInstructionSkill(other,ref))===index);this.assertRevisionSkills(state,task,skills);
+    return {sourceRefs,skills};
+  }
+  async saveDocumentRecipe(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<DocumentRecipeSaved>{
+    const value=clone(readDocumentRecipeSave(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=documentRecipePublication(this.task(this.state,value.taskId),value);if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(value.taskId,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),publication=documentRecipePublication(task,value);if(publication.kind==='existing')return publication.result;
+        const {request,artifact}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.validModuleStates(task,request.expectedModuleStates!);this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts,expectedModuleStates:request.expectedModuleStates},sourceRefs,skills);
+        task.requests.push({id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}});
+        return documentRecipeSaveResult(task,value);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveTableWorkflowDocument(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<{artifactId:string;revision:number}>{
+    const value=clone(readTableWorkflowDocumentSave(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=tableWorkflowDocumentPublication(this.task(this.state,value.taskId),value);if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(value.taskId,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),publication=tableWorkflowDocumentPublication(task,value);if(publication.kind==='existing')return publication.result;
+        const {request,artifact}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.validModuleStates(task,request.expectedModuleStates!);this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts,expectedModuleStates:request.expectedModuleStates},sourceRefs,skills);
+        task.requests.push({id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}});
+        return {artifactId:saved.artifactId,revision:saved.revision.revision};
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveDesignCanvas(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<CanvasSaved>{
+    const input=clone(readCanvasSave(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const owner=this.task(this.state,input.taskId),prior=designCanvasPublication(owner,input,this.projectGuidance(this.state,owner));if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(input.taskId,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,input.taskId),publication=designCanvasPublication(task,input,this.projectGuidance(state,task));if(publication.kind==='existing')return publication.result;
+        const {request,artifact}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        task.requests.push({id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest},...(request.artifactId?{targetArtifactId:request.artifactId,expectedRevision:request.expectedRevision}:{})});
+        return {task,artifactId:saved.artifactId,revision:saved.revision.revision};
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveCanvasSvg(raw:unknown,assertCurrent:()=>void=()=>{}):Promise<CanvasSaved>{
+    const input=clone(readCanvasSvg(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const owner=this.task(this.state,input.taskId),prior=canvasSvgPublication(owner,input,this.projectGuidance(this.state,owner));if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(input.taskId,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,input.taskId),publication=canvasSvgPublication(task,input,this.projectGuidance(state,task));if(publication.kind==='existing')return publication.result;
+        const {request,artifact}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        task.requests.push({id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest},...(request.artifactId?{targetArtifactId:request.artifactId,expectedRevision:request.expectedRevision}:{})});
+        return {task,artifactId:saved.artifactId,revision:saved.revision.revision};
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  /** Explicit local calculation publication only: no arbitrary output, runner or send authority. */
+  saveExperimentRun(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const {input,retryOf}=readExperimentRunCommand(raw);
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,input.taskId),prior=inspectExperimentRun(task,input);
+      if(prior.kind==='saved')return clone(prior);
+      if(prior.kind==='running')throw Error('The original run is still saving. Check its outcome.');
+      let index=0;if(prior.kind==='terminal'){if(!prior.canRetry||retryOf!==prior.requestId)throw Error('Check the original run and explicitly retry its unsuccessful save.');index=Array.from({length:8},(_,index)=>index).find(index=>experimentRunId(input,index)===retryOf)!+1;}else if(retryOf!==undefined)throw Error('There is no unsuccessful run to retry.');
+      const release=this.modelConcurrency.acquire(input.taskId,false);
+      try{
+      const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,input.taskId);admitExperimentRun(owner,input);
+        const references=[input.basis,...(input.parent?[input.parent]:[])];this.validArtifacts(owner,references);
+        const revisions=references.map(reference=>({reference,revision:latest(owner.artifacts.find(item=>item.id===reference.artifactId)!.revisions)}));
+        const sourceRefs=sourceDependencyRefs({sourceRefs:revisions.flatMap(({revision})=>sourceDependencyRefs(revision))});
+        this.validRefs(owner,sourceRefs);
+        const skills=revisions.flatMap(({reference,revision})=>artifactSkillRefs(owner,reference.artifactId,revision)).filter((ref,index,all)=>all.findIndex(other=>sameInstructionSkill(other,ref))===index);this.assertRevisionSkills(state,owner,skills);
+        const request=experimentRunRequest(input,index),content=JSON.stringify(makeExperimentRun(input,index));readExperimentRun(content);this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(owner,{title:(input.title+' — saved run').slice(0,500),content,mimeType:EXPERIMENT_RUN_MIME,sourceRefs:[...input.sourceRefs],expectedArtifacts:references},sourceRefs,skills);
+        owner.requests.push({id:request.requestId,kind:'experiment',prompt:request.prompt,digest:hash(JSON.stringify(request)),status:'completed',concurrency:'exclusive',sourceRefs:[...input.sourceRefs],contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}});
+        return inspectExperimentRun(owner,input);
+      });assertCurrent();return result;
+      }finally{release();}
+    });
+  }
+  /** Receipt identity retains the historical runRequest payload and project-guidance digest. */
+  private reviewedConceptDigest(state:State,task:Task,request:RequestInput){
+    const sourceRefs=request.expectedSourceRefs!,projectInstructions=this.projectGuidance(state,task);
+    return hash(JSON.stringify({...request,sourceIds:sourceRefs.map(ref=>ref.sourceId),sourceRefs,...(projectInstructions?{projectInstructions}:{})}));
+  }
+  private reviewedConceptReceipt(state:State,task:Task,request:RequestInput){
+    const existing=task.requests.find(record=>record.id===request.requestId);
+    if(existing&&existing.digest!==this.reviewedConceptDigest(state,task,request))throw Error('Request ID has a different payload or source scope.');
+    return existing;
+  }
+  async savePackingConcept(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readPackingConceptSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),prior=packingConceptPublication(task,value);
+      const existing=this.reviewedConceptReceipt(this.state,task,prior.request);if(existing)return clone(packingConceptResult(task,value,existing));
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),{request,artifact}=packingConceptPublication(owner,value),{sourceRefs,skills}=this.localTeachingLineage(state,owner,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),digest=this.reviewedConceptDigest(state,owner,request),saved=this.appendArtifact(owner,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest,status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};owner.requests.push(record);
+        return packingConceptResult(owner,value,record);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async savePackingPractice(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readPackingPracticeSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),prior=packingPracticePublication(task,value);
+      const existing=this.reviewedConceptReceipt(this.state,task,prior.request);if(existing)return clone(packingPracticeResult(task,value,existing));
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),{request,artifact}=packingPracticePublication(owner,value),{sourceRefs,skills}=this.localTeachingLineage(state,owner,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),digest=this.reviewedConceptDigest(state,owner,request),saved=this.appendArtifact(owner,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest,status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};owner.requests.push(record);
+        return packingPracticeResult(owner,value,record);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveSignalConcept(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readSignalConceptSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),prior=signalConceptPublication(task,value);
+      const existing=this.reviewedConceptReceipt(this.state,task,prior.request);if(existing)return clone(signalConceptResult(task,value,existing));
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),{request,artifact}=signalConceptPublication(owner,value),{sourceRefs,skills}=this.localTeachingLineage(state,owner,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),digest=this.reviewedConceptDigest(state,owner,request),saved=this.appendArtifact(owner,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest,status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};owner.requests.push(record);
+        return signalConceptResult(owner,value,record);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveSignalPractice(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readSignalPracticeSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),prior=signalPracticePublication(task,value);
+      const existing=this.reviewedConceptReceipt(this.state,task,prior.request);if(existing)return clone(signalPracticeResult(task,value,existing));
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),{request,artifact}=signalPracticePublication(owner,value),{sourceRefs,skills}=this.localTeachingLineage(state,owner,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),digest=this.reviewedConceptDigest(state,owner,request),saved=this.appendArtifact(owner,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest,status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};owner.requests.push(record);
+        return signalPracticeResult(owner,value,record);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveSignalOverwrite(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readSignalOverwriteSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),prior=signalOverwritePublication(task,value);
+      const existing=this.reviewedConceptReceipt(this.state,task,prior.request);if(existing)return clone(signalOverwriteResult(task,value,existing));
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),{request,artifact}=signalOverwritePublication(owner,value),{sourceRefs,skills}=this.localTeachingLineage(state,owner,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),digest=this.reviewedConceptDigest(state,owner,request),saved=this.appendArtifact(owner,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest,status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};owner.requests.push(record);
+        return signalOverwriteResult(owner,value,record);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveTruthTable(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readTruthTableSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),prior=truthTablePublication(task,value);
+      const existing=this.reviewedConceptReceipt(this.state,task,prior.request);if(existing)return clone(truthTableResult(task,value,existing));
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),{request,artifact}=truthTablePublication(owner,value),{sourceRefs,skills}=this.localTeachingLineage(state,owner,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),digest=this.reviewedConceptDigest(state,owner,request),saved=this.appendArtifact(owner,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest,status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};owner.requests.push(record);
+        return truthTableResult(owner,value,record);
+      });assertCurrent();return result;}finally{release();}
+    });
+  }
+  async saveExperimentPractice(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readExperimentPracticeSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=experimentPracticePublication(this.task(this.state,value.taskId),value);if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(value.taskId,false);
+      try{
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),publication=experimentPracticePublication(task,value);if(publication.kind==='existing')return publication.result;
+        const {request,artifact,index}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};task.requests.push(record);
+        return experimentPracticeResult(task,value,index,record);
+      });assertCurrent();return result;
+      }finally{release();}
+    });
+  }
+  async saveFormulaComparison(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readFormulaComparisonSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=formulaComparisonPublication(this.task(this.state,value.taskId),value);if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(value.taskId,false);
+      try{
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),publication=formulaComparisonPublication(task,value);if(publication.kind==='existing')return publication.result;
+        const {request,artifact}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        task.requests.push({id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}});
+        return inspectFormulaComparisonTask(task,value);
+      });assertCurrent();return result;
+      }finally{release();}
+    });
+  }
+  async saveSourceFormula(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const command=clone(readSourceFormulaCommand(raw)),value=command.input;
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=sourceFormulaPublication(this.task(this.state,value.taskId),command);if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(value.taskId,false);
+      try{
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),publication=sourceFormulaPublication(task,command);if(publication.kind==='existing')return publication.result;
+        const {request,artifact,index}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};task.requests.push(record);
+        return {...sourceFormulaResult(task,value,index,record),alreadySaved:false};
+      });assertCurrent();return result;
+      }finally{release();}
+    });
+  }
+  async saveTargetPractice(raw:unknown,assertCurrent:()=>void=()=>{}){
+    const value=clone(readTargetPracticeSubmission(raw));
+    return this.exclusive(async()=>{
+      assertCurrent();const prior=targetPracticePublication(this.task(this.state,value.taskId),value);if(prior.kind==='existing')return clone(prior.result);
+      const release=this.modelConcurrency.acquire(value.taskId,false);
+      try{
+      const result=await this.commit(state=>{
+        assertCurrent();const task=this.task(state,value.taskId),publication=targetPracticePublication(task,value);if(publication.kind==='existing')return publication.result;
+        const {request,artifact,index,binding}=publication,{sourceRefs,skills}=this.localTeachingLineage(state,task,request),directRefs=[...request.expectedSourceRefs!];this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(task,{...artifact,sourceRefs:directRefs,expectedArtifacts:request.expectedArtifacts},sourceRefs,skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:directRefs})),status:'completed',concurrency:'exclusive',sourceRefs:directRefs,contextSourceRefs:sourceRefs,contextSkillRefs:skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest}};task.requests.push(record);
+        return targetPracticeResult(task,value,binding,index,record);
+      });assertCurrent();return result;
+      }finally{release();}
+    });
+  }
+  /** Fixed local workflow output only. Source checkboxes govern sending, not exact reviewed local evidence. */
+  saveWorkflowArtifact(raw:WorkflowArtifactPublication,assertCurrent:()=>void=()=>{}):Promise<RequestRecord>{
+    const value=clone(raw);
+    return this.exclusive(async()=>{
+      assertCurrent();const task=this.task(this.state,value.taskId),publication=prepareWorkflowPublication(task,value),prior=this.workflowPublicationReceipt(task,publication);
+      if(prior)return clone(prior);
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{const result=await this.commit(state=>{
+        assertCurrent();const owner=this.task(state,value.taskId),current=prepareWorkflowPublication(owner,value),{request,artifact}=current;
+        const target=request.artifactId?owner.artifacts.find(item=>item.id===request.artifactId)?.revisions.at(-1):undefined;
+        if(request.artifactId&&(!target||target.revision!==request.expectedRevision))throw Error('Artifact changed. Reload before revising.');
+        const lineageRequest={...request,expectedArtifacts:[...request.expectedArtifacts,...(target?[{artifactId:request.artifactId!,revision:target.revision,digest:target.digest}]:[])]},lineage=this.localTeachingLineage(state,owner,lineageRequest);
+        text(request.requestId,'Request ID',200);this.claimRequest(state,request.requestId);
+        const startedAt=this.time(),saved=this.appendArtifact(owner,{...artifact,...(value.target??{}),sourceRefs:[...request.expectedSourceRefs],expectedArtifacts:lineageRequest.expectedArtifacts},lineage.sourceRefs,lineage.skills);
+        const record:RequestRecord={id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:request.expectedSourceRefs,...(this.projectGuidance(state,owner)?{projectInstructions:this.projectGuidance(state,owner)}:{})})),status:'completed',concurrency:'exclusive',sourceRefs:[...request.expectedSourceRefs],contextSourceRefs:lineage.sourceRefs,contextSkillRefs:lineage.skills,startedAt,finishedAt:this.time(),artifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest},...(value.target?{targetArtifactId:value.target.artifactId,expectedRevision:value.target.expectedRevision}:{})};
+        owner.requests.push(record);return record;
+      });assertCurrent();return clone(result);}finally{release();}
+    });
+  }
+  /** Historical completed receipts retain their original digest, including legacy project-guidance snapshots. */
+  private workflowPublicationReceipt(task:Task,publication:{request:RequestInput;artifact:RequestOutput}):RequestRecord|undefined{
+    const {request,artifact}=publication,previous=task.requests.find(item=>item.id===request.requestId);if(!previous)return;
+    if(previous.status!=='completed'||!previous.answer)throw Error('This publication is '+previous.status+'. Inspect its saved outcome before starting a separate deliberate attempt.');
+    const saved=task.artifacts.find(item=>item.id===previous.answer!.artifactId)?.revisions.find(item=>item.revision===previous.answer!.revision&&item.digest===previous.answer!.digest);
+    if(previous.kind!==request.kind||previous.prompt!==request.prompt||previous.targetArtifactId!==request.artifactId||previous.expectedRevision!==request.expectedRevision||previous.sourceRefs.length!==request.expectedSourceRefs?.length||previous.sourceRefs.some(ref=>!request.expectedSourceRefs?.some(expected=>ref.sourceId===expected.sourceId&&ref.version===expected.version&&ref.digest===expected.digest))||!saved||saved.mimeType!==artifact.mimeType||saved.title!==artifact.title||saved.content!==artifact.content||saved.encoding==='base64')throw Error('Request ID has a different payload or source scope.');
+    return previous;
+  }
+  /** Native-reviewed publication has a cancellable preparation and one atomic output/completion commit. */
+  async saveWindowWorkflow(raw:unknown,fence:WindowWorkflowCaptureFence):Promise<RequestRecord>{
+    const value=clone(raw),controller=new AbortController();
+    const initial=await this.exclusive(()=>{const taskId=(value as {taskId:string}).taskId,task=this.task(this.state,taskId),publication=prepareWindowWorkflowPublication(task,value);return {publication,prior:this.workflowPublicationReceipt(task,publication)};});
+    if(initial.prior)return clone(initial.prior);
+    const {request}=initial.publication;
+    assertWindowWorkflowPublicationContext(await this.getTask(request.taskId),initial.publication);await fence.check();fence.assertCurrent();
+    const begun=await this.exclusive(async()=>{
+      const task=this.task(this.state,request.taskId),publication=prepareWindowWorkflowPublication(task,value),prior=this.workflowPublicationReceipt(task,publication);if(prior)return {prior};
+      const release=this.modelConcurrency.acquire(task.id,false);
+      try{await this.commit(state=>{
+        fence.assertCurrent();const owner=this.task(state,task.id),current=prepareWindowWorkflowPublication(owner,value);assertWindowWorkflowPublicationContext(owner,current);const lineage=this.localTeachingLineage(state,owner,current.request);
+        text(request.requestId,'Request ID',200);this.claimRequest(state,request.requestId);
+        owner.requests.push({id:request.requestId,kind:request.kind,prompt:request.prompt,digest:hash(JSON.stringify({...request,sourceRefs:request.expectedSourceRefs,...(this.projectGuidance(state,owner)?{projectInstructions:this.projectGuidance(state,owner)}:{})})),status:'running',concurrency:'exclusive',sourceRefs:[...request.expectedSourceRefs],contextSourceRefs:lineage.sourceRefs,contextSkillRefs:lineage.skills,startedAt:this.time()});
+      });this.controllers.set(request.requestId,controller);return {release};}catch(error){release();throw error;}
+    });
+    if(begun.prior)return clone(begun.prior);
+    try{
+      let failure:unknown;
+      try{
+        await fence.check();fence.assertCurrent();if(controller.signal.aborted)throw Error('Image review publication stopped.');
+        return await this.exclusive(async()=>{
+          // This host-owned native check cannot call core/follow reconciliation while the queue is owned.
+          await fence.checkCommit();fence.assertCurrent();if(controller.signal.aborted)throw Error('Image review publication stopped.');
+          return this.commit(state=>{
+            fence.assertCurrent();const owner=this.task(state,request.taskId),record=owner.requests.find(item=>item.id===request.requestId)!;
+            if(record.status!=='running'||controller.signal.aborted)throw Error('Image review publication stopped.');
+            const current=prepareWindowWorkflowPublication(owner,value);assertWindowWorkflowPublicationContext(owner,current);const lineage=this.localTeachingLineage(state,owner,current.request);
+            const saved=this.appendArtifact(owner,{...current.artifact,sourceRefs:[...request.expectedSourceRefs],expectedArtifacts:request.expectedArtifacts},lineage.sourceRefs,lineage.skills);
+            record.contextSourceRefs=lineage.sourceRefs;record.contextSkillRefs=lineage.skills;record.status='completed';record.finishedAt=this.time();record.artifactId=saved.artifactId;record.answer={artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest};return clone(record);
+          });
+        });
+      }catch(error){failure=error;}
+      return await this.exclusive(()=>this.commit(state=>{const record=this.task(state,request.taskId).requests.find(item=>item.id===request.requestId)!;if(record.status==='running'){record.status=controller.signal.aborted?'cancelled':'failed';record.finishedAt=this.time();record.error=failure instanceof Error?failure.message:String(failure);}return clone(record);}));
+    }finally{this.controllers.delete(request.requestId);begun.release!();}
   }
   private helperSourceReportSaved(task:Task,input:HelperSourceBatchInspection):HelperSourceBatchSaved|undefined{
     const {binding,...request}=input,claimHash=hash('helper-source-report:'+binding),receipt=findHelperSourceReportReceipt(this.state.usedRequestIds,claimHash);
@@ -1373,7 +2070,7 @@ export class Companion {
     return this.exclusive(() => this.commit(state => {
       const task = this.task(state, taskId);if(task.archive)return reject('conflict','Restore this archived task before resuming it.'); task.status = 'active';
       const affectedArtifacts = task.artifacts.flatMap(artifact => {
-        const revisions = artifact.revisions.filter(revision => { try { this.validRefs(task, revision.sourceRefs); return false; } catch { return true; } }).map(revision => revision.revision);
+        const revisions = artifact.revisions.filter(revision => { try { this.validRefs(task, sourceDependencyRefs(revision)); return false; } catch { return true; } }).map(revision => revision.revision);
         return revisions.length ? [{ artifactId: artifact.id, revisions }] : [];
       });
       return { task, sourceContext:sourceResumeContext(task), staleSourceIds: task.sources.filter(source => source.freshness !== 'fresh').map(source => source.id), affectedArtifacts, interruptedRequestIds: task.requests.filter(request => request.status === 'interrupted').map(request => request.id) };
@@ -1433,8 +2130,62 @@ export class Companion {
     }));
   }
 
+  private async askRequestQuestion(taskId:string,requestId:string,controller:AbortController,value:RequestQuestionDefinition,onPublished?:()=>void,signal?:AbortSignal):Promise<RequestQuestionDecision>{
+    const definition=readRequestQuestionDefinition(value),questionId=randomUUID(),questionSignal=signal?AbortSignal.any([controller.signal,signal]):controller.signal;
+    let resolve!:(value:RequestQuestionDecision)=>void,rejectWait!:(error:Error)=>void;
+    const answer=new Promise<RequestQuestionDecision>((yes,no)=>{resolve=yes;rejectWait=no;});void answer.catch(()=>{});
+    const abort=()=>rejectWait(Error('The running request stopped. This question cannot resume it.'));
+    if(questionSignal.aborted)throw Error('The request stopped before asking.');
+    questionSignal.addEventListener('abort',abort,{once:true});
+    this.questionWaiters.set(questionId,{taskId,requestId,resolve});
+    try{
+      await this.exclusive(()=>this.commit(state=>{
+        const task=this.task(state,taskId),request=task.requests.find(item=>item.id===requestId);
+        if(task.status!=='active'||task.archive||!request||request.status!=='running'||this.controllers.get(requestId)!==controller||questionSignal.aborted)throw Error('This running request is no longer available for a question.');
+        if((request.questions?.length??0)>=QUESTION_LIMITS.rounds||request.questions?.some(item=>item.status==='waiting'))throw Error('The request cannot ask another question.');
+        this.validRefs(task,request.contextSourceRefs??request.sourceRefs);for(const reference of requestSkillRefs(task,request))instructionSkillEntry(this.state.tasks,reference);
+        const question:RequestQuestionRecord={id:questionId,digest:hash(JSON.stringify({taskId,requestId,requestDigest:request.digest,questionId,definition,sourceRefs:request.sourceRefs})),revision:1,definition,status:'waiting',createdAt:this.time()};
+        request.questions=[...(request.questions??[]),question];return question;
+      }));
+      if(questionSignal.aborted)throw Error('The request stopped while asking.');
+      onPublished?.();
+      const decision=await answer;
+      await this.exclusive(()=>{
+        const task=this.task(this.state,taskId),request=task.requests.find(item=>item.id===requestId);
+        if(task.status!=='active'||task.archive||request?.status!=='running'||questionSignal.aborted||this.controllers.get(requestId)!==controller)throw Error('The request stopped before continuing.');
+        this.validRefs(task,request.contextSourceRefs??request.sourceRefs);for(const reference of requestSkillRefs(task,request))instructionSkillEntry(this.state.tasks,reference);
+      });
+      return decision;
+    }finally{questionSignal.removeEventListener('abort',abort);this.questionWaiters.delete(questionId);}
+  }
+
+  requestQuestionCommand(value:unknown):Promise<RequestQuestionReply>{
+    const command=readRequestQuestionCommand(value);
+    return this.exclusive(async()=>{
+      const task=this.task(this.state,command.taskId),request=task.requests.find(item=>item.id===command.requestId),question=request?.questions?.find(item=>item.id===command.questionId);
+      if(!request||request.digest!==command.requestDigest||!question||question.digest!==command.questionDigest)throw Error('This exact request question is unavailable. Your draft is kept.');
+      const reply=(record:RequestQuestionRecord):RequestQuestionReply=>({taskId:task.id,requestId:request.id,requestDigest:request.digest,questionId:record.id,questionDigest:record.digest,question:clone(record),active:task.status==='active'&&!task.archive&&request.status==='running'&&record.status==='waiting'&&this.questionWaiters.has(record.id)&&!this.controllers.get(request.id)?.signal.aborted});
+      if(command.type==='request.question.inspect')return reply(question);
+      const decision=requestQuestionDecision(question.definition,command.type==='request.question.skip'?{kind:'skip'}:command.decision);
+      if(question.status==='answered'||question.status==='skipped'){
+        if(question.revision!==command.expectedRevision+1||!sameRequestQuestionDecision(question.decision,decision))throw Error('A different answer was already recorded for this question.');
+        return reply(question);
+      }
+      const waiter=this.questionWaiters.get(question.id);
+      if(question.status!=='waiting'||question.revision!==command.expectedRevision||task.status!=='active'||task.archive||request.status!=='running'||!waiter||waiter.taskId!==task.id||waiter.requestId!==request.id||!this.controllers.has(request.id)||this.controllers.get(request.id)!.signal.aborted)throw Error('This question is no longer waiting in the current request. Inspect its saved state; nothing was sent.');
+      this.validRefs(task,request.contextSourceRefs??request.sourceRefs);for(const reference of requestSkillRefs(task,request))instructionSkillEntry(this.state.tasks,reference);
+      const saved=await this.commit(state=>{
+        const current=this.task(state,task.id).requests.find(item=>item.id===request.id)!.questions!.find(item=>item.id===question.id)!;
+        current.status=decision.kind==='skip'?'skipped':'answered';current.revision++;current.resolvedAt=this.time();current.decision=clone(decision);return clone(current);
+      });
+      waiter.resolve(clone(decision));
+      return reply(saved);
+    });
+  }
+
   async runRequest(input: RequestInput, runner: (context: RequestContext) => Promise<RequestOutput>, assertCurrent?:()=>void): Promise<RequestRecord> {
     input = clone(input);
+    if(input.explainDepth!==undefined){input.explainDepth=readExplainDepth(input.explainDepth);if(!['explain','revise'].includes(input.kind)||input.conversationAttempt||input.kind==='explain'&&input.artifactId)throw Error('Explanation depth applies only to an explanation or its revision.');}
     if(input.responseMode!==undefined)input.responseMode=Schema.decodeUnknownSync(ResponseModeSchema)(input.responseMode);
     if(input.inference!==undefined)input.inference=readRequestInferenceSelection(input.inference);
     if(input.instructionSkill!==undefined&&input.instructionSkill!==null)input.instructionSkill=Schema.decodeUnknownSync(InstructionSkillReferenceSchema,{onExcessProperty:'error'})(input.instructionSkill);
@@ -1447,15 +2198,25 @@ export class Companion {
     let boundSubmittedDraft:ComposerDraft|undefined;
     const controller = new AbortController();
     const begun = await this.exclusive(async () => {
+      assertCurrent?.();
       const task = this.task(this.state, input.taskId), sourceRefs = this.requestRefs(task, input.sourceIds);
       const ordinarySkill=['explain','create'].includes(input.kind)&&!input.artifactId&&(!input.executionScope||input.executionScope.startsWith('response-preferences:v1:'));
       const ordinaryResponse=ordinarySkill||['explain','create'].includes(input.kind)&&!input.artifactId&&/^folder-instructions:v1:[a-f0-9]{64}$/.test(input.executionScope??'');
       if(!ordinarySkill&&(input.instructionSkill||input.instructionSkillRevision!==undefined))throw Error('Skills apply only to ordinary questions and drafts.');
       if(input.responseMode!==undefined&&!ordinaryResponse)throw Error('Response mode applies only to ordinary questions and drafts.');
+      if(task.session?.sourceSelection&&sourceRefs.some(ref=>!task.session!.sourceSelection!.sourceIds.includes(ref.sourceId)))throw Error('Source selection changed. Review the selected sources before sending again.');
       const previous=task.requests.find(request=>request.id===input.requestId),queuedMode=input.queuedFollowup?task.session?.queuedFollowups?.find(item=>item.id===input.queuedFollowup!.id)?.responseMode??'ordinary':undefined;
       const responseMode=ordinaryResponse?input.responseMode??queuedMode??(previous?previous.responseMode??'ordinary':taskResponseMode(task.session).mode):undefined;
       if(responseMode!==undefined)input.responseMode=responseMode;
       const currentSkill=instructionSkillSelection(task.session);
+      const outgoingArtifacts=[...(input.expectedArtifacts??[]),...(input.artifactId?[{artifactId:input.artifactId,revision:input.expectedRevision??task.artifacts.find(item=>item.id===input.artifactId)?.revisions.at(-1)?.revision??0,digest:''}]:[])];
+      for(const ref of outgoingArtifacts){const saved=task.artifacts.find(item=>item.id===ref.artifactId)?.revisions.find(item=>item.revision===ref.revision);if(!saved)throw Error('The requested artifact revision was not found.');assertArtifactContextCertain(task,ref.artifactId,saved);}
+      const revisionTarget=input.kind==='revise'&&input.artifactId?task.artifacts.find(artifact=>artifact.id===input.artifactId)?.revisions.find(revision=>revision.revision===input.expectedRevision):undefined;
+      if(revisionTarget)this.validRefs(task,artifactContextSources(task,input.artifactId!,revisionTarget));
+      const revisionSkills=revisionTarget?artifactSkillRefs(task,input.artifactId!,revisionTarget):[];
+      this.assertRevisionSkills(this.state,task,revisionSkills);
+      const contextSkill=revisionSkills.length?currentSkill.selection:input.instructionSkill??null;
+      if(revisionTarget&&!projectRequestTask(task,sourceRefs,this.state.tasks,contextSkill).artifacts.some(artifact=>artifact.id===input.artifactId&&artifact.revisions.some(saved=>saved.revision===revisionTarget.revision&&saved.digest===revisionTarget.digest)))throw Error(WITHHELD_ARTIFACT_CONTEXT);
       if(ordinarySkill&&!input.queuedFollowup&&(!sameInstructionSkill(currentSkill.selection,input.instructionSkill)||input.instructionSkillRevision!==undefined&&input.instructionSkillRevision!==currentSkill.revision))throw Error('The selected skill changed. Review the current task choice before asking.');
       const skill=input.instructionSkill?instructionSkillEntry(this.state.tasks,input.instructionSkill):undefined;
       if(input.expectedSourceRefs!==undefined){const refs=input.expectedSourceRefs;if(!Array.isArray(refs)||refs.length!==sourceRefs.length||new Set(refs.map(ref=>ref?.sourceId)).size!==refs.length||refs.some(ref=>!ref||Object.keys(ref).sort().join(',')!=='digest,sourceId,version'||!sourceRefs.some(actual=>actual.sourceId===ref.sourceId&&actual.version===ref.version&&actual.digest===ref.digest)))reject('conflict','Selected source versions changed. Review the current snapshot.');input.expectedSourceRefs=clone(sourceRefs);}
@@ -1475,6 +2236,8 @@ export class Companion {
         if (existing.digest !== digest && !legacyReplay && !legacyModeReplay) reject('conflict', 'Request ID has a different payload or source scope.');
         return { existing: clone(existing) };
       }
+      const release=this.modelConcurrency.acquire(task.id,isConcurrentOrdinary(input));
+      try{
       if(input.instructionSkill&&!input.queuedFollowup)availableInstructionSkillEntry(this.state.tasks,input.instructionSkill);
       const context = await this.commit(state => {
         const task = this.task(state, input.taskId); if (task.status !== 'active') reject('conflict', 'Resume the task before starting a request.');
@@ -1498,17 +2261,21 @@ export class Companion {
           let scope:{url:string;origin:string;continuation:unknown};try{scope=JSON.parse(input.executionScope??'');if(typeof scope.url!=='string'||new URL(scope.url).href!==scope.url||new URL(scope.url).origin!==review.origin||scope.origin!==review.origin||hash(scope.url)!==receipt.startPageDigest||JSON.stringify(scope.continuation)!==JSON.stringify(receipt))throw Error();}catch{reject('conflict','The exact browser continuation scope is unavailable. Existing work is kept.');}
         }
         if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
+        for(const ref of outgoingArtifacts){const saved=task.artifacts.find(item=>item.id===ref.artifactId)?.revisions.find(item=>item.revision===ref.revision);if(!saved)throw Error('The requested artifact revision was not found.');assertArtifactContextCertain(task,ref.artifactId,saved);}
         if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
         if(input.submittedDraft&&!input.artifactId&&['explain','create','experiment','procedure','browser'].includes(input.kind)&&input.prompt===input.submittedDraft.text.trim()&&sameComposerDraft(readComposerDraft(task.session),input.submittedDraft))boundSubmittedDraft=input.submittedDraft;
-        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||(item.responseMode??'ordinary')!==responseMode||!sameRequestInference(item.inference,input.inference)||!sameInstructionSkill(item.instructionSkill,input.instructionSkill)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
-        task.requests.push({ ...(responseMode?{responseMode}:{}),...(input.instructionSkill?{instructionSkill:clone(input.instructionSkill)}:{}),...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
+        if(input.queuedFollowup){const binding=input.queuedFollowup,session=task.session??emptyTaskSession(),item=pendingFollowups(session.queuedFollowups)[0];if(!item||item.status!=='queued'||item.id!==binding.id||item.id!==input.requestId||item.revision!==binding.revision||item.scope!==binding.scope||item.basis!==binding.basis||item.prompt!==input.prompt||item.kind!==input.kind||item.explainDepth!==input.explainDepth||(item.responseMode??'ordinary')!==responseMode||!sameRequestInference(item.inference,input.inference)||!sameInstructionSkill(item.instructionSkill,input.instructionSkill)||JSON.stringify(item.sourceRefs)!==JSON.stringify(sourceRefs)||this.queuedBasis(task,item.sourceRefs,item.precedingRequestIds)!==item.basis||task.requests.some(request=>request.status==='running'))reject('conflict','The exact first queued follow-up is no longer ready. Review it again.');task.session={...session,revision:session.revision+1,queuedFollowups:session.queuedFollowups!.map(entry=>entry.id===item.id?{...entry,status:'dispatched' as const,dispatchedRequestId:input.requestId}:entry)};}
+        const projected=projectRequestTask(task,sourceRefs,state.tasks,contextSkill),allContextRefs=[...sourceRefs,...projected.artifacts.flatMap(artifact=>artifact.revisions.flatMap(revision=>[...revision.sourceRefs,...(revision.contextSourceRefs??[])])),...projected.requests.flatMap(request=>[...request.sourceRefs,...(request.contextSourceRefs??[])])];
+        const contextSourceRefs=allContextRefs.filter((ref,index)=>allContextRefs.findIndex(other=>other.sourceId===ref.sourceId&&other.version===ref.version&&other.digest===ref.digest)===index);
+        const contextSkillRefs=[...(input.instructionSkill?[input.instructionSkill]:[]),...projected.artifacts.flatMap(artifact=>artifact.revisions.flatMap(revision=>artifactSkillRefs(task,artifact.id,revision))),...projected.requests.flatMap(request=>requestSkillRefs(task,request))].filter((ref,index,all)=>all.findIndex(other=>JSON.stringify(other)===JSON.stringify(ref))===index);
+        task.requests.push({...(outgoingArtifacts.length?{contextArtifactRefs:outgoingArtifacts.map(ref=>{const saved=task.artifacts.find(item=>item.id===ref.artifactId)!.revisions.find(item=>item.revision===ref.revision)!;return {artifactId:ref.artifactId,revision:saved.revision,digest:saved.digest};})}:{}),concurrency:isConcurrentOrdinary(input)?'ordinary':'exclusive',...(input.explainDepth?{explainDepth:input.explainDepth}:{}),contextSourceRefs,contextSkillRefs, ...(responseMode?{responseMode}:{}),...(input.instructionSkill?{instructionSkill:clone(input.instructionSkill)}:{}),...(input.inference?{inference:clone(input.inference)}:{}),id: input.requestId, kind: input.kind, prompt: input.prompt, digest, status: 'running', sourceRefs, startedAt: this.time(),...(input.memory?{memory:clone(input.memory)}:{}),...(input.conversationAttempt?{conversationAttempt:clone(input.conversationAttempt)}:{}),...(input.browserContinuation?{browserContinuation:clone(input.browserContinuation)}:{}), ...(input.artifactId ? { targetArtifactId: input.artifactId, expectedRevision: input.expectedRevision } : {}) });
         if(input.browserContinuation){const session=task.session!;task.session={...session,revision:session.revision+1,browserContinuationAttempt:{...session.browserContinuationAttempt!,phase:'submitted'}};}
-        const selected = new Set(sourceRefs.map(ref => ref.sourceId));
-        const {publicGithub:_publicGithub,...requestTask}=task;
-        return { ...(responseMode?{responseMode}:{}),...(skill?{instructionSkill:clone(skill)}:{}),...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs):projectTaskDialogue(task,input.requestId,sourceRefs)}:{}), task: { ...requestTask,...(task.session?{session:requestSession(task.session)}:{}), sources: task.sources.filter(source => selected.has(source.id)).map(source => ({ ...source, versions: [latest(source.versions)] })) }, sourceRefs };
+        const requestTask=projectRequestTask(task,sourceRefs,state.tasks,contextSkill);
+        return { ...(responseMode?{responseMode}:{}),...(skill?{instructionSkill:clone(skill)}:{}),...(projectInstructions?{projectInstructions}:{}),...(['explain','create','revise'].includes(input.kind)?{taskHistory:input.conversationAttempt?projectConversationAttemptDialogue(task,input.conversationAttempt,sourceRefs,state.tasks,contextSkill):projectTaskDialogue(task,input.requestId,sourceRefs,state.tasks,contextSkill)}:{}), task:requestTask, sourceRefs };
       });
       this.controllers.set(input.requestId, controller);
-      return { context };
+      return { context,release };
+      }catch(error){release();throw error;}
     });
     if (begun.existing) return begun.existing;
     const context = begun.context;
@@ -1516,7 +2283,8 @@ export class Companion {
     let output: RequestOutput | undefined, failure: unknown;
     try {
       if (controller.signal.aborted) throw new Error('Request cancelled.');
-      output = await Effect.runPromise(Effect.tryPromise({ try: () => runner({ ...context, signal: controller.signal }), catch: error => error }));
+      assertCurrent?.();
+      output = await Effect.runPromise(Effect.tryPromise({ try: () => runner({ ...context, signal: controller.signal,askQuestion:(question,onPublished,signal)=>this.askRequestQuestion(input.taskId,input.requestId,controller,question,onPublished,signal) }), catch: error => error }));
     } catch (error) { failure = error; }
     try {
       return await this.exclusive(() => this.commit(state => {
@@ -1527,16 +2295,25 @@ export class Companion {
           try{assertCurrent?.();}catch(error){failure=error;controller.abort(error);}
         }
         request.finishedAt = this.time();
+        closeRequestQuestions(request.questions,request.finishedAt,'The request ended before this question was answered.');
         if (failure || !output || controller.signal.aborted) {
           request.status = controller.signal.aborted ? 'cancelled' : 'failed';
           request.error = failure instanceof Error ? failure.message : String(failure ?? 'Request returned no output.');
         } else {
           try {
+            this.validRefs(task,[...(request.contextSourceRefs??request.sourceRefs)]);
+            if(input.instructionSkill)instructionSkillEntry(state.tasks,input.instructionSkill);
+            if(request.kind==='revise'&&request.targetArtifactId)this.assertRevisionSkills(state,task,request.contextSkillRefs??[]);
             if(input.expectedArtifacts!==undefined)this.validArtifacts(task,input.expectedArtifacts);
             if(input.expectedModuleStates!==undefined)this.validModuleStates(task,input.expectedModuleStates);
             const {modelReceipt,...answer}=output,receipt=modelReceipt===undefined?undefined:readProviderModelReceipt(modelReceipt);
-            if(receipt){const {provider,model,effort,tier}=receipt;if(receipt.requestId!==request.id||input.inference&&!sameRequestInference(input.inference,{provider,model,effort,tier}))throw Error('Provider model receipt does not match this request. No answer was accepted.');}
-            const artifact = this.appendArtifact(task, { ...answer, artifactId: input.artifactId, expectedRevision: input.expectedRevision, sourceRefs: request.sourceRefs });
+            if(receipt&&(receipt.requestId!==request.id||input.inference&&(receipt.provider!=='codex'||!sameRequestInference(input.inference,{provider:receipt.provider,model:receipt.model,effort:receipt.effort,tier:receipt.tier}))))throw Error('Provider model receipt does not match this request. No answer was accepted.');
+            if(input.explainDepth!==undefined||answer.mimeType===EXPLANATION_MIME){
+              const explanation=answer.mimeType===EXPLANATION_MIME?readExplanation(answer.content):undefined;
+              const sources=request.sourceRefs.flatMap(ref=>task.sources.find(source=>source.id===ref.sourceId)?.versions.filter(version=>version.version===ref.version&&version.digest===ref.digest)??[]);
+              if(!explanation||explanation.depth!==input.explainDepth||!explanationSourcesValid(explanation,request.sourceRefs,sources))throw Error(EXPLANATION_ERROR);
+            }
+            const artifact = this.appendArtifact(task, { ...answer, artifactId: input.artifactId, expectedRevision: input.expectedRevision, sourceRefs: request.sourceRefs },request.contextSourceRefs,request.contextSkillRefs);
             request.status = 'completed'; request.artifactId = artifact.artifactId;
             const saved=artifact.revision;request.answer={artifactId:artifact.artifactId,revision:saved.revision,digest:saved.digest};
             if(receipt)request.responseModel={...receipt,answer:{...request.answer}};
@@ -1549,15 +2326,18 @@ export class Companion {
         return request;
       }));
     } finally {
-      this.controllers.delete(input.requestId);
+      this.controllers.delete(input.requestId);begun.release();
     }
+  }
+  assertRequestCurrent(taskId:string,requestId:string):Promise<void>{
+    return this.exclusive(()=>{const task=this.task(this.state,taskId),request=task.requests.find(item=>item.id===requestId);if(!request||task.status!=='active'||task.archive||request.status!=='running')return reject('conflict','The request context changed. Review before sending again.');this.validRefs(task,request.contextSourceRefs??request.sourceRefs);for(const ref of request.contextArtifactRefs??[]){const revision=task.artifacts.find(item=>item.id===ref.artifactId)?.revisions.find(item=>item.revision===ref.revision&&item.digest===ref.digest);if(!revision)throw Error('The request artifact context changed. Review before sending again.');assertArtifactContextCertain(task,ref.artifactId,revision);}if(request.targetArtifactId){const revision=task.artifacts.find(item=>item.id===request.targetArtifactId)?.revisions.at(-1);if(revision)assertArtifactContextCertain(task,request.targetArtifactId,revision);}if(request.kind==='revise'&&request.targetArtifactId)this.assertRevisionSkills(this.state,task,request.contextSkillRefs??[]);if(request.instructionSkill)instructionSkillEntry(this.state.tasks,request.instructionSkill);});
   }
   cancelRequest(taskId: string, requestId: string): Promise<RequestRecord> {
     return this.exclusive(async () => {
       const result = await this.commit(state => {
         const task = this.task(state, taskId), request = task.requests.find(item => item.id === requestId);
         if (!request) return reject('not-found', 'Request was not found.');
-        if (request.status === 'running') { request.status = 'cancelled'; request.finishedAt = this.time(); request.error = 'Stopped by user.'; }
+        if (request.status === 'running') { request.status = 'cancelled'; request.finishedAt = this.time(); request.error = 'Stopped by user.';closeRequestQuestions(request.questions,request.finishedAt,'Stopped by user. This question is closed.'); }
         this.retire(task, 'Stop retired unexecuted approvals.'); return request;
       }); this.controllers.get(requestId)?.abort(); return result;
     });
@@ -1726,7 +2506,7 @@ export class Companion {
   close(): Promise<void> {
     const result = this.queue.then(async () => {
       if (this.closed) return;
-      this.closed = true; for (const controller of this.controllers.values()) controller.abort(); this.controllers.clear(); await this.releaseLock();
+      this.closed = true; this.memoryChanges.abort(Error(MEMORY_CHANGED)); for (const controller of this.controllers.values()) controller.abort(); this.controllers.clear(); await this.releaseLock();
     });
     this.queue = result.then(() => undefined, () => undefined); return result;
   }

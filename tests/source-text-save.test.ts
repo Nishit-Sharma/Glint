@@ -127,7 +127,7 @@ test('a reviewed refresh-required text source saves fresh and applies the ordina
  await core.replaceSession(input.taskId,session.revision,{...session,browserContext:{origin:'https://fixture.invalid',url:'https://fixture.invalid',requestId:'old-browser'},draft:'Keep unsent text',draftKind:'explain',draftRevision:4});
  const observed=await core.getTask(input.taskId),saved=await core.saveTextSource(pending);
  expect(saved.task.sources[0].freshness).toBe('fresh');expect(saved.task.sources[0]).not.toHaveProperty('staleReason');
- expect(saved.task.session).toMatchObject({draft:'Keep unsent text',draftRevision:4,revision:observed.session!.revision+1,contextRevision:observed.session!.contextRevision!+1});
+ expect(saved.task.session).toMatchObject({draft:'Keep unsent text',draftRevision:4,revision:observed.session!.revision+2,contextRevision:observed.session!.contextRevision!+2});
  expect(saved.task.session).not.toHaveProperty('browserContext');
  expect((await core.saveTextSource(pending)).task.session).toEqual(saved.task.session);
 });

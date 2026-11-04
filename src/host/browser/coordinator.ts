@@ -1,4 +1,6 @@
+import {projectRequestTask} from '../../core/request-context';
 import {BrowserControl,BrowserControlPaused} from './control';
+import {requirePatchedBrowser} from './patched-chromium';
 import type {BrowserContinuationReceipt} from '../../shared/browser-continuation';
 import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
@@ -51,6 +53,7 @@ function untilStopped<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 export function taskContext(task: Task, currentRequestId: string, current?: {observation:BrowserObservation; admissionFailure?:FormValuesMismatch}): string {
+  task=projectRequestTask(task,[]);
   const turns = task.requests.filter(request => request.id !== currentRequestId).slice(-6).map(request => {
     const artifact = task.artifacts.find(item => item.id === request.artifactId)?.revisions.at(-1);
     const readable=artifact&&request.artifactId&&request.status==='completed'?readTaskArtifactText(task,request.artifactId,artifact.revision):undefined;
@@ -82,7 +85,7 @@ export class BrowserCoordinator {
     }
     throw Error('Task session could not be saved.');
   }
-  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; expectedArtifacts?:ArtifactRef[]; workflow?:ArtifactRef; pathPrefix?:string; control?:BrowserControl; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
+  async run(input: { taskId: string; requestId: string; goal: string; origin: string; url: string; transmissionApproved: boolean; expectedArtifacts?:ArtifactRef[]; workflow?:ArtifactRef; pathPrefix?:string; control?:BrowserControl; submittedDraft?:ComposerDraft; continuation?:BrowserContinuationReceipt; authorizeStart?:(signal:AbortSignal)=>Promise<void>; assertExecutionCurrent?:()=>Promise<void>; approveAction: (input: ApprovalInput) => Promise<ActionDecision>; headless?: boolean; onWindowOwner?:BrowserWindowOwner; onProgress?: (message: string) => void }) {
     if (input.transmissionApproved !== true) throw Error('Approve transmission of this task history and the selected browser origin before planning.');
     const endpointKey = this.planner.endpointKey;
     return this.core.runRequest({ taskId: input.taskId, requestId: input.requestId, kind: 'browser', prompt: input.goal, sourceIds: [],...(input.expectedArtifacts?{expectedArtifacts:input.expectedArtifacts}:{}),...(input.continuation?{browserContinuation:input.continuation}:{}), ...(input.submittedDraft?{submittedDraft:input.submittedDraft}:{}), executionScope: JSON.stringify({ endpointKey, origin: input.origin, url: input.url,...(input.pathPrefix?{pathPrefix:input.pathPrefix}:{}),...(input.continuation?{continuation:input.continuation}:{}) }) }, async ctx => {
@@ -91,6 +94,9 @@ export class BrowserCoordinator {
       const stop = () => { void browser?.close().catch(()=>{}); };
       ctx.signal.addEventListener('abort', stop, { once: true });
       try {
+        if (ctx.signal.aborted) throw Error('Stopped before opening the browser.');
+        // Refuse before asking consent for a launch that could not happen. LocalBrowser.open checks again.
+        await untilStopped(requirePatchedBrowser(),ctx.signal);
         if (ctx.signal.aborted) throw Error('Stopped before opening the browser.');
         if(input.authorizeStart)await untilStopped(input.authorizeStart(ctx.signal),ctx.signal);
         if(ctx.signal.aborted)throw Error('Stopped before opening the browser.');
@@ -102,7 +108,7 @@ export class BrowserCoordinator {
         try { observation = await browser.observe(); } catch(error) { throw Error(browserObservationErrorMessage(error)); }
         input.onProgress?.(`Reading ${observation.title || 'the selected page'}…`);
         await this.core.beginBrowserRun(input.taskId,{id:input.requestId,endpointKey,origin:input.origin,browserId:browser.id,initialObservation:observation,...(input.workflow?{workflow:input.workflow}:{})},ctx.task.session?.contextRevision??0);
-        control.attach(ctx.signal,async()=>{browser!.yieldToUser();await browser!.bringToFront();});
+        control.attach(ctx.signal,async()=>{browser!.yieldToUser();await browser!.bringToFront();},browser.engine);
         const boundBrowser=browser;
         const assertRecoveryOwner=(current:Task)=>{
           if(ctx.signal.aborted)throw Error('Stopped before reading the changed page.');
@@ -125,6 +131,7 @@ export class BrowserCoordinator {
           const task = await this.core.getTask(input.taskId);
           currentTurn();
           if(refreshedBeforeProposal)assertRecoveryOwner(task);
+          await this.core.assertRequestCurrent(input.taskId,input.requestId);currentTurn();
           const plan = await turnWait(this.planner.plan({ goal: input.goal, context: taskContext(task, input.requestId,{observation,admissionFailure}), observation, signal: turnSignal }));
           currentTurn();
           if (ctx.signal.aborted) throw Error('Stopped before accepting the plan.');
@@ -188,13 +195,16 @@ export class BrowserCoordinator {
           }
           currentTurn();
           try {
-            const result = await browser.execute(proposal.id, token,turnSignal);
+            const result = await browser.execute(proposal.id, token,turnSignal,input.assertExecutionCurrent?()=>turnWait(input.assertExecutionCurrent!()):undefined);
             if (!result.proposal.result) throw Error('Browser returned no observation.');
             observation = result.proposal.result;
             input.onProgress?.(`Observed ${observation.title || 'the page result'}. Preparing a response…`);
             await this.patch(input.taskId, session => ({ ...session, ...(session.browserContext?.requestId===input.requestId?{browserContext:{origin:input.origin,url:observation.url,requestId:input.requestId}}:{}), runs: session.runs.map(run => ({ ...run, operations: run.operations.map(operation => operation.id !== proposal.id ? operation : { ...operation, status: 'observed', result: observation, ...(result.receipt ? { receipt: result.receipt } : {}) }) })) }));
           } catch (error) {
-            if(turnSignal.aborted&&browser.proposal(proposal.id)?.status==='proposed')currentTurn();
+            if(turnSignal.aborted&&browser.proposal(proposal.id)?.status==='proposed'){
+              await this.patch(input.taskId,session=>({...session,runs:session.runs.map(run=>run.id!==input.requestId?run:{...run,operations:run.operations.map(operation=>operation.id!==proposal.id?operation:{...operation,status:'retired',error:'This request stopped before the action was run.'})})}));
+              currentTurn();
+            }
             const outcome=browser.proposal(proposal.id)?.status;
             const status = outcome === 'uncertain'||outcome === 'completed'||outcome === 'executing' ? 'uncertain' : 'failed';
             await this.patch(input.taskId, session => ({ ...session, runs: session.runs.map(run => ({ ...run, operations: run.operations.map(operation => operation.id !== proposal.id ? operation : { ...operation, status, error: status==='uncertain'?'The website action may have completed. Inspect its outcome before another attempt.':browserActionFailure(error) }) })) }));

@@ -24,6 +24,7 @@ test('active discovery hides archived projects, while Archived view retains exac
  directory.find(node=>node.type==='select').props.onChange({currentTarget:{value:'archived'}});directory.render();
  expect(directory.nodes().filter(node=>node.props['data-project-directory-entry']).map(node=>node.props['data-project-directory-entry'])).toEqual(['survey']);
  expect(directory.nodes().some(node=>node.type==='#text'&&node.props.text==='Access notes')).toBe(true);
+ const preview=directory.find(node=>node.type==='details'&&node.props.className==='project-directory-preview');expect(preview.props.open).toBe(false);expect(directory.nodes().some(node=>node.type==='#text'&&node.props.text==='PRIVATE_PINNED_TEXT')).toBe(false);preview.props.onToggle({currentTarget:{open:true}});directory.render();expect(directory.nodes().some(node=>node.type==='#text'&&node.props.text==='PRIVATE_PINNED_TEXT')).toBe(true);expect(directory.nodes().some(node=>node.type==='#text'&&node.props.text==='PRIVATE_LATEST_TEXT')).toBe(false);expect(selected).not.toHaveBeenCalled();
  const sidebar=createControlledRenderer(()=>createElement(TaskSidebar,{character:null,projects,tasks:tasks.filter(task=>!task.archive),onSelectTask:()=>{},onCreateTask:()=>{},onSettings:()=>{},onProjects:()=>{}}));sidebar.render();
  expect(sidebar.nodes().filter(node=>node.props.className==='task-sidebar-project').map(node=>node.props['aria-label'])).toEqual(['Supply rota','Empty notebook']);
  expect(sidebar.nodes().some(node=>node.props['aria-label']==='Field visit')).toBe(true);

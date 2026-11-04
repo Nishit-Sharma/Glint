@@ -6,11 +6,17 @@ import {createRequestFollowupIntent,type RequestFollowupState} from '../request-
 import './response-branch-review.css';
 import './request-followup-review.css';
 
+/** Return focus to the control that opened the review. The opener can stay disabled for a moment while the task refreshes after closing, so wait briefly for it, and never take focus the user has already moved elsewhere. */
+function restoreFocus(opener:Element|null,dialog:HTMLDialogElement|null){
+ if(!(opener instanceof HTMLElement))return;const started=performance.now();
+ const attempt=()=>{if(!opener.isConnected)return;const active=document.activeElement;if(active&&active!==document.body&&active!==opener&&active.isConnected&&!dialog?.contains(active))return;if(!(opener as HTMLButtonElement).disabled){opener.focus();return;}if(performance.now()-started<2000)requestAnimationFrame(attempt);};
+ attempt();
+}
 export function RequestFollowupReview({task,selection,isCurrent,onSend,onRead,onRecorded,onClose,available,error}:{task:Task;selection:RequestFollowupSelection;isCurrent:()=>boolean;onSend:(command:RequestFollowupCommand)=>Promise<Task|undefined>;onRead:(taskId:string)=>Promise<Task>;onRecorded:(task:Task)=>void;onClose:()=>void;available:boolean;error?:string}){
  const review=reviewRequestFollowup(task,selection),dialog=useRef<HTMLDialogElement>(null),input=useRef<HTMLTextAreaElement>(null),alive=useRef(true),props=useRef({isCurrent,onSend,onRead,onRecorded});props.current={isCurrent,onSend,onRead,onRecorded};
- const [prompt,setPrompt]=useState(review.request.prompt),[sourceIds,setSourceIds]=useState<string[]>([]),[state,setState]=useState<RequestFollowupState>({kind:'idle'}),[inputError,setInputError]=useState(''),id=useId();
+ const [opener]=useState(()=>typeof document==="undefined"?null:document.activeElement),[prompt,setPrompt]=useState(review.request.prompt),[sourceIds,setSourceIds]=useState<string[]>([]),[state,setState]=useState<RequestFollowupState>({kind:'idle'}),[inputError,setInputError]=useState(''),id=useId();
  const [intent]=useState(()=>createRequestFollowupIntent({task,selection,createId:()=>crypto.randomUUID(),isCurrent:()=>alive.current&&props.current.isCurrent(),send:command=>props.current.onSend(command),read:taskId=>props.current.onRead(taskId),onRecorded:value=>props.current.onRecorded(value),onState:setState}));
- useEffect(()=>{alive.current=true;const opener=document.activeElement;dialog.current?.showModal();input.current?.focus();return()=>{alive.current=false;dialog.current?.close();if(opener instanceof HTMLElement&&opener.isConnected)opener.focus();};},[]);
+ useEffect(()=>{alive.current=true;dialog.current?.showModal();input.current?.focus();return()=>{alive.current=false;const node=dialog.current;node?.close();restoreFocus(opener,node);};},[]);
  const locked=state.kind!=='idle',pending=state.kind==='sending'||state.kind==='checking',selectedCount=new Set(sourceIds).size;
  return <dialog ref={dialog} className="response-branch-review request-followup-review" aria-labelledby={id+'-heading'} onCancel={event=>{event.preventDefault();onClose();}}><form onSubmit={event=>{event.preventDefault();setInputError('');void intent.submit({prompt,sourceIds}).catch(()=>setInputError('Review this question and its sources before sending. Use at most 16,000 characters.'));}}>
   <header><h2 id={id+'-heading'}>Prepare a new text follow-up</h2><p>The earlier request {review.request.status==='cancelled'?'stopped locally':'failed locally'}. The service may still complete or charge for it. This new request uses current approval. Your original request and unsent composer draft are kept.</p></header>

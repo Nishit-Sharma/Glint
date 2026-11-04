@@ -2,11 +2,13 @@ import {createServer} from 'node:http';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {expect,test} from 'vitest';
+import {expect,test,vi} from 'vitest';
 import {createCompanion} from '../src/core/companion';
 import {BrowserCoordinator,type BrowserPlanner} from '../src/host/browser/coordinator';
 import {admitJoinExtraction} from '../src/core/grounded-join-host';
 import {extractionFixture} from './grounded-join-fixture';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 test('actual answer acceptance rejects an untyped planner full grounded module without persisting it',async()=>{
  const server=createServer((_req,res)=>{res.setHeader('content-type','text/html');res.end('<h1>Owned synthetic page</h1><p>No form, external request or action.</p>');});

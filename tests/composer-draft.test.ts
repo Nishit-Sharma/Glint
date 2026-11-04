@@ -1,3 +1,5 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
+import {editModule} from '../src/core/module-state';
 import {afterEach,beforeEach,it,expect} from 'vitest';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -48,14 +50,25 @@ it('consumes the exact submitted whitespace and Unicode draft only with a succes
 });
 
 it('keeps unsent draft content out of ordinary provider context while preserving browser and module state',async()=>{
- const task=await core.createTask({title:'Draft privacy'}),draft=await core.saveComposerDraft(task.id,0,{text:'DISTINCTIVE UNSENT PRIVATE DRAFT 日本語 🦉',kind:'procedure'}),session=(await core.getTask(task.id)).session!;
- const browserContext={origin:'https://owned.example',url:'https://owned.example/page',requestId:'previous-browser'},moduleStates=[{artifactId:'answer',artifactRevision:1,moduleId:'plan',state:{kind:'plan',revision:1,checkedIds:['chosen']}}];
+ const task=await core.createTask({title:'Draft privacy'}),original=await currentAnswerOrigin(core,task.id,'composer-plan-origin',{title:'Current plan',mimeType:'application/vnd.window-companion.modules+json',content:JSON.stringify({schemaVersion:1,markdown:'A current saved plan.',modules:[{id:'plan',version:1,data:{kind:'plan',schemaVersion:1,title:'Current plan',purpose:'Retain the saved choice.',items:[{id:'chosen',title:'Chosen step',detail:'Keep the saved completion.'}]},provenance:[]}]})},[]);
+ await editModule(core,{taskId:task.id,artifactId:original.artifactId,artifactRevision:1,moduleId:'plan',action:{kind:'check',itemId:'chosen',checked:true,expectedRevision:0}});
+ const draft=await core.saveComposerDraft(task.id,0,{text:'DISTINCTIVE UNSENT PRIVATE DRAFT 日本語 🦉',kind:'procedure'}),session=(await core.getTask(task.id)).session!,moduleStates=session.moduleStates;
+ expect(moduleStates).toMatchObject([{artifactId:original.artifactId,artifactRevision:1,moduleId:'plan',state:{kind:'plan',revision:1,checkedIds:['chosen']}}]);
+ const browserContext={origin:'https://owned.example',url:'https://owned.example/page',requestId:'previous-browser'};
  await core.replaceSession(task.id,session.revision,{...session,browserContext,moduleStates,contextRevision:9});const before=(await core.getTask(task.id)).session!;
  let observed:Task|undefined;
  await core.runRequest({taskId:task.id,requestId:'ordinary',kind:'explain',prompt:'This is the approved question.',sourceIds:[]},async context=>{observed=context.task;return{title:'Answer',content:'Only approved content.'};});
  expect(JSON.stringify(observed)).not.toContain(draft.text);expect(observed!.session).not.toHaveProperty('draftKind');expect(observed!.session).not.toHaveProperty('draftRevision');expect(observed!.session?.draft).toBe('');
  expect(observed!.session?.browserContext).toEqual(browserContext);expect(observed!.session?.moduleStates).toEqual(moduleStates);expect(observed!.session?.contextRevision).toBe(9);expect(observed!.session?.revision).toBe(before.revision);
  expect((await core.getTask(task.id)).requests.at(-1)?.status).toBe('completed');expect(readComposerDraft((await core.getTask(task.id)).session)).toEqual(draft);
+});
+
+it('withholds dangling module state from ordinary context while preserving its local bytes and unsent draft',async()=>{
+ const task=await core.createTask({title:'Dangling state privacy'}),draft=await core.saveComposerDraft(task.id,0,{text:'PRIVATE UNSENT DRAFT',kind:'procedure'}),session=(await core.getTask(task.id)).session!,moduleStates=[{artifactId:'answer',artifactRevision:1,moduleId:'plan',state:{kind:'plan',revision:1,checkedIds:['DANGLING_MODULE_SECRET']}}];
+ await core.replaceSession(task.id,session.revision,{...session,moduleStates});let observed:Task|undefined;
+ await core.runRequest({taskId:task.id,requestId:'dangling-context',kind:'explain',prompt:'Only the approved question.',sourceIds:[]},async context=>{observed=context.task;return {title:'Answer',content:'Approved response.'};});
+ expect(observed!.session?.moduleStates).toEqual([]);expect(JSON.stringify(observed)).not.toContain('DANGLING_MODULE_SECRET');expect(JSON.stringify(observed)).not.toContain(draft.text);
+ const saved=await core.getTask(task.id);expect(saved.session!.moduleStates).toEqual(moduleStates);expect(readComposerDraft(saved.session)).toEqual(draft);
 });
 
 it.each(['before-completion','after-completion'] as const)('a newer save survives either serialization order (%s)',async order=>{
@@ -100,7 +113,7 @@ it.each(['runner-failed','artifact-failed','cancelled'] as const)('unsuccessful 
 });
 
 it.each(['brief','explain','revise'] as const)('requests without a composer token do not consume matching text (%s)',async kind=>{
- const task=await core.createTask({title:'Noncomposer request'}),submitted=await core.saveComposerDraft(task.id,0,{text:'Keep this matching text',kind:'explain'}),artifact=kind==='revise'?await core.saveArtifact(task.id,{title:'Existing answer',content:'Existing text'}):undefined;
+ const task=await core.createTask({title:'Noncomposer request'}),submitted=await core.saveComposerDraft(task.id,0,{text:'Keep this matching text',kind:'explain'}),artifact=kind==='revise'?await currentAnswerOrigin(core,task.id,'composer-revise-origin',{title:'Existing answer',content:'Existing text'},[]):undefined;
  const request=await core.runRequest({taskId:task.id,requestId:'automatic',kind,prompt:submitted.text.trim(),sourceIds:[],...(artifact?{artifactId:artifact.artifactId,expectedRevision:1}:{})},async()=>({title:'Answer',content:'Requested output.'}));
  expect(request.status).toBe('completed');expect(readComposerDraft((await core.getTask(task.id)).session)).toEqual(submitted);
 });

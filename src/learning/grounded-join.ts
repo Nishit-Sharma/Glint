@@ -44,6 +44,9 @@ export const GroundedJoinActionSchema=Schema.Union(
  Schema.Struct({kind:Schema.Literal('correct-cell'),...cellCorrection.fields,expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('correct-type'),...typeCorrection.fields,expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('correct-keys'),keys,reason:text,expectedRevision:revision}),
+ Schema.Struct({kind:Schema.Literal('remove-cell-correction'),side:Schema.Literal('left','right'),rowId:id,columnId:id,expectedRevision:revision}),
+ Schema.Struct({kind:Schema.Literal('remove-type-correction'),side:Schema.Literal('left','right'),columnId:id,expectedRevision:revision}),
+ Schema.Struct({kind:Schema.Literal('remove-key-correction'),expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('accept-extraction'),expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('explanation-mode'),mode:Schema.Literal('quick','deep','visual'),expectedRevision:revision}),
  Schema.Struct({kind:Schema.Literal('lab'),action:JoinActionSchema,expectedRevision:revision}),
@@ -139,6 +142,19 @@ function update(dataValue:unknown,stateValue:unknown,actionValue:unknown):Ground
    case 'correct-cell':{const {expectedRevision:_,kind:__,...c}=action;next={...next,cellCorrections:[...state.cellCorrections.filter(v=>v.side!==c.side||v.rowId!==c.rowId||v.columnId!==c.columnId),c]};break;}
    case 'correct-type':{const {expectedRevision:_,kind:__,...c}=action;next={...next,typeCorrections:[...state.typeCorrections.filter(v=>v.side!==c.side||v.columnId!==c.columnId),c]};break;}
    case 'correct-keys':next={...next,keyCorrection:{keys:action.keys,reason:action.reason}};break;
+   case 'remove-cell-correction':{
+    const corrections=state.cellCorrections.filter(c=>c.side!==action.side||c.rowId!==action.rowId||c.columnId!==action.columnId);
+    if(corrections.length===state.cellCorrections.length)throw Error('This cell has no saved correction to remove.');
+    next={...next,cellCorrections:corrections};break;
+   }
+   case 'remove-type-correction':{
+    const corrections=state.typeCorrections.filter(c=>c.side!==action.side||c.columnId!==action.columnId);
+    if(corrections.length===state.typeCorrections.length)throw Error('This column has no saved type correction to remove.');
+    next={...next,typeCorrections:corrections};break;
+   }
+   case 'remove-key-correction':
+    if(!state.keyCorrection)throw Error('There is no saved join correction to remove.');
+    next={...next,keyCorrection:null};break;
    case 'accept-extraction':next={...next,lab:joinLab.initial(lesson(data,state))};break;
   }
  }

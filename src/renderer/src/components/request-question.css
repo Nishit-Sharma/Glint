@@ -1,0 +1,18 @@
+.request-question-card{min-width:0;max-width:100%;box-sizing:border-box;overflow-wrap:anywhere;margin-block:12px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--surface,#222)}
+.request-question-card h4{margin:0 0 6px;font-size:15px;line-height:1.45}
+.request-question-card .request-question-state{margin:0 0 12px;color:var(--muted);font-size:13px}
+.request-question-card fieldset{display:grid;gap:10px;min-width:0;margin:0 0 12px;padding:0;border:0}
+.request-question-card legend{margin-bottom:8px;color:var(--muted);font-size:13px}
+.request-question-card label{display:flex;min-width:0;gap:8px;align-items:start;line-height:1.5}
+.request-question-card .request-question-choice-text{min-width:0;flex:1}
+.request-question-card label:has(textarea){display:grid;gap:5px}
+.request-question-card input{flex:none;width:16px;height:16px;margin-top:3px}
+.request-question-card textarea{width:100%;min-height:80px;box-sizing:border-box;resize:vertical}
+.request-question-card ol{display:grid;gap:8px;padding-inline-start:22px}
+.request-question-card li{padding-inline-start:3px;line-height:1.6}
+.request-question-card li span{display:block;overflow-wrap:anywhere}
+.request-question-card button{min-height:34px;padding:5px 10px}
+.request-question-card li button{margin:4px 8px 0 0;font-size:12px}
+.request-question-sharing,.request-question-recovery{font-size:13px;color:var(--muted);line-height:1.5}
+.request-question-card .request-question-recorded{white-space:pre-wrap;overflow-wrap:anywhere}
+.request-question-card :is(input,textarea,button):focus-visible{outline:2px solid var(--focus);outline-offset:2px}

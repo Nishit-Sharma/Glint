@@ -1,5 +1,5 @@
 import {afterEach,expect,it} from 'vitest';
-import {mkdtemp} from 'node:fs/promises';
+import {mkdir,mkdtemp} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
@@ -20,7 +20,7 @@ import {learningDraftTaskId} from '../src/shared/learning-drafts';
 const cleanup:Array<()=>Promise<void>>=[];afterEach(async()=>{for(const close of cleanup.splice(0))await close();});
 const tick=()=>new Promise<void>(resolve=>setTimeout(resolve,0));
 async function fixture(content='# Existing source page\n\nExact original body.  \nKeep spacing.',mimeType:'text/markdown'|'text/plain'='text/markdown'){
- const directory=await mkdtemp(join(process.cwd(),'evidence/page-ref-core-'));let core=await createCompanion({dataDir:directory});cleanup.push(()=>core.close());
+ await mkdir(join(process.cwd(),'evidence'),{recursive:true});const directory=await mkdtemp(join(process.cwd(),'evidence/page-ref-core-'));let core=await createCompanion({dataDir:directory});cleanup.push(()=>core.close());
  const source=await core.createTask({title:'Arbitrary existing source owner'}),sourceSaved=await core.saveArtifact(source.id,{title:'Existing source page',content,mimeType,sourceRefs:[]});
  const targetOwner=await core.createTask({title:'Another owned task'}),first=await core.saveArtifact(targetOwner.id,{title:'Target [alpha] *local*',content:'First actual saved target body',mimeType:'text/plain',sourceRefs:[]}),second=await core.saveArtifact(targetOwner.id,{title:'Distinct beta target',content:'Second arbitrary target content',mimeType:'text/markdown',sourceRefs:[]});
  await core.saveComposerDraft(source.id,0,{text:'Keep source unsent message',kind:'explain'});await core.saveComposerDraft(targetOwner.id,0,{text:'Keep target unsent message',kind:'create'});

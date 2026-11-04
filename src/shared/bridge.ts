@@ -1,6 +1,15 @@
+import type {ExperimentResultInput} from '../learning/experiment-result-copy';
+import type {SourceComparisonCommand} from './source-comparison';
+import type {TeachbackInput} from './explanation-teachback';
+import type {SourceSelectionCommand} from './source-selection';
+import type {TaskHistoryPreviewCommand} from './task-history-preview';
+import type {ExperimentRunInput} from '../learning/experiment-runs';
+import type {FormulaComparisonInput,FormulaComparisonSubmission} from '../learning/formula-comparison';
 import type {TaskResponseModeCommand} from './task-response-mode';
 import type {AiAttributionInput} from './ai-attribution';
+import type {DocumentSuggestionDecision,DocumentSuggestionInspectionCommand} from './document-edit-suggestions';
 import type {SavedWorkLibraryCommand} from './saved-work-library';
+import type {RequestQuestionCommand} from './request-question';
 import type {TaskSectionsCommand} from './task-sections';
 import type {OutputArchiveCommand} from './task-output-archive';
 import type {CsvWorkbookCommand} from './csv-workbook';
@@ -10,6 +19,7 @@ import type {ImageCopyCommand} from './image-copy';
 import type {TaskMemoryPolicyCommand} from './task-memory-policy';
 import type {MemoryExportCommand} from './memory-export';
 import type {SystemSettingsCommand,HardwareAccelerationRuntime} from './system-settings';
+import type {ScreenRecordingCommand,ScreenRecordingState} from './screen-recording';
 import type {FallbackShortcutCommand} from './fallback-shortcut';
 import type {RequestInferenceCommand} from './request-inference';
 import type {PdfPageCommand} from './pdf-page-import';
@@ -60,11 +70,19 @@ import type {NotificationCommand} from './task-notifications';
 import type {TaskAttentionCommand} from './task-attention';
 import type {FileFavoritesCommand} from './task-view';
 import type {CsvChartCommand} from './csv-chart';
+import type {SourceIntakeCommand} from './source-intake';
 
 import type {CodeBlockCopyCommand} from './code-block-copy';
+import type {ExplainDepth} from './explanation-modes';
 
-export type Command = TaskResponseModeCommand
+export type Command = SourceComparisonCommand | TaskResponseModeCommand
+  | import('./helper-suggestions').HelperSuggestionCommand
+  | import('./local-research-suggestions').LocalResearchCommand
+  | import('./muse-connection').MuseConnectionCommand
+  | TaskHistoryPreviewCommand
+  | import('./request-notifications').RequestNotificationCommand
   | import('./answer-rating').AnswerRatingCommand
+  | RequestQuestionCommand
   | TaskSectionsCommand
   | OutputArchiveCommand
   | SavedWorkLibraryCommand
@@ -72,9 +90,11 @@ export type Command = TaskResponseModeCommand
   | RecurringInferenceCommand
   | CsvStatisticsCommand
   | CsvChartCommand
+  | SourceIntakeCommand
   | FileFavoritesCommand
   | MemoryExportCommand
   | SystemSettingsCommand
+  | ScreenRecordingCommand
   | ImageCopyCommand
   | CodeBlockCopyCommand
   | {type:'cli.preferences.get'}
@@ -100,8 +120,11 @@ export type Command = TaskResponseModeCommand
   | ({type:'contacts.change'} & LocalContactsChange)
   | TaskMemoryPolicyCommand
   | {type:'memory.get'} | ({type:'memory.change'} & MemoryChange)
+  | SourceSelectionCommand
   | ({type:'memory.preview'} & MemoryPreviewInput)
   | ProjectCommand
+  | ({type:'experiment.compare.preview'} & FormulaComparisonInput)
+  | ({type:'experiment.compare.save'|'experiment.compare.inspect'} & FormulaComparisonSubmission)
   | ({type:'experiment.source.save'} & SourceFormulaCommand)
   | {type:'experiment.source.inspect';input:SourceFormulaInput}
   | {type:'capture.settings.get'} | {type:'capture.settings.revoke';expectedRevision:number}
@@ -143,6 +166,7 @@ export type Command = TaskResponseModeCommand
   | {type:'context.view';taskId?:string} | {type:'task-view.get'} | {type:'context.pending'}
   | {type:'context.capture';activationId:string;windowId:string;taskId?:string}
   | {type:'artifact.save';taskId:string;artifact:ArtifactInput}
+  | ({type:'document.create'}&import('./authored-document').AuthoredDocumentInput)
   | ({type:'artifact.handoff'} & TaskHandoffSave)
   | ({type:'artifact.ai-attribution'} & AiAttributionInput)
   | {type:'module.edit';taskId:string;artifactId:string;artifactRevision:number;moduleId:string;action:ModuleAction}
@@ -192,11 +216,15 @@ export type Command = TaskResponseModeCommand
   | {type:'browser.detach';taskId:string}
   | {type:'procedure.save';taskId:string;procedure:ProcedureInput}
   | {type:'procedure.check';taskId:string;procedureId:string;context:Record<string,string>}
+  | {type:'experiment.result.save'|'experiment.result.inspect';input:ExperimentResultInput}
+  | {type:'experiment.run.save';input:ExperimentRunInput;retryOf?:string}
+  | {type:'experiment.run.inspect';input:ExperimentRunInput}
   | {type:'experiment.evaluate';spec:ExperimentSpec;inputs:Record<string,number>}
   | {type:'export.propose';taskId:string;artifactId:string;revision:number}
   | {type:'export.approve';taskId:string;actionId:string;digest:string;requestId:string}
   | {type:'export.inspect';taskId:string;actionId:string}
-  | {type:'model.run';taskId:string;requestId:string;prompt:string;kind:'explain'|'create'|'revise'|'experiment'|'procedure'|'brief'|'concept-map'|'design-canvas';canvasContext?:CanvasSketchContext;artifactId?:string;sourceIds?:string[];expectedSourceRefs?:SourceRef[];revisionBasis?:string;conversationAttempt?:ConversationAttemptReceipt;submittedDraft?:ComposerDraft;briefAction?:{artifact:ArtifactRef;actionIndex:number}|{kind:'review-state-transitions';artifact:ArtifactRef}}
+  | {type:'model.run';taskId:string;requestId:string;prompt:string;kind:'explain'|'create'|'revise'|'experiment'|'procedure'|'brief'|'concept-map'|'design-canvas';canvasContext?:CanvasSketchContext;artifactId?:string;sourceIds?:string[];expectedSourceRefs?:SourceRef[];revisionBasis?:string;suggestEdits?:true;teachback?:TeachbackInput;explainDepth?:ExplainDepth;explanationBasis?:ArtifactRef;conversationAttempt?:ConversationAttemptReceipt;submittedDraft?:ComposerDraft;briefAction?:{artifact:ArtifactRef;actionIndex:number}|{kind:'review-state-transitions';artifact:ArtifactRef}}
+  | DocumentSuggestionDecision | DocumentSuggestionInspectionCommand
   | {type:'model.cancel';taskId:string;requestId:string}
   | {type:'connection.status'} | {type:'connection.configure'} | {type:'connection.disconnect'}
   | {type:'connection.select';provider:'meta'|'codex'}
@@ -211,6 +239,7 @@ export type Command = TaskResponseModeCommand
 export interface WindowChoice {id:string;title:string;owner:{name:string};bounds:{x:number;y:number;width:number;height:number}}
 export interface ConnectionStatus {
   provider:'Meta'|'Codex (temporary)'; configured:boolean; endpoint:string; model:string;
+  metaProfile?:import('./muse-connection').MuseProfile;
   tier?:string;reasoning?:string;verified?:boolean;
   state:'unconfigured'|'ready'|'offline'|'streaming'|'stalled'|'error';
   detail:string; specialized:{sam:string;computer:string};
@@ -233,6 +262,7 @@ export type ContextPending={kind:'none'}|{kind:'ready';activation:ContextActivat
 export type ContextCapture = {activationId:string;tucked:boolean}&({state:'captured';task:Task;sourceId:string}|{state:'no-room';task?:Task})
 export type CompanionEvent =
   | {type:'system.gpu-info';runtime:HardwareAccelerationRuntime}
+  | {type:'screen-recording.changed';state:ScreenRecordingState}
   | {type:'schedules.changed'}
   | {type:'source.drag';state:SourceDragState}
   | {type:'capture.retired'}

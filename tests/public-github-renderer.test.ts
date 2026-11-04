@@ -20,7 +20,7 @@ test('the direct GitHub action exposes exact scope, captures only on gesture and
  const r=createControlledRenderer(()=>createElement(PublicGithub,{task,busy:false,run,isCurrent:()=>true,beforeAdd,onCaptured:captured,onOpen:open,onBack:vi.fn()}));
  const content=(node:ReturnType<typeof r.find>):string=>node.type==='#text'?node.props.text:node.children.map(content).join('');
  const button=(label:string)=>r.find(node=>node.type==='button'&&content(node)===label);
- async function settle(){await core.getTask(task.id);for(let i=0;i<10;i++)await Promise.resolve();r.render();}
+ async function settle(){await Promise.resolve();await core.getTask(task.id);for(let i=0;i<10;i++)await Promise.resolve();r.render();}
  try{
   r.render();expect(commands).toEqual([]);expect(r.nodes().some(node=>content(node).includes('Public-only mode uses no GitHub account or credentials.'))).toBe(true);
   const field=r.find(node=>node.type==='input');field.props.onChange({target:{value:'https://github.com/octocat/Hello-World'}});r.render();expect(r.nodes().filter(node=>node.type==='code').map(content)).toContain('https://api.github.com/repos/octocat/hello-world/readme');
@@ -30,4 +30,14 @@ test('the direct GitHub action exposes exact scope, captures only on gesture and
   r.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await settle();expect((commands[1] as PublicGithubCapture).expectedSource?.version).toBe(1);expect(task.sources[0].versions).toHaveLength(1);expect(r.nodes().some(node=>node.props.role==='status'&&content(node).includes('version was retained'))).toBe(true);
   button('Disconnect GitHub').props.onClick();await settle();expect(task.publicGithub).toBeUndefined();expect(task.sources).toHaveLength(1);expect(task.requests).toEqual([]);expect(r.nodes().some(node=>node.props.role==='status'&&content(node).includes('Saved README sources and their history remain'))).toBe(true);expect(commands.every(command=>command.type.startsWith('github.'))).toBe(true);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('contains failed selection saves before capture and after a saved README without losing its bytes',async()=>{
+ for(const failure of ['before','after']){
+  const task={id:'owner',title:'Owned GitHub task',status:'active',sources:[]} as any,reference={sourceId:'readme',version:1,digest:'a'.repeat(64)},beforeAdd=vi.fn(async()=>{if(failure==='before')throw Error('Synthetic selection failure');}),onCaptured=vi.fn(async()=>{throw Error('Synthetic selection acknowledgement lost');});
+  const run=vi.fn(async()=>({task,reference,unchanged:false})),r=createControlledRenderer(()=>createElement(PublicGithub,{task,busy:false,run:run as unknown as Run,isCurrent:()=>true,beforeAdd,onCaptured,onOpen:vi.fn(),onBack:vi.fn()}));
+  const text=(node:ReturnType<typeof r.find>):string=>node.type==='#text'?node.props.text:node.children.map(text).join('');
+  r.render();r.find(node=>node.type==='input').props.onChange({target:{value:'octocat/hello-world'}});r.render();r.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});for(let tick=0;tick<12;tick++)await Promise.resolve();r.render();
+  expect(run).toHaveBeenCalledTimes(failure==='before'?0:1);expect(onCaptured).toHaveBeenCalledTimes(failure==='before'?0:1);expect(r.find(node=>node.props.role==='alert').children.map(text).join('')).toContain(failure==='before'?'capture was not confirmed':'README is saved');
+ }
 });

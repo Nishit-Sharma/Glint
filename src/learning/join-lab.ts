@@ -175,6 +175,39 @@ function evaluate(input: JoinCase): Observation {
   }
   return { origin: 'deterministic', caseId: input.id, rowCount: rows.length, rows, contributions };
 }
+export const joinRewriteBounds = 'Applied tables, either table emptied, then one join-key cell at a time replaced by NULL or an existing same-type value from either join condition. No new rows, new values, combined edits, filters or database collations are searched.';
+type RewriteChange = {kind:'current'} | {kind:'empty';side:'left'|'right'} | {kind:'cell';side:'left'|'right';rowId:string;columnId:string;before:Cell;after:Cell};
+function* rewriteCases(problem:JoinCase,proposed:JoinCase['join']):Generator<{problem:JoinCase;change:RewriteChange}> {
+  yield {problem,change:{kind:'current'}};
+  for(const side of ['left','right'] as const)if(problem[side].rows.length)yield {problem:{...problem,[side]:{...problem[side],rows:[]}},change:{kind:'empty',side}};
+  const columns=(side:'left'|'right')=>problem[side].columns.filter(column=>[problem.join,proposed].some(keys=>column.id===(side==='left'?keys.leftColumnId:keys.rightColumnId)));
+  for(const side of ['left','right'] as const)for(const column of columns(side)){
+    const domain=new Set<Cell>([null]);
+    for(const other of ['left','right'] as const)for(const source of columns(other))if(source.type===column.type){
+      const index=problem[other].columns.findIndex(c=>c.id===source.id);
+      for(const row of problem[other].rows)domain.add(row.values[index]);
+    }
+    const index=problem[side].columns.findIndex(c=>c.id===column.id);
+    for(const row of problem[side].rows)for(const value of domain)if(value!==row.values[index])yield {
+      problem:{...problem,[side]:{...problem[side],rows:problem[side].rows.map(current=>current.id===row.id?{...current,values:current.values.map((cell,i)=>i===index?value:cell)}:current)}},
+      change:{kind:'cell',side,rowId:row.id,columnId:column.id,before:row.values[index],after:value},
+    };
+  }
+}
+function compareRewrite(dataValue:unknown,stateValue:unknown,proposalValue:unknown){
+  const data=parse(dataValue),state=parseState(data,stateValue),proposed=decode(join,proposalValue);
+  if(state.phase.kind!=='practice-reviewed'&&state.phase.kind!=='transfer-reviewed')throw Error('Check your prediction before comparing a join rewrite.');
+  const problem=state.phase.kind==='transfer-reviewed'?data.transfer:state.practice;
+  validateJoinCase({...problem,join:proposed});
+  const bag=(result:Observation)=>JSON.stringify(result.rows.map(row=>JSON.stringify([row.leftValues,row.rightValues])).sort());
+  let checkedCases=0;
+  for(const candidate of rewriteCases(problem,proposed)){
+    checkedCases++;
+    const original=evaluate(candidate.problem),rewritten=evaluate({...candidate.problem,join:proposed});
+    if(bag(original)!==bag(rewritten))return {origin:deterministicOrigin,revision:state.revision,proposed,checkedCases,bounds:joinRewriteBounds,witness:{...candidate,original,rewritten}};
+  }
+  return {origin:deterministicOrigin,revision:state.revision,proposed,checkedCases,bounds:joinRewriteBounds,witness:null};
+}
 function assess(observation: Observation, guess: Prediction, mode: JoinCase['join']['mode']) {
   const details = observation.contributions.map(value => {
     if (value.reason === 'matches') return `${value.leftRowId} matches ${value.matchingRightRowIds.join(', ')} and contributes ${value.outputCount} row(s).`;
@@ -314,5 +347,5 @@ export const joinLab = Object.freeze({
   kind: 'join-lab', schemaVersion: 1, parse,
   parseAction: (value: unknown) => decode(JoinActionSchema, value),
   parseState: (dataValue: unknown, value: unknown) => parseState(parse(dataValue), value),
-  initial, update, observe, text: readable,
+  initial, update, observe, compareRewrite, text: readable,
 });

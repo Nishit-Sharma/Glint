@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -17,9 +18,9 @@ async function fixture(ambiguous=true){
  const task=await core.putSource(created.id,{id:'tables',kind:'text',role:'fact',label:'Members and invitations',content:f.content});
  const source=task.sources[0],refs=[{sourceId:source.id,version:source.currentVersion,digest:source.versions[0].digest}];
  const action={label:'Explore the join',outcome:'Review a transcription and predict pairs.',requestKind:'experiment' as const,seedPrompt:'Use these two tables for a reviewed join experiment.',sourceRefs:refs,capability:'sql-join' as const};
- const saved=await core.saveArtifact(task.id,{title:'Screen brief',mimeType:'application/json',content:JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'Two tables show Team values.',actions:[action]}),sourceRefs:refs});
+ const saved=await currentAnswerOrigin(core,task.id,'fixture-brief-origin:'+task.id,{title:'Screen brief',mimeType:'application/json',content:JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'Two tables show Team values.',actions:[action]})},refs);
  const command:Extract<Command,{type:'model.run'}>={type:'model.run',taskId:task.id,requestId:'deliberate-attempt',kind:action.requestKind,prompt:action.seedPrompt,sourceIds:refs.map(r=>r.sourceId),expectedSourceRefs:refs,briefAction:{artifact:{artifactId:saved.artifactId,revision:1,digest:saved.revision.digest},actionIndex:0}};
- return {...f,command,task:await core.getTask(task.id),action};
+ return {...f,command,task:await core.getTask(task.id),action,originRequestId:saved.requestId};
 }
 test('one caller request publishes an admitted reviewed module and identical replay needs no second run',async()=>{
  const f=await fixture(),plan=prepareBriefActionPlan(f.task,f.command)!;
@@ -37,7 +38,7 @@ test('one caller request publishes an admitted reviewed module and identical rep
  expect(parseModuleAnswer(JSON.parse(answer.content)).modules[0].data).toMatchObject({kind:'grounded-join',basis:{artifact:f.command.briefAction!.artifact},extraction:{left:{rows:expect.arrayContaining([{id:'practice-b',cells:expect.arrayContaining([expect.objectContaining({kind:'needs-correction'})])}])}}});
  const replayPlan=prepareBriefActionPlan(saved,f.command)!;
  expect(await core.runRequest(replayPlan.request,async()=>{throw Error('Replay ran provider');})).toEqual(result);
- expect((await core.getTask(f.task.id)).requests).toHaveLength(1);
+ expect((await core.getTask(f.task.id)).requests.filter(request=>request.id!==f.originRequestId)).toHaveLength(1);
 });
 
 test('changed caller intent, selection and saved authority are rejected before a request exists',async()=>{
@@ -52,7 +53,7 @@ test('changed caller intent, selection and saved authority are rejected before a
  for(const selection of [{...c.briefAction,capability:'sql-join'},{...c.briefAction,actionIndex:0.5},{...c.briefAction,artifact:{...c.briefAction!.artifact,approval:true}}])expect(()=>prepareBriefActionPlan(f.task,{...c,briefAction:selection as typeof c.briefAction})).toThrow('Brief action unavailable');
  const forged=structuredClone(f.task);forged.artifacts[0].revisions[0].content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'Two tables.',actions:[{...f.action,transfer:f.transfer}]});
  expect(()=>prepareBriefActionPlan(forged,c)).toThrow('saved action');
- expect((await core.getTask(f.task.id)).requests).toEqual([]);
+ expect((await core.getTask(f.task.id)).requests.filter(request=>request.id!==f.originRequestId)).toEqual([]);
 });
 
 test('changed saved action or request payload cannot reuse the caller id, while a new deliberate id is separate',async()=>{
@@ -73,7 +74,7 @@ test('basis changes before start or during the runner cannot publish an extracti
  const f=await fixture(),plan=prepareBriefActionPlan(f.task,f.command)!;
  const changed=await core.saveArtifact(f.task.id,{artifactId:f.command.briefAction!.artifact.artifactId,expectedRevision:1,title:'Changed basis',content:'Changed before start.'});
  await expect(core.runRequest(plan.request,async()=>{throw Error('Must not execute');})).rejects.toThrow('cited artifact changed');
- expect((await core.getTask(f.task.id)).requests).toEqual([]);
+ expect((await core.getTask(f.task.id)).requests.filter(request=>request.id!==f.originRequestId)).toEqual([]);
  expect(changed.revision.revision).toBe(2);
  const g=await fixture(),live=prepareBriefActionPlan(g.task,g.command)!;
  const result=await core.runRequest(live.request,async ctx=>{
@@ -143,7 +144,7 @@ test('a fully readable practice colliding with the trusted transfer fails explic
  const left=p.extraction.left.rows,right=p.extraction.right.rows;
  const collision={...p,extraction:{...p.extraction,left:{...p.extraction.left,rows:[left[0],{...left[0],id:'duplicate-key-row'},left[1],left[2]]},right:{...p.extraction.right,rows:[right[0],right[1],right[3],right[2]]},join:{...p.extraction.join,keys:{...p.extraction.join.keys,mode:'LEFT'}}}};
  const result=await core.runRequest(plan.request,async ctx=>{const bound=plan.bind(ctx);if(bound.kind!=='join-extraction')throw Error();return bound.finish(JSON.stringify(collision));});
- expect(result.status).toBe('failed');expect(result.error).toContain('transfer must differ');
+ expect(result.status).toBe('failed');expect(result.error).toContain('separate challenge must differ');
  expect((await core.getTask(f.task.id)).artifacts).toHaveLength(1);
 });
 

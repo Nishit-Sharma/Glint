@@ -9,7 +9,7 @@ import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
 import {MemorySettings,MemoryStatus} from '../src/renderer/src/UserMemory';
 import {createControlledRenderer} from './controlled-renderer.fixture';
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 test('authoritative memory preview never renders an older task or prompt reply and refreshes on changed events',async()=>{
  const directory=await mkdtemp(join(tmpdir(),'glint-memory-preview-')),core=await createCompanion({dataDir:directory});
@@ -81,4 +81,24 @@ test('memory history is available while OFF with UTC/revision ordering, current-
  const legacy={id:'old',revision:5,text:'An older current fact',topics:[]},qa={id:'qa-new',revision:7,text:'GLINT history QA — current two.',topics:['qa-history']};let memory:any={revision:5,enabled:false,facts:[legacy]},commands:string[]=[];
  vi.stubGlobal('window',{companion:{invoke:async(command:any)=>{commands.push(command.type);if(command.type==='memory.get')return memory;throw Error('History review must be read-only');},subscribe:()=>()=>{}}});const r=createControlledRenderer(()=>createElement(MemorySettings));const content=(node:ReturnType<typeof r.find>):string=>node.type==='#text'?node.props.text:node.children.map(content).join('');r.render();for(let i=0;i<8;i++)await Promise.resolve();r.render();expect(content(r.find(node=>node.type==='details'&&node.children.some(child=>child.type==='summary'&&content(child)==='Memory history')))).toContain('No recorded changes. Earlier changes are unavailable.');
  memory={revision:7,enabled:false,facts:[legacy,qa],history:[{factId:qa.id,revision:6,factRevision:6,at:'2026-11-01T12:00:00.000Z',kind:'added',fields:['text','topics']},{factId:qa.id,revision:7,factRevision:7,at:'2026-11-01T12:01:00.000Z',kind:'modified',fields:['text']}]};const reopened=createControlledRenderer(()=>createElement(MemorySettings));reopened.render();for(let i=0;i<8;i++)await Promise.resolve();reopened.render();const text=reopened.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join(''),events=reopened.nodes().filter(node=>node.type==='time');expect(events.map(node=>node.props.dateTime)).toEqual(['2026-11-01T12:01:00.000Z','2026-11-01T12:00:00.000Z']);expect(text).toContain('Memory revision 7');expect(text).toContain('Changed: fact text');expect(text).toContain('Current saved fact · revision 7');expect(text).toContain('1,000');expect(text).toContain('UTC');expect(text).toContain('Off. Saved facts are not included in new requests.');expect(commands.every(type=>type==='memory.get')).toBe(true);
+});
+
+test('idle composer expiry reloads authoritative selection and fills the newly available account slot without a changed event',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-preview-expiry-'));let now=Date.parse('2026-11-03T12:00:00.000Z');const core=await createCompanion({dataDir:directory,now:()=>new Date(now)});
+ try{
+  const owner=await core.createTask({title:'Synthetic preview'}),project=await core.projectCommand({type:'projects.create',name:'Synthetic project'}),task=await core.projectCommand({type:'projects.assign',taskId:owner.id,projectId:project.id,expectedProjectId:null});
+  for(let i=0;i<8;i++)await core.changeUserMemory({expectedRevision:i,change:{kind:'save',text:'ACCOUNT_'+i,topics:[]}});await core.changeUserMemory({expectedRevision:8,change:{kind:'enabled',enabled:true}});
+  await core.projectCommand({type:'projects.memory.change',projectId:project.id,expectedRevision:0,change:{kind:'save',text:'TEMPORARY_PROJECT_FACT',topics:[],expiresAt:new Date(now+1000).toISOString()}});await core.projectCommand({type:'projects.memory.change',projectId:project.id,expectedRevision:1,change:{kind:'enabled',enabled:true}});
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});vi.spyOn(Date,'now').mockImplementation(()=>now);let reads=0;
+  vi.stubGlobal('window',{companion:{subscribe:()=>()=>{},invoke:async(command:any)=>{reads++;return core.previewUserMemory({taskId:command.taskId,prompt:command.prompt});}}});
+  const r=createControlledRenderer(()=>createElement(MemoryStatus,{task,prompt:'Question kept unchanged',kind:'explain',onManage:()=>{}})),text=()=>r.nodes().filter(n=>n.type==='#text').map(n=>n.props.text).join('');async function settle(){await core.getUserMemory();for(let i=0;i<12;i++)await Promise.resolve();r.render();}
+  r.render();await settle();expect(text()).toContain('TEMPORARY_PROJECT_FACT');expect(text()).not.toContain('ACCOUNT_7');now+=1000;await vi.advanceTimersByTimeAsync(1000);await settle();expect(reads).toBe(2);expect(text()).not.toContain('TEMPORARY_PROJECT_FACT');expect(text()).toContain('ACCOUNT_7');expect((await core.getTask(task.id)).requests).toEqual([]);
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});
+test('composer never republishes a preview that expires while its acknowledgement is held',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'glint-preview-expired-ack-'));let now=Date.parse('2026-11-03T12:00:00.000Z');const core=await createCompanion({dataDir:directory,now:()=>new Date(now)});
+ try{
+  const owner=await core.createTask({title:'Synthetic held preview'}),project=await core.projectCommand({type:'projects.create',name:'Synthetic project'}),task=await core.projectCommand({type:'projects.assign',taskId:owner.id,projectId:project.id,expectedProjectId:null});await core.changeUserMemory({expectedRevision:0,change:{kind:'enabled',enabled:true}});await core.projectCommand({type:'projects.memory.change',projectId:project.id,expectedRevision:0,change:{kind:'save',text:'EXPIRED_HELD_PREVIEW',topics:[],expiresAt:new Date(now+1000).toISOString()}});await core.projectCommand({type:'projects.memory.change',projectId:project.id,expectedRevision:1,change:{kind:'enabled',enabled:true}});const stale=await core.previewUserMemory({taskId:task.id,prompt:'Question'});let resolve!:(value:unknown)=>void;
+  vi.spyOn(Date,'now').mockImplementation(()=>now);vi.stubGlobal('window',{companion:{subscribe:()=>()=>{},invoke:()=>new Promise(done=>resolve=done)}});const r=createControlledRenderer(()=>createElement(MemoryStatus,{task,prompt:'Question',kind:'explain',onManage:()=>{}}));r.render();now+=1000;resolve(stale);for(let i=0;i<12;i++)await Promise.resolve();r.render();const text=r.nodes().filter(n=>n.type==='#text').map(n=>n.props.text).join('');expect(text).not.toContain('EXPIRED_HELD_PREVIEW');expect(text).toContain('Memory preview unavailable');
+ }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });

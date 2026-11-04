@@ -1,0 +1,11 @@
+.request-notifications{display:grid;gap:14px;margin-block:20px;padding-block:20px;border-block:1px solid var(--line);min-width:0}
+.request-notifications h3,.request-notifications h4,.request-notifications p{margin:0}
+.request-notifications form,.request-notifications fieldset{display:grid;gap:12px;min-width:0}
+.request-notifications fieldset{border:0;padding:0;margin:0}
+.request-notifications legend{font-weight:600;margin-bottom:10px}
+.request-notifications label{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.request-notifications label:has(select){display:grid;gap:6px}
+.request-notifications select{width:100%;min-width:0}
+.request-notifications .row{flex-wrap:wrap}
+.request-notifications article{display:grid;gap:6px;padding-block:14px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.request-notifications small{color:var(--muted)}

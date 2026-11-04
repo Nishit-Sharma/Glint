@@ -6,6 +6,9 @@ import {BrowserReconciliation} from '../src/host/browser/reconciliation';
 import {LocalBrowser} from '../src/host/browser/local-browser';
 import {browserContinuationReceipt,prepareBrowserContinuation} from '../src/shared/browser-continuation';
 import {pickingPublicFrame as frame} from './picking-public-frame';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+// Loopback-locked engine only: these specs never launch or select the person's installed browsers.
+installLoopbackTestEngine();
 
 test.use({viewport:{width:1080,height:800},reducedMotion:'reduce'});
 test('resolve the original unknown effect, plan remaining steps once and reconcile a lost response without consuming the composer',async({page},info)=>{

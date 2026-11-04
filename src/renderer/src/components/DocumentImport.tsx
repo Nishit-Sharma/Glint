@@ -13,7 +13,7 @@ export function CsvImportPreview({content,disabled=false}:{content:string;disabl
  return <section aria-label="CSV table preview"><p className="tiny">{records.length.toLocaleString()} data {records.length===1?'row':'rows'} · {maximum} {maximum===1?'column':'columns'}{minimum!==maximum?' maximum':''}. All CSV text and full cell values are retained.</p>{minimum!==maximum&&<p className="tiny">Record widths vary from {minimum} to {maximum} cells. Missing cells are marked in this preview; retained CSV is unchanged.</p>}<CsvCellGrid key={content} rows={rows} disabled={disabled}/></section>;
 }
 
-export function DocumentImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void;onAdded:(reference:SourceRef)=>void;onCancel:()=>void}){
+export function DocumentImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void|Promise<void>;onAdded:(reference:SourceRef)=>void;onCancel:()=>void}){
  const [preview,setPreview]=useState<DocumentImportPreview>(),[content,setContent]=useState(''),[label,setLabel]=useState(''),[role,setRole]=useState<SourceInput['role']>('fact'),[working,setWorking]=useState(false),[message,setMessage]=useState('');
  const mounted=useRef(true),locked=useRef(false),attempt=useRef<string|undefined>(undefined),currentRef=useRef(isCurrent);currentRef.current=isCurrent;
  const clearDraft=useNavigationDraft(!!preview),guard=useGuardedAction();
@@ -29,9 +29,10 @@ export function DocumentImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCanc
  }
  async function add(){
   if(locked.current||busy||!preview||!content.trim()||!label.trim()||!current())return;locked.current=true;setWorking(true);setMessage('');
-  try{beforeAdd();if(!current())return;const result=await run<DocumentImportResult>({type:'source.import.add',taskId:task.id,attemptId:preview.attemptId,label:label.trim(),content,role},undefined,{isCurrent:current});
+  try{await beforeAdd();if(!current())return;const result=await run<DocumentImportResult>({type:'source.import.add',taskId:task.id,attemptId:preview.attemptId,label:label.trim(),content,role},undefined,{isCurrent:current});
    if(!current())return;if(result){clearDraft();await release();if(current())onAdded(result.reference);}else setMessage('Adding the source was not confirmed. Review Context before trying again; your review is kept here.');
-  }finally{locked.current=false;if(current())setWorking(false);}
+  }catch{if(current())setMessage('The source selection or import could not be confirmed. Review Context before retrying; your reviewed text is kept here.');}
+  finally{locked.current=false;if(current())setWorking(false);}
  }
  const disabled=busy||working;let csvIssue=false;if(preview?.format==='csv')try{readDocumentCsv(content);}catch{csvIssue=true;}
  return <section className="source-intake-editor" aria-label="Import document">

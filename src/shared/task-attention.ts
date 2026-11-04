@@ -18,7 +18,7 @@ export const readTaskAttentionCommand=Schema.decodeUnknownSync(command,{onExcess
 
 /** A read cursor contains saved activity identity, never prompts, source text or edited artifact content. */
 export function taskActivityBasis(task:Task):string{
- return JSON.stringify([task.status,task.requests.map(request=>[request.id,request.digest,request.status,request.answer?[request.answer.artifactId,request.answer.revision,request.answer.digest]:null]),(task.session?.queuedFollowups??[]).map(item=>[item.id,item.revision,item.status,item.dispatchedRequestId??null])]);
+ return JSON.stringify([task.status,task.requests.map(request=>[request.id,request.digest,request.status,request.answer?[request.answer.artifactId,request.answer.revision,request.answer.digest]:null,...(request.questions?.length?[request.questions.map(question=>[question.id,question.digest,question.revision,question.status])]:[])]),(task.session?.queuedFollowups??[]).map(item=>[item.id,item.revision,item.status,item.dispatchedRequestId??null])]);
 }
 export function isTaskUnread(task:Task,state?:TaskAttentionState):boolean{
  if(state?.kind!=='available')return false;

@@ -11,15 +11,20 @@ import {createLocalTaskDraftController} from '../src/renderer/src/local-task-dra
 import type {LearningDraftReadResult} from '../src/shared/learning-drafts';
 import type {createLearningDrafts as createCache} from '../src/renderer/src/learning-drafts';
 
-const control=vi.hoisted(()=>({cache:undefined as ReturnType<typeof createCache>|undefined,states:[] as unknown[],kind:'text' as 'text'|'draft'}));
+const control=vi.hoisted(()=>({cache:undefined as ReturnType<typeof createCache>|undefined,states:{} as Record<string,unknown>,stateNames:[] as string[],position:0,kind:'text' as 'text'|'draft'}));
 // Server rendering does not run effects or navigate. Control only the actual
 // App's initial New-task route and read current snapshots without subscribing.
-// Exact initializer assertions below bind the hook positions to this source.
+// Derive App hook controls from named declarations; assert their original initializers.
 vi.mock('react',async importOriginal=>{
- const react=await importOriginal<typeof import('react')>();
+ const react=await importOriginal<typeof import('react')>(),ts=await import('typescript'),{readFileSync}=await import('node:fs');
+ const file=ts.createSourceFile('App.tsx',readFileSync(new URL('../src/renderer/src/App.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),app=file.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='App');
+ if(!app||!ts.isFunctionDeclaration(app)||!app.body)throw Error('Actual App missing');
+ for(const statement of app.body.statements)if(ts.isVariableStatement(statement))for(const declaration of statement.declarationList.declarations)if(ts.isArrayBindingPattern(declaration.name)&&declaration.initializer&&ts.isCallExpression(declaration.initializer)&&declaration.initializer.expression.getText(file)==='useState')control.stateNames.push(declaration.name.elements[0].getText(file));
  return {...react,useState(initial:unknown){
-  const position=control.states.push(initial),routes:Record<number,unknown>={3:true,6:'tasks',9:'tasks',17:true,33:{kind:control.kind,key:'controlled-local-entry',epoch:0,activationEpoch:0}};
-  return react.useState(Object.hasOwn(routes,position)?routes[position]:initial);
+  // shortcut: current Vitest caller-frame format; revisit if the runner changes.
+  const caller=new Error().stack?.split('\n')[2]??'',name=caller.includes('at App (')?control.stateNames[control.position++]:undefined,routes:Record<string,unknown>={tasksHydrated:true,page:'tasks',basePage:'tasks',loaded:true,localStart:{kind:control.kind,key:'controlled-local-entry',epoch:0,activationEpoch:0}};
+  if(name)control.states[name]=initial;
+  return react.useState(name&&Object.hasOwn(routes,name)?routes[name]:initial);
  },useSyncExternalStore(_subscribe:unknown,getSnapshot:()=>unknown){return getSnapshot();}};
 });
 vi.mock('../src/renderer/src/bot-session',()=>({useBotSession:()=>({state:{kind:'legacy'}})}));
@@ -32,7 +37,7 @@ import App from '../src/renderer/src/App';
 const bridge={invoke:vi.fn(async()=>undefined),subscribe:vi.fn(()=>()=>{})};
 const directories:string[]=[];
 beforeEach(()=>{
- control.states=[];control.cache=undefined;control.kind='text';bridge.invoke.mockClear();bridge.subscribe.mockClear();
+ control.states={};control.position=0;control.cache=undefined;control.kind='text';bridge.invoke.mockClear();bridge.subscribe.mockClear();
  vi.stubGlobal('window',{companion:bridge});vi.stubGlobal('location',{search:''});vi.stubGlobal('matchMedia',()=>({matches:false}));
 });
 afterEach(async()=>{vi.unstubAllGlobals();for(const path of directories.splice(0))await rm(path,{recursive:true,force:true});});
@@ -42,8 +47,8 @@ async function cacheWith(read:LearningDraftReadResult){
  const cache=createLearningDrafts({read:async()=>read,save});await cache.load();control.cache=cache;return {cache,save};
 }
 function render(){
- control.states=[];const html=renderToStaticMarkup(createElement(App));
- expect(control.states[2]).toBe(false);expect(control.states[5]).toBe('work');expect(control.states[8]).toBe('work');expect(control.states[16]).toBe(false);expect(control.states[32]).toBeUndefined();
+ control.states={};control.position=0;const html=renderToStaticMarkup(createElement(App));
+ expect(control.states.tasksHydrated).toBe(false);expect(control.states.page).toBe('work');expect(control.states.basePage).toBe('work');expect(control.states.loaded).toBe(false);expect(control.states.localStart).toBeUndefined();
  expect(html).toContain('<main id="main"');expect(html).toContain('class="local-task-start"');
  expect(html).toContain(control.kind==='text'?'Start with text':'Start with a draft');
  expect(bridge.invoke).not.toHaveBeenCalled();expect(bridge.subscribe).not.toHaveBeenCalled();return html;

@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {Schema} from 'effect';
 import type {Companion} from './companion';
-import type {Task} from './types';
+import type {Task,RequestInput} from './types';
 import {prepareWorkflowSourceContext} from './workflow-lab-host';
 import {prepareSignalOverwrites,signalOverwriteDocument,signalOverwritePracticeDocument,signalOverwriteAnswers,SIGNAL_OVERWRITE_PRACTICE_PROMPT} from '../learning/signal-overwrite';
 
@@ -30,29 +30,32 @@ function admitted(task:Task,value:Input){
 }
 const attemptId=(binding:ReturnType<typeof admitted>['binding'],index:number)=>`signal-overwrite-${binding.mode}-v1-`+hash(binding)+(index?'_'+index:'');
 const attemptNumber=(binding:ReturnType<typeof admitted>['binding'],requestId:string)=>{for(let i=0;i<maxAttempts;i++)if(attemptId(binding,i)===requestId)return i;return -1;};
-function savedResult(task:Task,value:Input,request:Task['requests'][number]){
+export function signalOverwriteResult(task:Task,value:Input,request:Task['requests'][number]){
  const {binding,pair}=admitted(task,value),saved=request.artifactId&&task.artifacts.find(a=>a.id===request.artifactId)?.revisions.at(-1);
  const expected=value.mode==='lesson'?[signalOverwriteDocument(pair,value.secondEnabled)]:signalOverwriteAnswers.map(answer=>signalOverwritePracticeDocument(pair,answer));
  if(request.status!=='completed'||!saved||saved.revision!==request.answer?.revision||saved.digest!==request.answer.digest||saved.mimeType!=='text/markdown'||!expected.includes(saved.content)||JSON.stringify(saved.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The saved lesson or answer changed. Review its source and version history.');
  return {task,artifactId:request.artifactId!,revision:saved.revision};
 }
-export async function createSignalOverwrite(core:Companion,raw:unknown){
+export function readSignalOverwriteSubmission(raw:unknown){
  let value:typeof create.Type;try{value=Schema.decodeUnknownSync(create,{onExcessProperty:'error'})(raw);}catch{throw Error('Review both exact source lines and choose the lesson experiment or a supported practice answer.');}
- const task=await core.getTask(value.taskId),{binding}=admitted(task,value);let index=0;
- if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
- const result=await core.runRequest({taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:value.mode==='lesson'?'Explain two reviewed assignments to one signal.':SIGNAL_OVERWRITE_PRACTICE_PROMPT,executionScope:`signal-overwrite-${value.mode}-v1:`+hash(binding),sourceIds:binding.sourceRefs.map(r=>r.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]},async context=>{
-  const {pair}=admitted(context.task,value);return {title:value.mode==='lesson'?'Two assignments to one signal':'Signal replacement practice',mimeType:'text/markdown',content:value.mode==='lesson'?signalOverwriteDocument(pair,value.secondEnabled):signalOverwritePracticeDocument(pair,value.answer)};
- });
- if(result.status!=='completed'||!result.artifactId)throw Error(result.error??'The reviewed signal lesson could not be saved.');
- return savedResult(await core.getTask(value.taskId),value,result);
+ return value;
 }
-/** Reconciles this exact source/experiment without starting another request. */
+export function signalOverwritePublication(task:Task,value:ReturnType<typeof readSignalOverwriteSubmission>){
+ const {binding}=admitted(task,value);let index=0;
+ if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
+ const request:RequestInput={taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:value.mode==='lesson'?'Explain two reviewed assignments to one signal.':SIGNAL_OVERWRITE_PRACTICE_PROMPT,executionScope:`signal-overwrite-${value.mode}-v1:`+hash(binding),sourceIds:binding.sourceRefs.map(r=>r.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]};
+ const artifact=(()=>{
+  const {pair}=admitted(task,value);return {title:value.mode==='lesson'?'Two assignments to one signal':'Signal replacement practice',mimeType:'text/markdown',content:value.mode==='lesson'?signalOverwriteDocument(pair,value.secondEnabled):signalOverwritePracticeDocument(pair,value.answer)};
+ })();return {request,artifact};
+}
+export async function createSignalOverwrite(core:Companion,raw:unknown,assertCurrent:()=>void=()=>{}){return core.saveSignalOverwrite(raw,assertCurrent);}
+
 export async function inspectSignalOverwrite(core:Companion,raw:unknown){
  let value:Input;try{value=Schema.decodeUnknownSync(input,{onExcessProperty:'error'})(raw);}catch{throw Error('Review and confirm both exact linked source lines.');}
  const task=await core.getTask(value.taskId),{binding}=admitted(task,value);let latest:Task['requests'][number]|undefined;
  for(let i=0;i<maxAttempts;i++){const request=task.requests.find(r=>r.id===attemptId(binding,i));if(!request)break;if(request.kind!=='experiment'||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The publication record needs review.');latest=request;}
  if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};
- if(latest.status==='completed'){const saved=savedResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision};}
+ if(latest.status==='completed'){const saved= signalOverwriteResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision};}
  if(latest.artifactId!==undefined)throw Error('The previous publication needs review.');
  return {kind:'terminal' as const,requestId:latest.id,canRetry:attemptNumber(binding,latest.id)<maxAttempts-1};
 }

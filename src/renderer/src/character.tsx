@@ -7,17 +7,18 @@ import {mountOriginal,type OriginalActor} from './character-original/actor-runti
 import {fallbackMotion} from './thumbnail-motion';
 import shapeAssets from './character-original/shape-assets.json';
 import type {SourceDragState} from '../../shared/source-drag';
+import {deriveCharacterCue,type CharacterCue} from './character-cue';
 import './character.css';
 
 type Surface='workspace'|'companion'|'anchor';
 type Slot='sidebar'|'header'|'companion'|'anchor';
-type Phase='ready'|'working';
-type Session={identityHeader:boolean;profile:CharacterProfile;state:CharacterState|{kind:'loading'};narrow:boolean;register:(slot:Slot,node:HTMLSpanElement|null)=>void;preview:(node:HTMLSpanElement|null)=>void;previewLook:(look:CharacterProfile['look']|undefined)=>void;commit:(base:CharacterSnapshot,profile:CharacterProfile)=>Promise<CharacterCommit>;reload:()=>Promise<CharacterState>;failed:boolean;retry:()=>void};
+type Phase=CharacterCue['phase'];
+type Session={cue:CharacterCue;cueDescriptionId:string;identityHeader:boolean;profile:CharacterProfile;state:CharacterState|{kind:'loading'};narrow:boolean;register:(slot:Slot,node:HTMLSpanElement|null)=>void;preview:(node:HTMLSpanElement|null)=>void;previewLook:(look:CharacterProfile['look']|undefined)=>void;commit:(base:CharacterSnapshot,profile:CharacterProfile)=>Promise<CharacterCommit>;reload:()=>Promise<CharacterState>;failed:boolean;retry:()=>void};
 const Context=createContext<Session|null>(null);
 const lightAccents:Record<CharacterProfile['look']['color'],string>={dough:'#826038',iris:'#5667a4',sage:'#3e7058',apricot:'#965b40',rose:'#94536a',sky:'#416e92',butter:'#7b681d'};
 function useCharacter(){const session=useContext(Context);if(!session)throw Error('Character session is unavailable.');return session;}
 function useNarrow(){const [narrow,setNarrow]=useState(()=>matchMedia('(max-width:799px)').matches);useLayoutEffect(()=>{const media=matchMedia('(max-width:799px)'),change=()=>setNarrow(media.matches);media.addEventListener('change',change);change();return()=>media.removeEventListener('change',change);},[]);return narrow;}
-function useActorLease(element:HTMLSpanElement|null,look:CharacterProfile['look'],retry:number,onFailure:(failed:boolean)=>void,phase:Phase='ready'){
+function useActorLease(element:HTMLSpanElement|null,look:CharacterProfile['look'],retry:number,onFailure:(failed:boolean)=>void,phase:Phase='ready',zoom=1){
  const actor=useRef<OriginalActor|undefined>(undefined),appliedPhase=useRef<Phase>('ready'),leaseImage=useRef<HTMLImageElement|undefined>(undefined),fallbackImage=useRef<HTMLImageElement|undefined>(undefined),releaseFallback=useRef<(()=>void)|undefined>(undefined),currentMotion=useRef(look.motion);currentMotion.current=look.motion;
  useLayoutEffect(()=>{
   if(!element)return;const bounds=element.getBoundingClientRect();if(!bounds.width||!bounds.height)return;
@@ -26,15 +27,15 @@ function useActorLease(element:HTMLSpanElement|null,look:CharacterProfile['look'
   element.replaceChildren(image,canvas);element.dataset.characterRender='live';let disposed=false,failed=false;
   const owner=element.closest('button'),acknowledge=()=>actor.current?.acknowledge();
   const fallback=()=>{if(disposed||failed)return;failed=true;canvas.remove();element.dataset.characterRender='static';fallbackImage.current=image;releaseFallback.current=fallbackMotion(image,currentMotion.current,element.offsetWidth*37+look.shape.charCodeAt(0));onFailure(true);};
-  try{actor.current=mountOriginal(canvas,look,fallback);appliedPhase.current='ready';if(!failed)onFailure(false);}catch{fallback();}
+  try{actor.current=mountOriginal(canvas,look,fallback,{zoom});appliedPhase.current='ready';if(!failed)onFailure(false);}catch{fallback();}
   owner?.addEventListener('pointerenter',acknowledge);owner?.addEventListener('focus',acknowledge);
   return()=>{if(disposed)return;disposed=true;owner?.removeEventListener('pointerenter',acknowledge);owner?.removeEventListener('focus',acknowledge);releaseFallback.current?.();releaseFallback.current=undefined;fallbackImage.current=undefined;leaseImage.current=undefined;actor.current?.destroy();actor.current=undefined;element.replaceChildren();delete element.dataset.characterRender;};
- },[element,look.shape,look.face,retry,onFailure]);
+ },[element,look.shape,look.face,retry,onFailure,zoom]);
  useLayoutEffect(()=>{actor.current?.setColor(look.color);if(leaseImage.current){try{leaseImage.current.src=characterStill(look);}catch{leaseImage.current.src=shapeAssets[look.shape];}}},[element,look.shape,look.face,look.color,retry]);
  useLayoutEffect(()=>{if(look.motion)actor.current?.resume();else actor.current?.pause();if(fallbackImage.current){releaseFallback.current?.();releaseFallback.current=fallbackMotion(fallbackImage.current,look.motion,look.shape.charCodeAt(0)*41);}},[element,look.shape,look.face,look.motion,retry]);
  useLayoutEffect(()=>{if(actor.current&&appliedPhase.current!==phase){actor.current.setPhase(phase);appliedPhase.current=phase;}},[element,look.shape,look.face,retry,phase]);
 }
-export function CharacterProvider({surface,working,children,identity,suspended=false}:{surface:Surface;working:boolean;children:ReactNode;suspended?:boolean;identity?:{snapshot:CharacterSnapshot;commit:(base:CharacterSnapshot,profile:CharacterProfile)=>Promise<CharacterCommit>;reload:()=>Promise<CharacterState>}}){
+export function CharacterProvider({surface,working,cue=deriveCharacterCue(undefined),children,identity,suspended=false}:{surface:Surface;working:boolean;cue?:CharacterCue;children:ReactNode;suspended?:boolean;identity?:{snapshot:CharacterSnapshot;commit:(base:CharacterSnapshot,profile:CharacterProfile)=>Promise<CharacterCommit>;reload:()=>Promise<CharacterState>}}){
  const [storedState,setState]=useState<Session['state']>({kind:'loading'}),[storedProfile,setProfile]=useState(DEFAULT_CHARACTER),[slots,setSlots]=useState<Partial<Record<Slot,HTMLSpanElement>>>({}),[preview,setPreview]=useState<HTMLSpanElement|null>(null),[previewLook,setPreviewLook]=useState<CharacterProfile['look']>(),[mainFailed,setMainFailed]=useState(false),[previewFailed,setPreviewFailed]=useState(false),[retry,setRetry]=useState(0);
  const profile=identity?.snapshot.profile??storedProfile,state:Session['state']=identity?{kind:'available',current:identity.snapshot}:storedState;
  const narrow=useNarrow(),register=useCallback((slot:Slot,node:HTMLSpanElement|null)=>setSlots(previous=>{if(previous[slot]===(node??undefined))return previous;return {...previous,[slot]:node??undefined};}),[]);
@@ -62,31 +63,35 @@ export function CharacterProvider({surface,working,children,identity,suspended=f
   else if(result.kind==='unavailable')setState(result);
   return result;
  },[reload,identity]);
+ const cueDescriptionId=useId();
+ const currentCue=working?{...cue,kind:'working' as const,label:'Working on this task’s request',symbol:'…',phase:'working' as const}:cue;
  const slot=surface==='workspace'?(identity?'header':narrow?'header':'sidebar'):surface;
- useActorLease(suspended?null:slots[slot]??null,profile.look,retry,setMainFailed,working?'working':'ready');
+ // Leave the largest saved silhouettes clear of the tiny edge canvas.
+ useActorLease(suspended?null:slots[slot]??null,profile.look,retry,setMainFailed,currentCue.phase,slot==='anchor' ? .94 : 1);
  useActorLease(surface==='workspace'&&!suspended?preview:null,previewLook??profile.look,retry,setPreviewFailed);
- return <Context.Provider value={{identityHeader:!!identity,profile,state,narrow,register,preview:setPreview,previewLook:setPreviewLook,commit,reload,failed:mainFailed||!!preview&&previewFailed,retry:()=>setRetry(value=>value+1)}}>{children}</Context.Provider>;
+ return <Context.Provider value={{cue:currentCue,cueDescriptionId,identityHeader:!!identity,profile,state,narrow,register,preview:setPreview,previewLook:setPreviewLook,commit,reload,failed:mainFailed||!!preview&&previewFailed,retry:()=>setRetry(value=>value+1)}}>{children}<span className="sr-only" id={cueDescriptionId} role="status">{characterLabel(profile)+' · '+currentCue.label}</span></Context.Provider>;
 }
+function CharacterCueBadge({cue}:{cue:CharacterCue}){return cue.symbol?<span className="character-cue" aria-hidden="true">{cue.symbol}</span>:null;}
 export function CharacterControl({place,onOpen}:{place:'sidebar'|'header'|'companion';onOpen:()=>void}){
  const session=useCharacter(),ref=useCallback((node:HTMLSpanElement|null)=>session.register(place,node),[session.register,place]);
  if(place==='sidebar'&&session.narrow||place==='header'&&!session.narrow&&!session.identityHeader)return null;
  const label=characterLabel(session.profile);
- return <button type="button" className={'character-control character-control-'+place} aria-label={'Customize '+label} title={label+' · '+CHARACTER_SHAPES.find(shape=>shape.id===session.profile.look.shape)?.label} onClick={onOpen}><span className="character-portrait"><span ref={ref} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={session.profile.look}/></span>{place==='sidebar'&&<><strong>{label}</strong><ChevronDown size={12}/></>}</button>;
+ return <button type="button" className={'character-control character-control-'+place} data-character-cue={session.cue.kind} aria-label={'Customize '+label} aria-describedby={session.cueDescriptionId} title={label+' · '+session.cue.label+' · '+CHARACTER_SHAPES.find(shape=>shape.id===session.profile.look.shape)?.label} onClick={onOpen}><span className="character-portrait"><span ref={ref} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={session.profile.look}/><CharacterCueBadge cue={session.cue}/></span>{place==='sidebar'&&<><strong>{label}</strong><ChevronDown size={12}/></>}</button>;
 }
-export function CharacterAnchor({onOpen,onChooseWindow}:{onOpen:()=>void;onChooseWindow:()=>void}){
+export function CharacterAnchor({onOpen,onChooseWindow,status=''}:{onOpen:()=>void;onChooseWindow:()=>void;status?:string}){
  const session=useCharacter(),ref=useCallback((node:HTMLSpanElement|null)=>session.register('anchor',node),[session.register]);
  const [drag,setDrag]=useState<SourceDragState>({kind:'idle'}),description=useId(),start=useRef<{x:number;y:number}|undefined>(undefined),moved=useRef(false);
  const cancel=()=>{start.current=undefined;moved.current=true;void window.companion.invoke({type:'source.drag.cancel'}).catch(()=>{});};
  useEffect(()=>window.companion.subscribe(event=>{if(event.type==='source.drag'){setDrag(event.state);if(event.state.kind==='idle')start.current=undefined;else moved.current=true;}}),[]);
  const message=drag.kind==='target'?`Release to attach and capture one local snapshot of ${drag.title||'Untitled window'} in ${drag.ownerName}. Nothing is sent or followed automatically. Escape cancels.`:drag.kind==='blocked'?drag.message:drag.kind==='searching'?'Choose a source window. Escape cancels.':'';
- return <button type="button" className="anchor" data-source-drag={drag.kind} aria-label="Open Glint" aria-describedby={description} title={'Open '+characterLabel(session.profile)+' · Drag onto a window to capture one local snapshot, or press Down Arrow to choose one'}
+ return <button type="button" className="anchor" data-source-drag={drag.kind} data-character-cue={session.cue.kind} aria-label={'Open Glint'+(status?' · '+status:'')} aria-describedby={description+' '+session.cueDescriptionId} title={'Open '+characterLabel(session.profile)+' · '+session.cue.label+' · Drag onto a window to capture one local snapshot, or press Down Arrow to choose one'}
   onPointerDown={event=>{if(event.isPrimary&&event.button===0){start.current={x:event.clientX,y:event.clientY};moved.current=false;event.currentTarget.setPointerCapture(event.pointerId);}}}
   onPointerMove={event=>{if(start.current&&Math.hypot(event.clientX-start.current.x,event.clientY-start.current.y)>=6)moved.current=true;}}
   onPointerUp={()=>{start.current=undefined;}} onPointerCancel={cancel} onLostPointerCapture={event=>{if(event.buttons!==0)cancel();}}
   onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();cancel();}if(event.key==='ArrowDown'){event.preventDefault();onChooseWindow();}}}
   onContextMenu={event=>{event.preventDefault();onChooseWindow();}}
   onClick={event=>{if(event.detail!==0&&moved.current){event.preventDefault();moved.current=false;return;}onOpen();}}>
-  <span className="character-portrait"><span ref={ref} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={session.profile.look}/></span><span className="sr-only" id={description}>Drag onto a source window to attach and capture one local snapshot. Nothing is sent or followed automatically. Press Down Arrow to choose a window with the keyboard.</span><span className="sr-only" role="status">{message}</span>
+  <span className="character-portrait"><span ref={ref} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={session.profile.look}/><CharacterCueBadge cue={session.cue}/></span><span className="sr-only" id={description}>Drag onto a source window to attach and capture one local snapshot. Nothing is sent or followed automatically. Press Down Arrow to choose a window with the keyboard.</span><span className="sr-only" role="status">{message}</span>
  </button>;
 }
 export function AppearanceEditor({onCancel,heading=true}:{onCancel:()=>void;heading?:boolean}){
@@ -113,7 +118,7 @@ function AppearanceForm({initial,onCancel,heading}:{initial:CharacterSnapshot;on
  const choices=(items:readonly typeof CHARACTER_SHAPES[number][])=>items.map(shape=><button type="button" key={shape.id} aria-pressed={value.look.shape===shape.id} disabled={saving} onClick={()=>patch({look:{...value.look,shape:shape.id}})}><BotImage profile={{...value,look:{...value.look,shape:shape.id}}}/>{shape.label}</button>);
  return <form className="appearance-editor" onSubmit={event=>{event.preventDefault();void save();}} aria-label="Character appearance">
   {heading&&<h3>Make it yours</h3>}
-  <div className="appearance-layout"><div className="appearance-preview-column"><div className="appearance-preview"><span className="character-portrait"><span ref={previewRef} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={value.look}/></span><span className="sr-only">Preview of your selected character</span></div>   <label className="appearance-name">Name <span>Optional</span><input aria-label="Character name" value={name} placeholder="Companion" disabled={saving} maxLength={80} aria-invalid={nameInvalid} aria-describedby="character-name-help" onChange={event=>patch({personalName:event.target.value||null})}/></label><p id="character-name-help" className={nameInvalid?'warning':'tiny'}>{nameInvalid?'Use up to 40 characters without control characters.':'Leave blank to use Companion.'}</p></div>
+  <div className="appearance-layout"><div className="appearance-preview-column"><div className="appearance-preview"><span className="character-portrait"><span ref={previewRef} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={value.look}/></span><span className="sr-only">Preview of your selected character</span></div>   <label className="appearance-name">Name <span>Optional</span><input aria-label="Character name" value={name} placeholder="Glint" disabled={saving} maxLength={80} aria-invalid={nameInvalid} aria-describedby="character-name-help" onChange={event=>patch({personalName:event.target.value||null})}/></label><p id="character-name-help" className={nameInvalid?'warning':'tiny'}>{nameInvalid?'Use up to 40 characters without control characters.':'Leave blank to use Glint.'}</p></div>
   <div className="appearance-controls">
 
    <fieldset disabled={saving}><legend>Shape</legend><div className="character-shapes">{choices(CHARACTER_PICKER_SHAPES.slice(0,6))}</div><details className="character-more" open={CHARACTER_PICKER_SHAPES.slice(6).some(shape=>shape.id===value.look.shape)||undefined}><summary>{CHARACTER_PICKER_SHAPES.length-6} more shapes</summary><div className="character-shapes">{choices(CHARACTER_PICKER_SHAPES.slice(6))}</div></details></fieldset>

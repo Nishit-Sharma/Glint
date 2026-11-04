@@ -1,13 +1,17 @@
-/* Both native anchor footprints need room around the same centered shell. */
+/* Keep equal padding around the same square shell in both native footprints. */
 .anchor-wrap .anchor{
- --anchor-size:clamp(24px,min(calc(100vw - 8px),calc(100dvh - 8px)),64px);
+ --anchor-size:clamp(24px,min(calc(100vw - 4px),calc(100dvh - 4px)),64px);
  width:var(--anchor-size);
  height:var(--anchor-size);
  min-width:0;
  min-height:0;
- padding:3px;
+ padding:2px;
  border-radius:35%;
  box-shadow:none;
 }
 .anchor-wrap .anchor .character-portrait,.anchor-wrap .anchor .character-slot{width:100%;height:100%}
 .anchor-wrap .anchor:focus-visible{outline-offset:-3px}
+/* Match the anchor camera framing for its original fallback and accessories. */
+.anchor-wrap .anchor .character-slot>img,.anchor-wrap .anchor .character-adornment{scale:.94}
+/* Keep fallback breathing on the same centered framing as the live camera. */
+.anchor-wrap .anchor .character-slot>img{transform-origin:center}

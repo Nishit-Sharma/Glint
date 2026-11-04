@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {selectTaskMemory} from '../src/shared/project-memory';
 import {userMemoryContext} from '../src/host/user-memory-context';
 import {createCompanion} from '../src/core/companion';
+import {readProjectCommand} from '../src/shared/projects';
 import {readUserMemory,MEMORY_HISTORY_LIMIT,MEMORY_UNDO_BYTES,memoryUndoRetention,memoryUndoReason,memoryValueText,type UserMemory,type MemoryHistoryEvent} from '../src/shared/user-memory';
 import {memoryExportSnapshot} from '../src/shared/memory-export';
 const failure=vi.hoisted(()=>({rename:false}));
@@ -47,7 +48,7 @@ it('requires exact after version/hash and current global CAS, allowing unrelated
   const a=await core.changeUserMemory({expectedRevision:0,change:{kind:'save',text:'Original target.',topics:[]}}),id=a.current.facts[0].id,edited=await core.changeUserMemory({expectedRevision:1,change:{kind:'save',id,text:'Edited target.',topics:[]}}),event=edited.current.history!.at(-1)!;
   await expect(core.changeUserMemory({...undoChange(edited.current,event),change:{...undoChange(edited.current,event).change,expectedAfterHash:'0'.repeat(64)}})).rejects.toThrow();expect(await core.getUserMemory()).toEqual(edited.current);
   const withOther=(await core.changeUserMemory({expectedRevision:2,change:{kind:'save',text:'Independent other fact.',topics:[]}})).current;expect((await core.changeUserMemory(undoChange(edited.current,event))).kind).toBe('conflict');const restored=(await core.changeUserMemory(undoChange(withOther,event))).current;expect(restored.facts[1]).toEqual(withOther.facts[1]);expect(restored.facts[0]).toMatchObject({id,revision:4,text:'Original target.'});
-  const again=(await core.changeUserMemory({expectedRevision:4,change:{kind:'save',id,text:'Edited target.',topics:[]}})).current;await expect(core.changeUserMemory(undoChange(again,event))).rejects.toThrow();expect(await core.getUserMemory()).toEqual(again);const project=await core.projectCommand({type:'projects.create',name:'Owned project undo exclusion'});await expect(core.projectCommand({type:'projects.memory.change',projectId:project.id,...undoChange({...again,revision:0},event)})).rejects.toThrow();expect(await core.getUserMemory()).toEqual(again);
+  const again=(await core.changeUserMemory({expectedRevision:4,change:{kind:'save',id,text:'Edited target.',topics:[]}})).current;await expect(core.changeUserMemory(undoChange(again,event))).rejects.toThrow();expect(await core.getUserMemory()).toEqual(again);const project=await core.projectCommand({type:'projects.create',name:'Owned project undo exclusion'});expect(()=>readProjectCommand({type:'projects.memory.change',projectId:project.id,...undoChange({...again,revision:0},event)})).toThrow();expect(await core.getUserMemory()).toEqual(again);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
 });
 it('retains no protected or oversized previous values, enforces exact UTF8 boundary, and leaves legacy changes unavailable',async()=>{

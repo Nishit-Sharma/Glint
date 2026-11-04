@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {BROWSER_MANUAL_CONTROL_LIMITS} from '../../../shared/browser-control';
+import {BROWSER_MANUAL_CONTROL_LIMITS,browserEngineLabel} from '../../../shared/browser-control';
 import type {BrowserControlReply} from '../../../shared/browser-control';
 
 export function BrowserControl({taskId,requestId,active}:{taskId:string;requestId:string;active:boolean}){
@@ -24,5 +24,5 @@ export function BrowserControl({taskId,requestId,active}:{taskId:string;requestI
  }
  if(status.mode==='unavailable'||status.mode==='ended'||status.mode==='opening')return error?<p className="tiny" role="alert">{error}</p>:null;
  const user=status.mode==='user',pausing=status.mode==='pausing';
- return <section className="browser-control" aria-label="Browser control"><div className="browser-control-row"><p role="status">{pausing?'Pausing agent actions. Wait before using the page; a started interaction may still finish.':user?'You control the browser. Agent actions are paused; the page may keep running or loading.':'Glint controls the browser.'}</p><button type="button" disabled={pending||pausing} onClick={()=>void change(user?'return':'take')}>{pending?'Checking control…':pausing?'Pausing…':user?'Return browser control':'Pause and take control'}</button></div>{user&&<details><summary>What you can do</summary>{BROWSER_MANUAL_CONTROL_LIMITS.map(paragraph=><p key={paragraph}>{paragraph}</p>)}</details>}{error&&<p className="warning" role="alert">{error}</p>}</section>;
+ return <section className="browser-control" aria-label="Browser control"><div className="browser-control-row"><p role="status">{pausing?'Pausing agent actions. Wait before using the page; a started interaction may still finish.':user?'You control the browser. Agent actions are paused; the page may keep running or loading.':'Glint controls the browser.'}</p><button type="button" disabled={pending||pausing} onClick={()=>void change(user?'return':'take')}>{pending?'Checking control…':pausing?'Pausing…':user?'Return browser control':'Pause and take control'}</button></div>{status.browser&&<p className="tiny">Browser: {browserEngineLabel(status.browser)}</p>}{user&&<details><summary>What you can do</summary>{BROWSER_MANUAL_CONTROL_LIMITS.map(paragraph=><p key={paragraph}>{paragraph}</p>)}</details>}{error&&<p className="warning" role="alert">{error}</p>}</section>;
 }

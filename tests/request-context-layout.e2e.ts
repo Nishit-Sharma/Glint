@@ -21,14 +21,15 @@ test('Context keeps a readable row and leaves the conversation and composer usab
    await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal',/^(settled|cancelled)$/);
    await expect(input).toHaveValue('Unsent layout check — keep this text.\nSecond line stays editable.');
    const geometry=await page.locator('.workspace-body').evaluate(root=>{
-    const context=root.querySelector('.request-context')!,summary=context.querySelector(':scope>details>summary')!,input=root.querySelector('#workspace-prompt')!,main=root.querySelector('main')!;
+    const context=root.querySelector('.request-context')!,summary=context.querySelector(':scope>details>summary')!,end=context.querySelector(':scope>.request-context-end'),input=root.querySelector('#workspace-prompt')!,main=root.querySelector('main')!;
     const rect=(el:Element)=>el.getBoundingClientRect().toJSON();
-    return {context:rect(context),summary:rect(summary),input:rect(input),main:rect(main),viewport:innerHeight};
+    return {context:rect(context),summary:rect(summary),end:end?rect(end):undefined,input:rect(input),main:rect(main),viewport:innerHeight};
    });
    measurements.push({width,...geometry});
    await page.screenshot({path:join(evidence,`workspace-${width}.png`)});
    await writeFile(join(evidence,'geometry.json'),JSON.stringify(measurements,null,2)+'\n');
-   expect(geometry.summary.width).toBeGreaterThan(geometry.context.width*.8);
+   // ui-compact 2026-11-04: the summary stops before the destination/Details group on the same row.
+   expect(geometry.summary.width).toBeGreaterThan(geometry.context.width*.6);if(geometry.end)expect(geometry.summary.right).toBeLessThanOrEqual(geometry.end.left);
    expect(geometry.summary.height).toBeLessThan(90);
    expect(geometry.main.height).toBeGreaterThan(180);
    expect(geometry.input.y).toBeGreaterThan(geometry.main.y);

@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import type {BrowserControlStatus} from '../../shared/browser-control';
+import type {BrowserControlStatus,BrowserEngine} from '../../shared/browser-control';
 
 export class BrowserControlPaused extends Error {}
 /** One live request owns this fence. It never grants a browser action. */
@@ -10,9 +10,10 @@ export class BrowserControl {
  private wake=()=>{};
  private signal?:AbortSignal;
  private focus=async()=>{};
+ private browser?:BrowserEngine;
  get requestSignal(){return this.signal;}
- status():BrowserControlStatus{return {id:this.id,mode:this.mode};}
- attach(signal:AbortSignal,focus:()=>Promise<void>){if(this.mode==='ended'||signal.aborted)throw Error('Stopped by user.');this.signal=signal;this.focus=focus;this.mode='agent';}
+ status():BrowserControlStatus{return {id:this.id,mode:this.mode,...(this.browser?{browser:{...this.browser}}:{})};}
+ attach(signal:AbortSignal,focus:()=>Promise<void>,browser?:BrowserEngine){if(this.mode==='ended'||signal.aborted)throw Error('Stopped by user.');this.signal=signal;this.focus=focus;if(browser)this.browser={name:browser.name,chromiumVersion:browser.chromiumVersion,...(browser.contentBlocker?{contentBlocker:true}:{})};this.mode='agent';}
  take(){if(this.mode==='agent'){this.mode='pausing';this.turn?.abort();}return this.status();}
  returnToAgent(){if(this.signal?.aborted)throw Error('Stopped by user.');if(this.mode!=='user')throw Error('Wait until browser work is paused before returning control.');this.mode='agent';this.wake();return this.status();}
  async waitForAgent(){

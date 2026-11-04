@@ -1,0 +1,10 @@
+.screen-recording-setting{margin-top:16px}.screen-recording-setting .preference-explanation{margin-top:4px}
+.screen-recording-indicator{display:flex;align-items:center;gap:8px;padding:4px 20px;font-size:12px;line-height:18px;color:var(--ink);background:var(--soft);flex-shrink:0;min-width:0}
+.screen-recording-indicator [role=status]{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.screen-recording-dot{width:8px;height:8px;border-radius:50%;background:#cdb28a;flex-shrink:0}
+.screen-recording-indicator>button{margin-left:auto;border:0;padding:3px 0;font-size:12px;white-space:nowrap}
+.screen-recording-indicator>button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.screen-recording-indicator [role=alert]{min-width:0;overflow-wrap:anywhere}
+.screen-recording-dot.uncertain{background:transparent;box-shadow:inset 0 0 0 1.5px #cdb28a}
+.screen-recording-cue{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:16px;height:16px}
+.screen-recording-cue--anchor{position:fixed;top:3px;right:3px;pointer-events:none;z-index:1}

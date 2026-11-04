@@ -1,5 +1,8 @@
+import {serializeLearningDraftJson} from '../shared/learning-drafts';
+import {parseModuleAnswer} from './interactive-modules';
+import {MODULE_MIME} from '../shared/module-contract';
 import {Schema} from 'effect';
-import type {Task,SourceRef} from './types';
+import type {Task,SourceRef,RequestInput} from './types';
 import type {LocalDemonstrationOwner} from '../learning/local-demonstration';
 import {tableWorkflow,TableWorkflowActionSchema,tableWorkflowReport,type TableWorkflowAction,type TableWorkflowSource,type TableWorkflowState} from '../learning/table-workflow';
 import {pickingCanonical,pickingDigest,pickingTextDigest} from '../shared/picking-digest';
@@ -25,26 +28,27 @@ export function admitTableWorkflow(task:Task,owner:LocalDemonstrationOwner,previ
 }
 export const isTableWorkflowAction=(action:{kind:string},state:unknown)=>action.kind==='begin-table-workflow'||action.kind.startsWith('table-workflow-')||!!state&&typeof state==='object'&&'format'in state&&state.format==='table-workflow-v1';
 
-/** Explicit publication reuses the existing atomic request/artifact journal. A local run is its stable save identity. */
-export async function saveTableWorkflowDocument(core:import('./companion').Companion,task:Task,owner:LocalDemonstrationOwner,state:TableWorkflowState):Promise<{artifactId:string;revision:number}>{
- const run=state.lastRun;if(task.status!=='active'||!run||run.result.status!=='completed')throw Error('Only a complete table workflow run in the active owning task can be published. No partial table was saved.');
+const documentId=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));
+const TableWorkflowDocumentSave=Schema.Struct({taskId:documentId,artifactId:documentId,artifactRevision:Schema.Int.pipe(Schema.positive()),sessionRevision:Schema.Int.pipe(Schema.nonNegative())});
+export const readTableWorkflowDocumentSave=(raw:unknown)=>{serializeLearningDraftJson(raw);return Schema.decodeUnknownSync(TableWorkflowDocumentSave,{onExcessProperty:'error'})(structuredClone(raw));};
+export type TableWorkflowDocumentSave=typeof TableWorkflowDocumentSave.Type;
+/** Reconstruct the exact single-helper owner and saved state inside authoritative core admission. */
+export function tableWorkflowDocumentPublication(task:Task,value:TableWorkflowDocumentSave){
+ const artifact=task.artifacts.find(item=>item.id===value.artifactId),revision=artifact?.revisions.at(-1),session=task.session;
+ if(task.id!==value.taskId||!artifact||!revision||revision.revision!==value.artifactRevision||revision.mimeType!==MODULE_MIME||!session||session.revision!==value.sessionRevision)throw Error('Your answer or choices changed. Review them before saving the document.');
+ const answer=parseModuleAnswer(JSON.parse(revision.content));if(answer.modules.length!==1)throw Error('Save this local table workflow from its original single-helper answer.');const module=answer.modules[0];if(module.data.kind!=='helper-studio')throw Error('Open the original helper.');
+ const matches=session.moduleStates.filter(saved=>saved.artifactId===artifact.id&&saved.artifactRevision===revision.revision&&(saved.moduleId===module.id||saved.moduleId===undefined));if(matches.length!==1)throw Error('The workflow has conflicting saved states.');
+ const owner:LocalDemonstrationOwner={taskId:task.id,artifactId:artifact.id,artifactRevision:revision.revision,artifactDigest:revision.digest,moduleId:module.id,moduleVersion:module.version,helperId:module.data.id},state=tableWorkflow.parseState(module.data.id,matches[0].state),run=state.lastRun;
+ if(task.status!=='active'||!run||run.result.status!=='completed')throw Error('Only a complete table workflow run in the active owning task can be published. No partial table was saved.');
  if(!state.owner||pickingCanonical(state.owner)!==pickingCanonical(owner)||state.revision!==run.atRevision||state.activeVersion!==run.version)throw Error('The workflow changed after this run. Run the current active version again before publishing. Earlier saved reports stay in Files.');
- const content=tableWorkflowReport(state),title=(state.versions.find(item=>item.version===run.version)!.definition.name+' — table report').slice(0,200);
- const binding=pickingDigest({format:'local-table-workflow-report-v1',owner,run}),requestId='table-workflow-report-'+binding;
- const input={taskId:task.id,requestId,kind:'create',prompt:'Save the explicitly reviewed complete local table workflow result as an ordinary document.',executionScope:'local-table-workflow-report:v1',sourceIds:[run.source.ref.sourceId],expectedSourceRefs:[run.source.ref],expectedArtifacts:[{artifactId:owner.artifactId,revision:owner.artifactRevision,digest:owner.artifactDigest}],expectedModuleStates:[{artifactId:owner.artifactId,artifactRevision:owner.artifactRevision,moduleId:owner.moduleId,stateRevision:state.revision}]};
- const original=task.requests.find(request=>request.id===requestId);
- // Reconcile only the exact already-completed journal entry before any current-source admission.
- // A lost acknowledgment must not turn a historical saved result into another publication.
+ const content=tableWorkflowReport(state),title=(state.versions.find(item=>item.version===run.version)!.definition.name+' — table report').slice(0,200),binding=pickingDigest({format:'local-table-workflow-report-v1',owner,run}),requestId='table-workflow-report-'+binding;
+ const request:RequestInput={taskId:task.id,requestId,kind:'create',prompt:'Save the explicitly reviewed complete local table workflow result as an ordinary document.',executionScope:'local-table-workflow-report:v1',sourceIds:[run.source.ref.sourceId],expectedSourceRefs:[run.source.ref],expectedArtifacts:[{artifactId:owner.artifactId,revision:owner.artifactRevision,digest:owner.artifactDigest}],expectedModuleStates:[{artifactId:owner.artifactId,artifactRevision:owner.artifactRevision,moduleId:owner.moduleId,stateRevision:state.revision}]},original=task.requests.find(item=>item.id===requestId);
  if(original){
-  const expectedDigest=pickingTextDigest(JSON.stringify({...input,sourceRefs:[run.source.ref]}));
-  if(original.digest!==expectedDigest)throw Error('The original report identity has a different payload. No replacement was created.');
-  const artifact=task.artifacts.find(item=>item.id===original.answer?.artifactId),revision=artifact?.revisions.find(item=>item.revision===original.answer?.revision&&item.digest===original.answer?.digest);
-  if(original.status!=='completed'||!original.answer||!artifact||!revision||revision.title!==title||revision.content!==content||revision.mimeType!=='text/markdown'||pickingCanonical(revision.sourceRefs)!==pickingCanonical([run.source.ref]))throw Error('The original table report is not confirmed or is no longer available. Check Files for this exact run. A terminal attempt needs a new explicit local run; no replacement was created.');
-  return {artifactId:artifact.id,revision:revision.revision};
+  const expectedDigest=pickingTextDigest(JSON.stringify({...request,sourceRefs:[run.source.ref]}));if(original.digest!==expectedDigest)throw Error('The original report identity has a different payload. No replacement was created.');
+  const savedArtifact=task.artifacts.find(item=>item.id===original.answer?.artifactId),saved=savedArtifact?.revisions.find(item=>item.revision===original.answer?.revision&&item.digest===original.answer?.digest);
+  if(original.status!=='completed'||!original.answer||!savedArtifact||!saved||saved.title!==title||saved.content!==content||saved.mimeType!=='text/markdown'||pickingCanonical(saved.sourceRefs)!==pickingCanonical([run.source.ref]))throw Error('The original table report is not confirmed or is no longer available. Check Files for this exact run. A terminal attempt needs a new explicit local run; no replacement was created.');
+  return {kind:'existing' as const,result:{artifactId:savedArtifact.id,revision:saved.revision}};
  }
- const result=await core.runRequest(input,async()=>({title,content,mimeType:'text/markdown'}));
- if(result.status!=='completed'||!result.answer)throw Error('The table report was not confirmed. Check Files for this exact run before another action. A terminal attempt needs a new explicit local run; no automatic retry or partial report was produced.');
- const saved=await core.getTask(task.id),artifact=saved.artifacts.find(item=>item.id===result.answer!.artifactId),revision=artifact?.revisions.find(item=>item.revision===result.answer!.revision&&item.digest===result.answer!.digest);
- if(!revision||revision.title!==title||revision.content!==content||revision.mimeType!=='text/markdown'||pickingCanonical(revision.sourceRefs)!==pickingCanonical([run.source.ref]))throw Error('The original table report needs review in Files. No replacement was created.');
- return {artifactId:artifact!.id,revision:revision.revision};
+ return {kind:'new' as const,request,artifact:{title,content,mimeType:'text/markdown'}};
 }
+export function saveTableWorkflowDocument(core:import('./companion').Companion,raw:unknown,assertCurrent:()=>void=()=>{}):Promise<{artifactId:string;revision:number}>{return core.saveTableWorkflowDocument(raw,assertCurrent);}

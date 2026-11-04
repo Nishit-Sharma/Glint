@@ -39,9 +39,10 @@ it('discloses exact changed-source procedure revisions without sharing their bod
  const f=await fixture();
  const changed=await f.core.putSource(f.task.id,{id:f.ref.sourceId,kind:'text',label:'Private replacement label',content:'Private replacement body',role:'fact'});
  const before=structuredClone(changed),history=projectTaskDialogue(changed,'next-request',[]),context=JSON.parse(history);
- expect(context.sourceResume.affectedProcedures).toEqual([{procedureId:f.procedureId,currentRevision:1,revisions:[{revision:1,sourceRefs:[{...f.ref,availability:'available',versionRelation:'superseded',freshness:'fresh'}]}]}]);
- expect(taskHistoryReview(history)).toContain('1 saved procedure; among these summaries, 1 current revision needs source review');
- expect(taskHistoryReview(history)).toContain('cannot activate or run a procedure');
+ expect(sourceResumeContext(changed).affectedProcedures).toEqual([{procedureId:f.procedureId,currentRevision:1,revisions:[{revision:1,sourceRefs:[{...f.ref,availability:'available',versionRelation:'superseded',freshness:'fresh'}]}]}]);
+ expect(context.sourceResume.affectedProcedures).toEqual([]);
+ expect(taskHistoryReview(history)).not.toContain('1 saved procedure');
+ expect(context.sourceResume.authority).toContain('do not authorize capture, execution, transmission or replay');
  for(const secret of ['Private procedure body','Private target','Private outcome','Private procedure title','Private source body','Private replacement body'])expect(history).not.toContain(secret);
  expect(await f.core.getTask(changed.id)).toEqual(before);
  expect(await f.core.checkProcedure(changed.id,f.procedureId,{values:{}})).toMatchObject({ready:false,executionAuthorized:false});
@@ -65,7 +66,8 @@ it('retains historical dependency revisions after an explicitly corrected curren
  task=await f.core.putSource(f.task.id,{id:f.ref.sourceId,kind:'text',label:'Updated',content:'Updated',role:'fact'});
  task=await f.core.saveProcedure(task.id,{id:f.procedureId,expectedRevision:3,title:'Corrected',steps,sourceRefs:[sourceRef(task)]});
  expect(affected(task)).toEqual([{procedureId:f.procedureId,currentRevision:4,revisions:[3,2,1].map(revision=>({revision,sourceRefs:[{...f.ref,availability:'available',versionRelation:'superseded',freshness:'fresh'}]}))}]);
- expect(taskHistoryReview(projectTaskDialogue(task,'next',[]))).toContain('1 saved procedure; among these summaries, 0 current revisions need source review');
+ expect(JSON.parse(projectTaskDialogue(task,'next',[])).sourceResume.affectedProcedures).toEqual([]);
+ expect(taskHistoryReview(projectTaskDialogue(task,'next',[]))).not.toContain('1 saved procedure');
  expect(await f.core.checkProcedure(task.id,f.procedureId,{values:{}})).toMatchObject({ready:true,executionAuthorized:false});
  await f.restart();expect(affected(await f.core.getTask(task.id))).toEqual(affected(task));
 });
@@ -108,7 +110,7 @@ it('does not attribute an unrelated current source to a procedure with one chang
 it('keeps procedure dependencies stale when a selected-window follow refresh is cancelled',async()=>{
  const f=await fixture('window');let observation=stampA,release!:()=>void,entered!:()=>void,captures=0;
  const waiting=new Promise<void>(resolve=>release=resolve),started=new Promise<void>(resolve=>entered=resolve);
- const follow=new DocumentSourceFollow({core:f.core,observe:async(_target,options)=>{options.assertCurrent();return {kind:'document',stamp:observation};},approve:async()=>true,refresh:async(_binding,_stamp,guard)=>{entered();await waiting;guard();captures++;return null;},retire:()=>{},changed:()=>{}});
+ const follow=new DocumentSourceFollow({core:f.core,observe:async(_target,options)=>{options.assertCurrent();return {kind:'document',stamp:observation};},approve:async()=>'address',refresh:async(_binding,_stamp,guard)=>{entered();await waiting;guard();captures++;return null;},retire:()=>{},changed:()=>{}});
  follow.bind({task:f.task,sourceId:f.ref.sourceId,target:native});await follow.enable();observation=stampB;
  const polling=follow.poll();await started;follow.stop('Explicit cancellation');release();await polling;
  const task=await f.core.getTask(f.task.id);
@@ -123,7 +125,7 @@ it('still reviews older host projections that have no procedure dependency summa
  expect(taskHistoryReview(JSON.stringify(history))).not.toContain('saved procedures');
 });
 
-it('includes dependency metadata in the ordinary core request while source bodies stay unselected',async()=>{
+it('keeps local dependency metadata inspectable while unselected stale context stays out of ordinary requests',async()=>{
  const f=await fixture();await f.core.invalidateSource(f.task.id,f.ref.sourceId,'Current source state is unknown');
  let history='',selectedSources=-1;
  const request=await f.core.runRequest({taskId:f.task.id,requestId:'review-dependencies',kind:'explain',prompt:'Which saved procedure needs review?',sourceIds:[]},async context=>{
@@ -131,7 +133,8 @@ it('includes dependency metadata in the ordinary core request while source bodie
   return {title:'Local test response',content:'Historical dependencies need explicit source review.'};
  });
  expect(request.status).toBe('completed');expect(selectedSources).toBe(0);
- expect(JSON.parse(history).sourceResume.affectedProcedures[0]).toEqual({procedureId:f.procedureId,currentRevision:1,revisions:[{revision:1,sourceRefs:[{...f.ref,availability:'available',versionRelation:'current',freshness:'refresh-required'}]}]});
+ expect(sourceResumeContext(await f.core.getTask(f.task.id)).affectedProcedures[0]).toEqual({procedureId:f.procedureId,currentRevision:1,revisions:[{revision:1,sourceRefs:[{...f.ref,availability:'available',versionRelation:'current',freshness:'refresh-required'}]}]});
+ expect(JSON.parse(history).sourceResume.affectedProcedures).toEqual([]);
  expect(history).not.toContain('Private procedure body');expect(history).not.toContain('Private source body');
  expect((await f.core.getTask(f.task.id)).procedures).toEqual(f.task.procedures);
 });

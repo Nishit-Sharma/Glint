@@ -1,3 +1,4 @@
+import {sourceDependencyRefs} from '../shared/source-dependencies';
 import type {SourceRef,Task} from './types';
 
 const sameRef=(a:SourceRef,b:SourceRef)=>a.sourceId===b.sourceId&&a.version===b.version&&a.digest===b.digest;
@@ -20,7 +21,7 @@ export function sourceResumeContext(task:Task,procedureBudget=SOURCE_PROCEDURE_C
   return [{ref,label:excerpt(version.label).slice(0,200),kind:version.kind,status:source.freshness,reason:source.staleReason?excerpt(source.staleReason).slice(0,300):(version.kind==='window'?'A frozen window snapshot is historical evidence, not a live document.':null),authority:version.kind==='window'?'new-user-gesture-required':'saved-reference',documentEvidence:version.documentStamp?.evidence??'unavailable',...(source.documentChange?{documentChange:{kind:source.documentChange.kind,reason:excerpt(source.documentChange.reason).slice(0,300),observedAt:source.documentChange.observedAt}}:{})}];
  });
  const sources=[...allSources.filter(source=>source.status==='refresh-required'),...allSources.filter(source=>source.status!=='refresh-required')].slice(0,32);
- const allAffected=task.artifacts.flatMap(artifact=>{const revisions=artifact.revisions.filter(revision=>revision.sourceRefs.some(ref=>{
+ const allAffected=task.artifacts.flatMap(artifact=>{const revisions=artifact.revisions.filter(revision=>sourceDependencyRefs(revision).some(ref=>{
   const source=task.sources.find(source=>source.id===ref.sourceId),current=source?.versions.at(-1);
   return !source||source.freshness!=='fresh'||!current||!sameRef(ref,{sourceId:source.id,version:current.version,digest:current.digest});
  })).map(revision=>revision.revision);return revisions.length?[{artifactId:artifact.id,revisions}]:[];});

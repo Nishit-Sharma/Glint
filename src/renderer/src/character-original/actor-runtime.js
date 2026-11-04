@@ -16,7 +16,8 @@ export function mountOriginal(canvas,look,onFailure=()=>{},options={}){
  for(let i=0;i<look.shape.length;i++)seed=(seed*31+look.shape.charCodeAt(i))>>>0;
  function random(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;}
  // Leave room for the hop and its floor shadow inside the same stable canvas.
- if(playful){v.camera.zoom=.86;v.camera.updateProjectionMatrix();}
+ const zoom=options.zoom??(playful?.86:1);
+ if(zoom!==1){v.camera.zoom=zoom;v.camera.updateProjectionMatrix();}
  const yaw=Math.atan2(v.camera.position.x,v.camera.position.z),pitch=-Math.atan2(v.camera.position.y-v.m.baseline.y-v.m.eyes[0].position.y,Math.hypot(v.camera.position.x,v.camera.position.z));
  let frame=null,idle=null,release=null,hidden=false,paused=!look.motion,destroyed=false,last=0,gx=0,gy=0,bx=0,by=0,tx=0,ty=0,near=false,phase='ready',reaction=null,gesture=null,idleSide=-1,io,resize;
  let color=look.color,colorDirty=false,paintDirty=false,px=0,py=0,pbx=0,pby=0;

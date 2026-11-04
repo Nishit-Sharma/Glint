@@ -16,9 +16,9 @@ import {mountOriginal,type OriginalActor} from '../src/renderer/src/character-or
 let doc:EventTarget&{hidden:boolean},media:EventTarget&{matches:boolean};
 const intersections:{callback:IntersectionObserverCallback;disconnected:boolean}[]=[];
 const actors:OriginalActor[]=[];
-function mount(shape:CharacterProfile['look']['shape']='soup',activity:'quiet'|'playful'='quiet',motion=true,seed=0){
+function mount(shape:CharacterProfile['look']['shape']='soup',activity:'quiet'|'playful'='quiet',motion=true,seed=0,zoom?:number){
  const canvas=Object.assign(new EventTarget(),{clientWidth:210,clientHeight:230,getBoundingClientRect:()=>({left:0,top:0,width:210,height:230})}) as unknown as HTMLCanvasElement;
- const failed=vi.fn(),actor=mountOriginal(canvas,{shape,color:'dough',face:'curious',motion},failed,{activity,seed});actors.push(actor);
+ const failed=vi.fn(),actor=mountOriginal(canvas,{shape,color:'dough',face:'curious',motion},failed,{activity,seed,zoom});actors.push(actor);
  return {actor,canvas,failed,view:fixture.views.at(-1)!};
 }
 function pointer(x:number,y:number){const event=Object.assign(new Event('pointermove'),{pointerType:'mouse',clientX:x,clientY:y});doc.dispatchEvent(event);}
@@ -57,6 +57,9 @@ describe('companion motion runtime contracts',()=>{
   advance(20000);expect(view.samples.every(sample=>sample.lift===0)).toBe(true);
   expect(Math.max(...view.samples.map(sample=>Math.abs(sample.scaleY-1)))).toBeLessThan(.02);
   expect(view.camera.zoom).toBe(1);
+ });
+ it('applies explicit anchor framing without changing the quiet motion contract',()=>{
+  const {actor,view}=mount('soup','quiet',false,0,.94);expect(view.camera.zoom).toBe(.94);expect(view.camera.updateProjectionMatrix).toHaveBeenCalledOnce();expect(actor.stats()).toMatchObject({activity:'quiet',lift:0,frames:1});
  });
  it('preserves nearby gaze and returns forward before sleeping after distant pointer input',()=>{
   const {actor}=mount();pointer(185,55);advance(180);expect(actor.stats().near).toBe(true);expect(actor.stats().eye[0]).toBeGreaterThan(.3);

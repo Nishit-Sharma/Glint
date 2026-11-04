@@ -6,7 +6,7 @@ import {Button,Field,type Run} from '../ui';
 import {useNavigationDraft} from '../draft-navigation';
 import './pdf-page-import.css';
 
-export function PdfPageImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void;onAdded:(references:SourceRef[])=>void;onCancel:()=>void}){
+export function PdfPageImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCancel}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void|Promise<void>;onAdded:(references:SourceRef[])=>void;onCancel:()=>void}){
  const [review,setReview]=useState<PdfPageReview>(),[preview,setPreview]=useState<PdfPagePreview>(),[page,setPage]=useState(1),[selected,setSelected]=useState<Array<{page:number;pngDigest:string}>>([]),[role,setRole]=useState<SourceInput['role']>('fact'),[working,setWorking]=useState(false),[message,setMessage]=useState('');
  const mounted=useRef(true),locked=useRef(false),owner=useRef<PdfPageOwner|undefined>(undefined),currentRef=useRef(isCurrent),generation=useRef(0);currentRef.current=isCurrent;
  const clearDraft=useNavigationDraft(!!review),current=()=>mounted.current&&currentRef.current();
@@ -24,7 +24,7 @@ export function PdfPageImport({task,busy,run,isCurrent,beforeAdd,onAdded,onCance
   catch(reason){if(current())setMessage(publicErrorMessage(reason));}finally{locked.current=false;if(current())setWorking(false);}
  }
  async function add(){const chosen=owner.current;if(!chosen||!selected.length||locked.current||busy||!current())return;locked.current=true;setWorking(true);setMessage('');const epoch=generation.current;
-  try{beforeAdd();if(!current())return;const result=await run<PdfPageAddResult>({type:'source.pdf.add',...chosen,pages:selected,role},undefined,{isCurrent:current});if(!current()||epoch!==generation.current)return;if(result){clearDraft();await release();if(current())onAdded(result.references);}else setMessage('Adding the pages was not confirmed. Inspect Context before retrying; this review is kept.');}
+  try{await beforeAdd();if(!current())return;const result=await run<PdfPageAddResult>({type:'source.pdf.add',...chosen,pages:selected,role},undefined,{isCurrent:current});if(!current()||epoch!==generation.current)return;if(result){clearDraft();await release();if(current())onAdded(result.references);}else setMessage('Adding the pages was not confirmed. Inspect Context before retrying; this review is kept.');}
   catch(reason){if(current())setMessage(publicErrorMessage(reason));}finally{locked.current=false;if(current())setWorking(false);}
  }
  const disabled=busy||working,shown=preview?.provenance;

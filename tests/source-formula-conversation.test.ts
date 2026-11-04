@@ -1,13 +1,14 @@
 import {expect,test,vi} from 'vitest';
 vi.mock('lucide-react',()=>({ArrowUpRight:()=>null}));
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('./controlled-renderer.fixture')).hooks}));
 vi.mock('../src/renderer/src/components/ReadyArtifact',async()=>{const {createElement}=await import('react');return {ReadyArtifact:({children}:{children:unknown})=>createElement('div',{},children as any)};});
 import {createElement} from 'react';
-import {renderToStaticMarkup} from 'react-dom/server';
 import {readScreenBrief} from '../src/core/screen-brief';
 import {saveSourceFormula} from '../src/core/source-formula-host';
 import {Conversation} from '../src/renderer/src/components/Conversation';
 import {createControlledRenderer} from './controlled-renderer.fixture';
 import {sourceFormulaFixture} from './source-formula.fixture';
+const renderText=(element:ReturnType<typeof createElement>)=>{const r=createControlledRenderer(()=>element);r.render();return r.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join(' ');};
 
 test('real saved formula appears as an experiment card bound to its original request revision',async()=>{
  const f=await sourceFormulaFixture();
@@ -24,7 +25,7 @@ test('malformed source-formula bytes are not rendered as conversation text',asyn
  const f=await sourceFormulaFixture();
  try{
   const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content='MALFORMED_PRIVATE_SENTINEL';
-  const before=JSON.stringify(task),html=renderToStaticMarkup(createElement(Conversation,{task,active:true,renderBrief:()=>null,onArtifact:()=>{},onConnection:()=>{}}));
+  const before=JSON.stringify(task),html=renderText(createElement(Conversation,{task,active:true,renderBrief:()=>null,onArtifact:()=>{},onConnection:()=>{}}));
   expect(html).toContain('This saved source formula needs inspection.');expect(html).toContain('Its original content is kept.');expect(html).not.toContain('Open '+f.input.title);expect(html).not.toContain('MALFORMED_PRIVATE_SENTINEL');expect(JSON.stringify(task)).toBe(before);
  }finally{await f.close();}
 });
@@ -32,6 +33,6 @@ test('malformed source-formula bytes are not rendered as conversation text',asyn
 
 test('formula MIME takes precedence over a valid but unrelated screen-brief envelope',async()=>{
  const f=await sourceFormulaFixture();try{
-  const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'UNRELATED_BRIEF_SENTINEL',actions:[]});expect(readScreenBrief(revision.content,revision.sourceRefs)).toBeDefined();const renderBrief=vi.fn(()=>createElement('p',{},'UNRELATED_BRIEF_SENTINEL'));const html=renderToStaticMarkup(createElement(Conversation,{task,active:true,renderBrief,onArtifact:()=>{},onConnection:()=>{}}));expect(renderBrief).not.toHaveBeenCalled();expect(html).toContain('This saved source formula needs inspection.');expect(html).not.toContain('UNRELATED_BRIEF_SENTINEL');
+  const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'UNRELATED_BRIEF_SENTINEL',actions:[]});expect(readScreenBrief(revision.content,revision.sourceRefs)).toBeDefined();const renderBrief=vi.fn(()=>createElement('p',{},'UNRELATED_BRIEF_SENTINEL'));const html=renderText(createElement(Conversation,{task,active:true,renderBrief,onArtifact:()=>{},onConnection:()=>{}}));expect(renderBrief).not.toHaveBeenCalled();expect(html).toContain('This saved source formula needs inspection.');expect(html).not.toContain('UNRELATED_BRIEF_SENTINEL');
  }finally{await f.close();}
 });

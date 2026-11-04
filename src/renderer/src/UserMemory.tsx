@@ -4,7 +4,7 @@ import {readUserMemory,readMemoryCommit,memoryUndoReason,MEMORY_FACT_LIMIT,MEMOR
 import {Button,Field,type RequestKind} from './ui';
 import {useNavigationDraft} from './draft-navigation';
 import {publicErrorMessage} from '../../shared/public-messages';
-import {readMemoryPreview,type TaskMemorySelection} from '../../shared/project-memory';
+import {readMemoryPreview,projectMemoryFactActive,type TaskMemorySelection} from '../../shared/project-memory';
 
 export function useUserMemory(enabled=true){
  const [memory,setMemory]=useState<UserMemory>(),[error,setError]=useState('');
@@ -84,17 +84,25 @@ function MemoryForm({initial}:{initial:UserMemory}){
  </section>;
 }
 
-export function MemoryStatus({task,project,prompt,kind,browser=false,onManage}:{task?:{id?:string;title:string;goal:string;projectId?:string};project?:{id:string;useAccountMemory?:boolean;name?:string;instructions?:string;revision?:number};prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void}){
+export function MemoryStatus({task,project,prompt,kind,browser=false,onManage,onChip}:{task?:{id?:string;title:string;goal:string;projectId?:string};project?:{id:string;useAccountMemory?:boolean;name?:string;instructions?:string;revision?:number};prompt:string;kind:RequestKind;browser?:boolean;onManage:()=>void;
+ /** Reports a short always-visible label while memory facts would be included (or cannot be checked). */
+ onChip?:(chip:string|undefined)=>void}){
  const supported=!browser&&['explain','create'].includes(kind),key=JSON.stringify([task?.id,task?.projectId,task?.title,task?.goal,project?.id,project?.useAccountMemory,prompt,kind,browser]);
  const generation=useRef(0),[preview,setPreview]=useState<{key:string;generation:number;selected?:TaskMemorySelection;error?:boolean}>();
  useEffect(()=>{
-  if(!supported)return;let alive=true;
-  const load=async()=>{const token=++generation.current;setPreview(undefined);try{const selected=readMemoryPreview(await window.companion.invoke({type:'memory.preview',...(task?.id?{taskId:task.id}:{}),prompt}));if(alive&&token===generation.current)setPreview({key,generation:token,selected});}catch{if(alive&&token===generation.current)setPreview({key,generation:token,error:true});}};
+  if(!supported)return;let alive=true,timer:ReturnType<typeof setTimeout>|undefined;
+  const load=async()=>{if(timer)clearTimeout(timer);const token=++generation.current;setPreview(undefined);try{const selected=readMemoryPreview(await window.companion.invoke({type:'memory.preview',...(task?.id?{taskId:task.id}:{}),prompt}));if(!alive||token!==generation.current)return;if(selected.projectFacts.some(fact=>!projectMemoryFactActive(fact,Date.now())))throw Error('The memory inspection expired.');setPreview({key,generation:token,selected});const deadline=Math.min(...selected.projectFacts.flatMap(fact=>fact.expiresAt?[Date.parse(fact.expiresAt)]:[]));const refresh=()=>{if(!alive||token!==generation.current)return;const remaining=deadline-Date.now();if(remaining<=0){void load();return;}timer=setTimeout(refresh,Math.min(remaining,2_147_483_647));};if(Number.isFinite(deadline))refresh();}catch{if(alive&&token===generation.current)setPreview({key,generation:token,error:true});}};
   void load();const unsubscribe=window.companion.subscribe(event=>{if(event.type==='changed')void load();});
-  return()=>{alive=false;generation.current++;unsubscribe();};
+  return()=>{alive=false;generation.current++;if(timer)clearTimeout(timer);unsubscribe();};
  },[key,supported]);
  const current=preview?.key===key&&preview.generation===generation.current?preview:undefined,selected=current?.selected;
- const scoped=selected&&(!task?.id||(selected.receipt.project?.projectId??null)===(task.projectId??null))?selected:undefined,total=scoped?scoped.facts.length+scoped.projectFacts.length:0;
+ const scoped=selected&&selected.projectFacts.every(fact=>projectMemoryFactActive(fact,Date.now()))&&(!task?.id||(selected.receipt.project?.projectId??null)===(task.projectId??null))?selected:undefined,total=scoped?scoped.facts.length+scoped.projectFacts.length:0;
+ // Shown whenever memory CAN be sent: a count when known, 'checking' while the preview runs, 'on' when it
+ // cannot be read. Hidden only when memory is off or definitely contributes nothing to this question.
+ const chip=!supported?undefined:current?.error?'Memory · on':!scoped?'Memory · checking':!scoped.globalEnabled||scoped.taskPolicy?.mode==='off'||!total?undefined:`Memory · ${total}`;
+ const chipReport=useRef(onChip);chipReport.current=onChip;
+ useEffect(()=>{chipReport.current?.(chip);},[chip]);
+ useEffect(()=>()=>chipReport.current?.(undefined),[]);
  return <>{supported&&<div className="memory-question-context" aria-label="Memory for this question">
   {current?.error?<span role="status">Memory preview unavailable</span>:!scoped?<span role="status">Checking memory…</span>:!scoped.globalEnabled?<span>Memory off</span>:scoped.taskPolicy?.mode==='off'?<span>Memory off for this task</span>:<>
    {scoped.project?.useAccountMemory===false&&<span>Account memory off for this project</span>}

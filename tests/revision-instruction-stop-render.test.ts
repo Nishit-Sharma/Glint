@@ -1,4 +1,5 @@
-import {afterEach,expect,it} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),useSyncExternalStore(_subscribe:unknown,getSnapshot:()=>unknown){return getSnapshot();}}));
+import {afterEach,expect,it,vi} from 'vitest';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {mkdtemp,rm} from 'node:fs/promises';

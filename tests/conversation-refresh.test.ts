@@ -1,3 +1,4 @@
+import {withOrdinaryAppBindings} from './concurrent-app-bindings.fixture';
 import {expect,test,vi} from 'vitest';
 vi.mock('lucide-react',()=>({RefreshCw:()=>null}));
 import {createElement} from 'react';
@@ -10,7 +11,7 @@ import ts from 'typescript';
 import {createCompanion} from '../src/core/companion';
 import type {Task} from '../src/core/types';
 import type {Command} from '../src/shared/bridge';
-import {createComposerDrafts} from '../src/renderer/src/composer-drafts';
+import {createComposerDrafts,type SaveComposerDraft} from '../src/renderer/src/composer-drafts';
 import {ConversationRefresh} from '../src/renderer/src/components/ConversationRefresh';
 import {createControlledRenderer} from './controlled-renderer.fixture';
 
@@ -26,15 +27,15 @@ function harness(initial=task(),drafts=createComposerDrafts(async(_id,revision,v
  let feedback:Record<string,Feedback>={},tasks=[initial];
  const taskRef={current:initial as Task|undefined},taskListSnapshot={current:{generation:0,read:0,tasks}},newQuestionEpoch={current:0},viewSelectionEpoch={current:0},incomingActivationEpoch={current:0},deletedTaskIds={current:new Set<string>()};
  const invoke=vi.fn<(command:Command)=>Promise<unknown>>().mockRejectedValue(Error('Unexpected command'));
- const bindings={taskRef,taskListSnapshot,newQuestionEpoch,viewSelectionEpoch,incomingActivationEpoch,deletedTaskIds,bridge:{invoke},drafts,messageRefreshLocks:{current:new Set<string>()},setMessageRefresh:(update:(previous:Record<string,Feedback>)=>Record<string,Feedback>)=>{feedback=update(feedback);},setTaskValue:vi.fn(),setTasks:vi.fn((next:Task[])=>{tasks=next;}),requestRef:{current:undefined},arrivedRequests:{current:new Set<string>()},viewRestored:{current:true},setTasksHydrated:vi.fn()};
- const make=(name:string,extras:Record<string,unknown>={})=>{const environment={...bindings,...extras};return Function(...Object.keys(environment),'return '+declaration(name))(...Object.values(environment));};
- const setTask=make('setTask') as (next:Task|undefined)=>void,refresh=make('refresh',{setTask}) as ()=>Promise<void>,refreshConversation=make('refreshConversation',{setTask}) as ()=>Promise<void>;
+ const bindings={taskRef,taskListSnapshot,newQuestionEpoch,viewSelectionEpoch,incomingActivationEpoch,deletedTaskIds,bridge:{invoke},drafts,messageRefreshLocks:{current:new Set<string>()},setMessageRefresh:(update:(previous:Record<string,Feedback>)=>Record<string,Feedback>)=>{feedback=update(feedback);},setTaskValue:vi.fn(),setTasks:vi.fn((next:Task[])=>{tasks=next;}),requestRef:{current:undefined},arrivedRequests:{current:new Set<string>()},viewRestored:{current:true},setTasksHydrated:vi.fn(),setError:vi.fn()};
+ const make=(name:string,extras:Record<string,unknown>={})=>{const environment=withOrdinaryAppBindings(file,{...bindings,...extras});return Function(...Object.keys(environment),'return '+declaration(name))(...Object.values(environment));};
+ const setTask=make('setTask') as (next:Task|undefined)=>void,refresh=make('refresh',{setTask}) as ()=>Promise<void>,refreshConversation=make('refreshConversation',{setTask}) as ()=>Promise<void>,saveComposerDraft=make('saveComposerDraft',{refresh}) as SaveComposerDraft;
  drafts.hydrate([initial]);
  let entry:ts.JsxSelfClosingElement|undefined;const visit=(node:ts.Node)=>{if(ts.isJsxSelfClosingElement(node)&&node.tagName.getText(file)==='ConversationRefresh')entry=node;ts.forEachChild(node,visit);};visit(file);if(!entry)throw Error('No reachable actual refresh entry');
  function props(){const environment={task:taskRef.current,messageRefresh:feedback,newQuestionEpoch,refreshConversation},props:Record<string,unknown>={};for(const property of entry!.attributes.properties){if(ts.isJsxAttribute(property)&&property.initializer&&ts.isJsxExpression(property.initializer)&&property.initializer.expression)props[property.name.getText(file)]=Function(...Object.keys(environment),'return '+javascript('('+property.initializer.expression.getText(file)+')'))(...Object.values(environment));}return props as Parameters<typeof ConversationRefresh>[0];}
  const renderer=createControlledRenderer(()=>createElement(ConversationRefresh,props()));
  const text=(node:ReturnType<typeof renderer.nodes>[number]):string=>node.type==='#text'?node.props.text:node.children.map(text).join('');
- return {...bindings,refresh,refreshConversation,setTask,props,renderer,text,drafts,feedback:()=>feedback,task:()=>taskRef.current,tasks:()=>tasks};
+ return {...bindings,refresh,refreshConversation,saveComposerDraft,setTask,props,renderer,text,drafts,feedback:()=>feedback,task:()=>taskRef.current,tasks:()=>tasks};
 }
 
 test('actual reachable refresh button waits on tasks.get, announces progress, and locks duplicate invocation',async()=>{
@@ -121,4 +122,22 @@ test('production refresh reloads real saved messages from the existing core get 
   h.bridge.invoke.mockImplementation(command=>{if(command.type!=='tasks.get')throw Error('Unexpected authority '+command.type);return core.getTask(command.taskId);});await h.refreshConversation();
   expect(h.task()?.requests).toHaveLength(1);expect(h.task()?.requests[0].prompt).toBe('Saved question');expect(h.task()?.requests[0].status).toBe('completed');expect(h.task()?.artifacts[0].revisions[0].content).toBe('A reply saved after this conversation opened.');expect(h.drafts.getSnapshot()[created.id].text).toBe('Unsent local question');expect(h.bridge.invoke.mock.calls).toEqual([[{type:'tasks.get',taskId:created.id}]]);expect(provider).toHaveBeenCalledTimes(1);
  }finally{await core.close();await rm(directory,{recursive:true,force:true});}
+});
+
+test('actual App autosave publishes current task/session identity and preserves unsent composer text',async()=>{
+ const initial=task(),h=harness(initial),saved={text:'Unsent question',kind:'explain' as const,revision:2},updated={...initial,updatedAt:'2026-11-03T01:00:00Z',session:{...initial.session!,revision:2,draft:saved.text,draftRevision:2}},held=deferred<Task[]>();h.bridge.invoke.mockImplementation(command=>command.type==='draft.save'?Promise.resolve(saved):held.promise);
+ const cache=createComposerDrafts(h.saveComposerDraft);cache.hydrate([initial]);cache.edit(initial.id,{text:saved.text});await vi.waitFor(()=>expect(h.bridge.invoke).toHaveBeenCalledWith({type:'tasks.list'}));expect(h.task()).toBe(initial);held.resolve([updated]);await cache.flush();expect(h.task()).toBe(updated);expect(h.tasks()).toEqual([updated]);expect(cache.getSnapshot().task.text).toBe(saved.text);expect(h.setError).not.toHaveBeenCalled();
+ expect(file.getText()).toContain('createComposerDrafts(saveComposerDraft,');
+});
+
+test('a context refresh failure after successful autosave retains the durable acknowledgement and reports the distinct recovery',async()=>{
+ const h=harness(),saved={text:'Saved unsent message',kind:'explain' as const,revision:2};h.bridge.invoke.mockImplementation(command=>command.type==='draft.save'?Promise.resolve(saved):Promise.reject(Error('Read unavailable')));await expect(h.saveComposerDraft('task',1,saved)).resolves.toEqual(saved);expect(h.setError).toHaveBeenCalledWith(expect.stringContaining('Your message was saved.'));expect(h.task()?.session?.draft).toBe('Saved draft');
+});
+
+test('a held autosave refreshes the currently selected task without returning navigation to its original owner',async()=>{
+ const initial=task(),other=task('other'),h=harness(initial),held=deferred<unknown>(),saved={text:'Owned unsent message',kind:'explain' as const,revision:2};h.bridge.invoke.mockImplementation(command=>command.type==='draft.save'?held.promise:Promise.resolve([{...initial,session:{...initial.session!,revision:2,draft:saved.text,draftRevision:2}},other]));const saving=h.saveComposerDraft(initial.id,1,saved);h.setTask(other);held.resolve(saved);await saving;expect(h.task()).toBe(other);expect(h.task()?.id).toBe('other');expect(h.setError).not.toHaveBeenCalled();
+});
+
+test('a rejected draft save never refreshes or claims the message was saved',async()=>{
+ const h=harness();h.bridge.invoke.mockRejectedValue(Error('Save rejected'));await expect(h.saveComposerDraft('task',1,{text:'Unsent',kind:'explain'})).rejects.toThrow('Save rejected');expect(h.bridge.invoke).toHaveBeenCalledTimes(1);expect(h.setError).not.toHaveBeenCalled();
 });

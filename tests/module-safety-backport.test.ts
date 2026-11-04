@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {afterEach,expect,it} from 'vitest';
@@ -74,7 +75,7 @@ it('the host raw revision policy rejects module replacement with readable recove
 it('saved source-grounded join review uses current saved choices and excludes unstarted transfer definitions',async()=>{
  const {core}=await fixture(),f=extractionFixture(),task=await core.createTask({title:'Grounded review'});
  await core.putSource(task.id,{kind:'text',role:'fact',label:'Owned table source',content:f.content});
- const basis=await core.saveArtifact(task.id,{title:'Frozen basis',content:'Source-bound join example.'});
+ const basis=await currentAnswerOrigin(core,task.id,'module-safety-origin',{title:'Frozen basis',content:'Source-bound join example.'},(await core.getTask(task.id)).sources.map(source=>({sourceId:source.id,version:source.currentVersion,digest:source.versions.at(-1)!.digest})));
  const transfer=structuredClone(f.transfer);transfer.title=hidden;
  const result=await createGroundedJoinArtifact(core,{taskId:task.id,requestId:'grounded',id:'join',title:'Review source tables',version:1,basis:{artifactId:basis.artifactId,revision:1,digest:basis.revision.digest},proposal:f.proposal,transfer});
  expect(result.status).toBe('completed');

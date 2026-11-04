@@ -5,6 +5,9 @@ import {OnboardingFixture} from './onboarding-fixture';
 import {BrowserCoordinator} from '../src/host/browser/coordinator';
 import {BrowserControl} from '../src/host/browser/control';
 import type {Command} from '../src/shared/bridge';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+// Loopback-locked engine only: these specs never launch or select the person's installed browsers.
+installLoopbackTestEngine();
 
 // Real renderer, coordinator, store and owned browser; native dialogs and planner are substitutes.
 test('user pauses, edits the active browser, returns deliberately, and stops another paused request',async({page})=>{

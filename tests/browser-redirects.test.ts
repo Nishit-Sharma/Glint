@@ -1,6 +1,8 @@
 import {createServer,type Server} from 'node:http';
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {LocalBrowser,BrowserRedirectError} from '../src/host/browser/local-browser';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 async function listen(server:Server){await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const address=server.address();if(!address||typeof address==='string')throw Error('Missing owned test port');return `http://127.0.0.1:${address.port}`;}
 async function close(server:Server){server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}

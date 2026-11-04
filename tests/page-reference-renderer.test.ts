@@ -3,7 +3,7 @@ vi.mock('react',async original=>({...await original<typeof import('react')>(),..
 const rich=vi.hoisted(()=>({calls:0}));
 vi.mock('@tiptap/react',()=>({useEditor:()=>{rich.calls++;return null;},useEditorState:()=>undefined,EditorContent:()=>null}));
 import {createElement} from 'react';
-import {mkdtemp} from 'node:fs/promises';
+import {mkdir,mkdtemp} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
 import {LearningDraftStore} from '../src/host/learning-drafts';
@@ -23,7 +23,7 @@ const text=(node:{type:string;props:Record<string,any>;children:any[]}):string=>
 const tick=()=>new Promise<void>(resolve=>setTimeout(resolve,2));
 async function until(check:()=>boolean){for(let i=0;i<200;i++){if(check())return;await tick();}throw Error('Controlled page-reference operation did not settle');}
 async function fixture(){
- const directory=await mkdtemp(join(process.cwd(),'evidence/page-ref-ui-')),core=await createCompanion({dataDir:directory});close.push(()=>core.close());const owner=await core.createTask({title:'Existing source owner'}),source=await core.saveArtifact(owner.id,{title:'Source page',content:'Source canonical text',mimeType:'text/markdown',sourceRefs:[]}),other=await core.createTask({title:'Another owner'}),first=await core.saveArtifact(other.id,{title:'First target',content:'First actual target saved body',mimeType:'text/plain',sourceRefs:[]}),second=await core.saveArtifact(other.id,{title:'Second target',content:'Second distinct saved target',mimeType:'text/markdown',sourceRefs:[]});
+ await mkdir(join(process.cwd(),'evidence'),{recursive:true});const directory=await mkdtemp(join(process.cwd(),'evidence/page-ref-ui-')),core=await createCompanion({dataDir:directory});close.push(()=>core.close());const owner=await core.createTask({title:'Existing source owner'}),source=await core.saveArtifact(owner.id,{title:'Source page',content:'Source canonical text',mimeType:'text/markdown',sourceRefs:[]}),other=await core.createTask({title:'Another owner'}),first=await core.saveArtifact(other.id,{title:'First target',content:'First actual target saved body',mimeType:'text/plain',sourceRefs:[]}),second=await core.saveArtifact(other.id,{title:'Second target',content:'Second distinct saved target',mimeType:'text/markdown',sourceRefs:[]});
  let task=await core.getTask(owner.id),base=source.revision,current=true,saved=0,hold:((taskId:string)=>Promise<Task>)|undefined;const store=new LearningDraftStore({directory,lookupTask:id=>core.getTask(id)}),cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();const commands:PageReadCommand[]=[],writes:unknown[]=[];
  const controller=createSavedDocumentDraftController({cache,artifactId:source.artifactId,task:()=>task,base:()=>base,isCurrent:()=>current,send:async input=>{writes.push(input);await core.saveArtifact(task.id,input);task=await core.getTask(task.id);return task;},onSaved:revision=>{base=revision;}});
  const invoke=async<T,>(command:PageReadCommand):Promise<T>=>{commands.push(command);return (command.type==='tasks.list'?await core.listTasks():hold?await hold(command.taskId):await core.getTask(command.taskId)) as T;};

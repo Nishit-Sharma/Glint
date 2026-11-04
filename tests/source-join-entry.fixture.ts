@@ -8,7 +8,7 @@ import type {JoinExtractionProposal} from '../src/learning/grounded-join';
 
 /** Real App, bridge, ready bot, Companion ledger and stores. All source text and
  * provider/native transport are synthetic; this is not OCR or native send review. */
-export async function sourceJoinEntry(page:Page,kind:'sql'|'hardware'='sql',port=4180){
+export async function sourceJoinEntry(page:Page,kind:'sql'|'hardware'='sql',port=Number(process.env.WINDOW_COMPANION_TEST_PORT??4180)){
  const fixture=await OnboardingFixture.open(page,{ready:true,port});fixture.configured=true;
  const catalog=await fixture.ready(),task=await fixture.core.createTask({title:kind==='sql'?'Review supplied tables':'Explain supplied hardware',assignedBotId:catalog.defaultBotId});
  const supplied=extractionFixture(true);

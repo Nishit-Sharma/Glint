@@ -11,7 +11,7 @@ const sameRect=(a:Rect,b:Rect)=>a.x===b.x&&a.y===b.y&&a.width===b.width&&a.heigh
 const inside=(a:Rect,b:Rect)=>a.x>=b.x&&a.y>=b.y&&a.x+a.width<=b.x+b.width&&a.y+a.height<=b.y+b.height;
 
 /** One owned, nonactivating overlay. Only metadata reviewed by the host drag owner enters here. */
-export function createSourceDragPreview(anchor:()=>Rect){
+export function createSourceDragPreview(anchor:()=>Rect,protect:(window:BrowserWindow)=>void=window=>window.setContentProtection(true)){
  let window:BrowserWindow|undefined,key='',loadedKey='',revision=0,displayed:{target:NativeWindow;bounds:Rect;paragraph:Rect}|undefined;
  const clear=()=>{
   revision++;const previous=window;window=undefined;key='';loadedKey='';displayed=undefined;
@@ -42,7 +42,7 @@ export function createSourceDragPreview(anchor:()=>Rect){
    key='';loadedKey='';revision++;
    window=new BrowserWindow({show:false,frame:false,transparent:true,hasShadow:false,focusable:false,alwaysOnTop:true,skipTaskbar:true,title:'Source attachment preview',webPreferences:{sandbox:true,nodeIntegration:false,contextIsolation:true}});
    const own=window;
-   own.setIgnoreMouseEvents(true);own.setContentProtection(true);
+   own.setIgnoreMouseEvents(true);protect(own);
    own.webContents.setWindowOpenHandler(()=>({action:'deny'}));
    own.webContents.on('will-navigate',event=>{event.preventDefault();if(window===own)clear();});
    own.webContents.on('render-process-gone',()=>{if(window===own)clear();});

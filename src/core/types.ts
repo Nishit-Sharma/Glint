@@ -1,3 +1,6 @@
+import type {ArtifactContextOrigin} from '../shared/artifact-context-origin';
+import type {SourceRevocation} from '../shared/source-intake';
+import type {ExplainDepth} from '../shared/explanation-modes';
 import type {ResponseMode} from '../shared/task-response-mode';
 import type {RequestInferenceSelection} from '../shared/request-inference';
 import type {InstructionSkillReference,InstructionSkillSnapshot,InstructionSkillAvailability} from '../shared/instruction-skill';
@@ -31,11 +34,13 @@ export interface Source {
   projectOrigin?: {projectId:string;sourceKey:string;taskId:string;reference:SourceRef;copiedVersion:number;copiedDigest:string};
   freshness: 'fresh' | 'refresh-required'; staleReason?: string;
   documentChange?: DocumentChange;
+  revoked?:SourceRevocation;
 }
 export interface ArtifactRevision {
   revision: number; title: string; content: string; mimeType: string;
   encoding?: 'utf8' | 'base64';
-  sourceRefs: SourceRef[]; digest: string; createdAt: string;
+  contextOrigin?:ArtifactContextOrigin;contextUncertain?:true;
+  sourceRefs: SourceRef[]; contextSourceRefs?:SourceRef[]; contextSkillRefs?:InstructionSkillReference[]; digest: string; createdAt: string;
 }
 export interface Artifact { id: string; revisions: ArtifactRevision[];skillAvailability?:InstructionSkillAvailability }
 export interface ArtifactRef { artifactId: string; revision: number; digest: string }
@@ -44,12 +49,16 @@ export interface ModuleStateRef { artifactId: string; artifactRevision: number; 
 export interface SessionCommitGuard { sourceRefs: SourceRef[]; artifactRefs: ArtifactRef[]; requireActive?:boolean }
 export type RequestStatus = 'running' | 'completed' | 'cancelled' | 'interrupted' | 'failed';
 export interface RequestRecord {
+  explainDepth?:ExplainDepth;
   responseMode?:ResponseMode;
+  concurrency?:'ordinary'|'exclusive';
+  questions?:import('../shared/request-question').RequestQuestionRecord[];
   responseModel?:import('../shared/response-model').ResponseModelReceipt;
   instructionSkill?:InstructionSkillReference;
   inference?:RequestInferenceSelection;
   id: string; kind: string; prompt: string; digest: string; status: RequestStatus;
-  sourceRefs: SourceRef[]; startedAt: string; finishedAt?: string;
+  sourceRefs: SourceRef[]; contextSourceRefs?:SourceRef[]; contextSkillRefs?:InstructionSkillReference[]; startedAt: string; finishedAt?: string;
+  contextArtifactRefs?:ArtifactRef[];
   answer?: { artifactId: string; revision: number; digest: string };
   artifactId?: string; targetArtifactId?: string; expectedRevision?: number; error?: string;
   memory?:MemoryUse;
@@ -111,8 +120,10 @@ export interface ProcedureInput {
   originArtifact?: { artifactId: string; revision: number };
 }
 /** The detached task's sources contain only the request's selected current versions. */
-export interface RequestContext { responseMode?:ResponseMode; task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; instructionSkill?:InstructionSkillSnapshot; signal: AbortSignal }
+export interface RequestContext { responseMode?:ResponseMode; task: Task; sourceRefs: SourceRef[]; taskHistory?: string; projectInstructions?:import('../shared/projects').ProjectInstructions; instructionSkill?:InstructionSkillSnapshot; signal: AbortSignal; askQuestion?:(question:import('../shared/request-question').RequestQuestionDefinition,onPublished?:()=>void,signal?:AbortSignal)=>Promise<import('../shared/request-question').RequestQuestionDecision> }
+
 export interface RequestInput {
+  explainDepth?:ExplainDepth;
   responseMode?:ResponseMode;
   instructionSkill?:InstructionSkillReference|null;
   instructionSkillRevision?:number;

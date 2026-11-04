@@ -1,0 +1,84 @@
+/* Composer anatomy (UI-GAPS 1-3): one quiet context line, one details control, the input.
+   Role-based tokens (UI-GAPS 8): meta 12/16, body 14/21, insight 15/22 (floor 12px); 8px spacing step. */
+:root{--text-meta-size:12px;--text-meta-line:16px;--text-body-size:14px;--text-body-line:21px;--text-insight-size:15px;--text-insight-line:22px;--space-2:8px;--ease-out:cubic-bezier(.23,1,.32,1)}
+
+/* Context row: the summary takes the first column and stops before the end group; the panel spans below. */
+div.request-context{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto minmax(0,auto);column-gap:12px;align-items:start}
+div.request-context>details,div.request-context>span:first-child{grid-column:1;grid-row:1;min-width:0;margin-block:0}
+div.request-context>details>summary,div.request-context>span:first-child{min-height:28px;padding:5px 0;line-height:18px}
+.request-context-end{grid-column:2;grid-row:1;display:flex;align-items:center;gap:var(--space-2);height:28px;color:var(--muted);white-space:nowrap}
+/* Everything sent with the next message beyond the summary (plan mode, skill, memory, project instructions)
+   stays visible here; each chip opens Details, where the controls live. */
+.request-chips{grid-column:1/-1;grid-row:2;display:flex;flex-wrap:wrap;gap:4px var(--space-2);margin:0 0 4px}
+/* Border #8a8a85 keeps >=3:1 non-text contrast on the dark panel and plate (about 4.5:1 on #202322). */
+.app .request-chip{display:inline-flex;align-items:center;flex-shrink:0;width:auto;min-width:0;max-width:100%;height:32px;min-height:32px;padding:0 10px;border:1px solid #8a8a85;border-radius:999px;background:transparent;color:var(--ink);font-size:var(--text-meta-size);line-height:var(--text-meta-line);white-space:nowrap}
+.request-chip-name{display:inline-block;margin-left:.3em;max-width:16ch;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.app .request-chip:hover:not(:disabled){background:#ffffff0a}
+.app .request-chip:disabled{opacity:1;cursor:default}
+.request-context-end .request-destination{margin:0}
+/* Same disclosure marker as the summaries; 32px target without growing the 28px row. */
+.app .request-details-toggle{display:inline-flex;align-items:center;gap:2px;width:auto;min-width:0;height:32px;min-height:32px;margin-block:-2px;margin-right:-6px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--muted);font-size:var(--text-meta-size);line-height:var(--text-meta-line)}
+.app .request-details-toggle:hover{color:var(--ink);background:#ffffff0a}
+.request-details-marker{display:list-item;list-style:disclosure-closed inside;width:1em}
+.request-details-toggle[aria-expanded=true] .request-details-marker{list-style-type:disclosure-open}
+
+/* Panel: one row rhythm, centred rows, 8px gaps, room for focus rings inside the scroll box. */
+.request-details{grid-column:1/-1;grid-row:3;align-self:stretch;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) 14px;min-width:0;min-height:0;max-height:min(260px,40dvh);overflow:auto;overscroll-behavior:contain;margin:4px -4px 0;padding:var(--space-2) 4px 4px;border-top:1px solid var(--line)}
+.request-details[hidden],.composer-formatting[hidden],.prompt-suggestions>label[hidden]{display:none}
+.app .request-details details{margin-block:0}
+.app .request-details summary{min-height:32px;padding-block:7px;line-height:18px}
+.request-details>.request-context,.request-details>.memory-question-context{flex:1 1 100%;max-width:none;margin:0;padding:0;align-items:center}
+.request-details>.request-context p{margin:4px 0 0}
+.request-details p:empty{margin:0}
+
+/* Compact: the answer plate owns the space; the input stays pinned and only the details panel scrolls. */
+.app.compact-companion .compact-main{min-height:58px}
+/* Only in short windows, and only while the user has the compact panel open, does the answer give up more room. */
+/* 261-320px tall with the compact panel open: the answer still keeps one full line (16 + 22 + 4). */
+@media (min-height:261px) and (max-height:320px){.app.compact-companion .compact-body:has(.request-details:not([hidden])) .compact-main{min-height:42px}}
+.app.compact-companion .compact-main[data-more=true]{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 28px),transparent)}
+/* The composer is one scroll box. .composer contributes its children directly (display:contents), so
+   the input row can stick to the composer's bottom edge at ANY native height the host picks (min 220). */
+.app.compact-companion .compact-compose{display:flex;flex-direction:column;flex-shrink:1;min-height:64px;overflow-y:auto;overscroll-behavior:contain;padding:6px 12px 0}
+.compact-compose>*{flex-shrink:0}
+/* When an open panel plus included-context chips exceed a short window, the input stays on screen. */
+/* Short windows: the context line and chips stay, the panel scrolls, and the composer section shrinks
+   and scrolls with its input pinned to the bottom edge. */
+.app .compact-compose>.composer{display:contents}
+.compact-compose>.composer>*{flex-shrink:0}
+.compact-compose>.composer>:last-child{margin-bottom:12px}
+.compact-compose .prompt-suggestion-input{position:sticky;bottom:0;z-index:1;margin-inline:-3px;padding:3px 3px 12px;background:#202322}
+/* Scroll affordances: soft shadows at the edge where composer content is hidden (set from scroll state). */
+.compact-compose::before{content:'';position:sticky;top:0;z-index:2;flex-shrink:0;height:10px;margin:0 -12px -10px;pointer-events:none;opacity:0;transition:opacity 120ms;background:linear-gradient(#000a,transparent)}
+.compact-compose[data-above=true]::before{opacity:1}
+/* Hidden composer content sits under the pinned input, so its cue is on the input region's top edge. */
+.compact-compose .prompt-suggestion-input{transition:box-shadow 120ms}
+.compact-compose[data-below=true] .prompt-suggestion-input{box-shadow:0 -10px 10px -8px #000a}
+/* Revealed panel rows land above the pinned input (about 64px tall). */
+.compact-compose .request-details>*{scroll-margin-bottom:64px}
+@media (prefers-reduced-motion:reduce){.compact-compose::before,.compact-compose .prompt-suggestion-input{transition:none}}
+/* Folded included-context control: hidden unless the window is very short. */
+.app .request-details-toggle.request-included-toggle{display:none}
+/* Very short native windows (host floor 220px): one full answer line, the context line with the included
+   context folded into "+N included" (full list as its name), and the pinned input all stay visible. */
+@media (max-height:260px){
+ /* Exactly one whole answer line (16 + 22 + 16); the rest scrolls, with no partial second line. */
+ .app.compact-companion .compact-main{flex:0 0 auto;height:54px;min-height:54px;padding-bottom:16px;clip-path:inset(0 0 16px 0)}
+ .app.compact-companion .compact-compose{padding-top:4px}
+ .compact-compose .request-chips{display:none}
+ .app .compact-compose .request-details-toggle.request-included-toggle{display:inline-flex}
+ .app .compact-compose .request-context-end:has(.request-included-toggle) .request-details-toggle:not(.request-included-toggle){display:none}
+ .compact-compose .prompt-suggestion-input{padding:0 3px 6px}
+}
+.app .compact-compose .request-chip{height:28px;min-height:28px;padding:0 8px}
+@media (max-height:320px){.app .compact-compose .request-chip{height:24px;min-height:24px}}
+.compact-compose>div.request-context{margin-bottom:2px}
+.compact-compose .request-details{max-height:max(32px,calc(var(--compact-height,100dvh) - 330px))}
+.compact-main .settled-result,.compact-main .compact-response{font-size:var(--text-insight-size);line-height:var(--text-insight-line);text-wrap:pretty}
+/* While details are collapsed, compact follow-up suggestions take one row. Their explanation opens with
+   Details, except while Tab can accept an inline completion: then the hint stays visible. */
+.compact-compose .composer[data-secondary-hidden] .prompt-suggestions:not(.has-inline)>.tiny{display:none}
+.compact-compose .prompt-suggestion-actions{flex-wrap:nowrap}
+.app .compact-compose .prompt-suggestion-actions>button{display:block;flex:0 1 auto;min-width:0;min-height:28px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .compact-compose .prompt-suggestion-actions>button:last-child{flex-shrink:0}
+.compact-compose .connection-hint{margin-top:6px}

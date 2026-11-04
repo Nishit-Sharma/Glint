@@ -152,7 +152,7 @@ it('cancelled quit retires old digest preparation and does not dispatch after re
  const f=await fixture(),gate=hold(),c=createLocalTaskDraftController({...f.options(),digest:async text=>{await gate.promise;return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');}});
  c.edit({content:'Prepared before closing'});await f.cache.flush();const before=await readFile(join(f.directory,'tasks.json'));const pending=c.submit();
  f.cache.setFrozen(true);await f.cache.flushForQuit();f.cache.setFrozen(false);gate.release();await pending;
- if(f.inputs.length){await writeFile('evidence/local-task-durable-drafts/red-prepare-freeze-tasks-before.json',before);await writeFile('evidence/local-task-durable-drafts/red-prepare-freeze-tasks-after.json',await readFile(join(f.directory,'tasks.json')));await writeFile('evidence/local-task-durable-drafts/red-prepare-freeze-raw-after.json',await readFile(join(f.directory,'learning-drafts.json')));}
+ if(f.inputs.length){await mkdir('evidence/local-task-durable-drafts',{recursive:true});await writeFile('evidence/local-task-durable-drafts/red-prepare-freeze-tasks-before.json',before);await writeFile('evidence/local-task-durable-drafts/red-prepare-freeze-tasks-after.json',await readFile(join(f.directory,'tasks.json')));await writeFile('evidence/local-task-durable-drafts/red-prepare-freeze-raw-after.json',await readFile(join(f.directory,'learning-drafts.json')));}
  expect(f.inputs).toEqual([]);expect(await f.core.listTasks()).toEqual([]);expect(c.snapshot().draft?.intentId).toBe('');
 });
 

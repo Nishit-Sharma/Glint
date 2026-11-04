@@ -1,3 +1,4 @@
+import {withOrdinaryAppBindings} from './concurrent-app-bindings.fixture';
 import {afterEach,beforeAll,expect,test,vi} from 'vitest';
 import {mkdir,mkdtemp,rm,writeFile,readFile} from 'node:fs/promises';
 import ts from 'typescript';
@@ -69,7 +70,8 @@ test.each(['legacy','contextual'] as const)('QUIT PRESENTATION NEWER RAW: %s old
 async function actualAppRun(environment:Record<string,unknown>){
  const source=await readFile(new URL('../src/renderer/src/App.tsx',import.meta.url),'utf8'),file=ts.createSourceFile('App.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),bodies=new Map<string,string>();
  function visit(node:ts.Node){if(ts.isFunctionDeclaration(node)&&node.body&&node.name&&['run','refresh'].includes(node.name.text))bodies.set(node.name.text,node.getText(file));ts.forEachChild(node,visit);}visit(file);expect([...bodies.keys()].sort()).toEqual(['refresh','run']);
- const names=['bridge','deletedTaskIds','drafts','requestRef','arrivedRequests','taskRef','readModelDraft','readScreenBrief','MODULE_MIME','setArrivalIdentities','setTasks','setTask','viewRestored','viewSelectionEpoch','restoreTaskView','setError','setTasksHydrated','lock','setBusy','lastRunError','isExportCommand','setNotice','requestErrorOwner','setErrorValue','publicErrorMessage','learningDrafts'];
+ environment=withOrdinaryAppBindings(file,{...environment,arrivedRequests:{current:environment.arrivedRequests}});
+ const names=Object.keys(environment);
  const code=transformSync('const factory=(env:any)=>{const {'+names.join(',')+'}=env;'+bodies.get('refresh')+'\n'+bodies.get('run')+';return run;};module.exports=factory;',{loader:'ts',format:'cjs'}).code,module={exports:undefined as unknown};new Function('module','exports',code)(module,{});
  return {run:(module.exports as (env:Record<string,unknown>)=>Run)(environment),appSha256:createHash('sha256').update(source).digest('hex'),runSha256:createHash('sha256').update(bodies.get('run')!).digest('hex'),refreshSha256:createHash('sha256').update(bodies.get('refresh')!).digest('hex')};
 }

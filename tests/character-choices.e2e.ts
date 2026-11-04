@@ -7,7 +7,7 @@ test('plain shape names omit Crescent choices while an older saved shape remains
  try{
   const before=await fixture.core.getTask(fixture.taskA.id);
   await fixture.preferences.update({expectedRevision:0,profile:{personalName:null,look:{shape:'dumpling',color:'sage',face:'curious',motion:false}}});
-  await page.reload();await page.getByRole('button',{name:'Customize Companion',exact:true}).click();
+  await page.reload();await page.getByRole('button',{name:'Customize Glint',exact:true}).click();
   await expect(page.getByRole('button',{name:'Crescent',exact:true})).toHaveCount(0);
   for(const name of ['Dumpling','Onigiri','Star'])await expect(page.getByRole('button',{name,exact:true})).toBeVisible();
   await page.getByRole('textbox',{name:'Character name',exact:true}).fill('My companion');

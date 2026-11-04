@@ -17,7 +17,7 @@ type Write={form:Form;expectedEpoch:string;expectedRevision:number;value:Learnin
  * actual core and sidecar; only delivery/failure of exact calls is controlled.
  * No module, task, local form or receipt is seeded. The two direct disk mutations
  * below are explicitly adversarial foreign-writer/unsupported-file controls. */
-export async function localTaskDurableEntry(page:Page,port=4180){
+export async function localTaskDurableEntry(page:Page,port=Number(process.env.WINDOW_COMPANION_TEST_PORT??4180)){
  const entry=await offlineTaskEntry(page,port),{fixture}=entry,invoke=fixture.invoke.bind(fixture);
  const held=new Set<ReturnType<typeof gate>>(),pending=new Set<Promise<unknown>>(),writes:Write[]=[],dispatchRaw:{command:Extract<Command,{type:'tasks.start-local'}>;record?:LearningDraftRecord}[]=[],events:{kind:string;detail?:unknown}[]=[];
  let reply:{form:Form;gate:ReturnType<typeof gate>}|undefined,draft:{form:Form;kind:'raw'|'null';gate:ReturnType<typeof gate>}|undefined,fail:{form:Form;kind:'raw'|'null'}|undefined;

@@ -6,6 +6,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {BotPreferences} from '../src/host/bot-preferences';
 import {readLocalTaskStart} from '../src/shared/local-task-start';
+import {createWorkflowExample} from '../src/core/workflow-lab-host';
 import type {Command} from '../src/shared/bridge';
 import {OnboardingFixture} from './onboarding-fixture';
 
@@ -14,7 +15,7 @@ import {OnboardingFixture} from './onboarding-fixture';
  * created through New task and source controls. Only initialized identity/example
  * setup and OS/provider/transport boundaries are substituted.
  * The pinned-old phase runs actual old Companion+Store, not an old packaged UI. */
-export async function offlineTaskEntry(page:Page,port=4180,options:{ready?:boolean}={}){
+export async function offlineTaskEntry(page:Page,port=Number(process.env.WINDOW_COMPANION_TEST_PORT??4180),options:{ready?:boolean}={}){
  const fixture=await OnboardingFixture.open(page,{port,...options});
  const invoke=fixture.invoke.bind(fixture);
  const creations:Extract<Command,{type:'tasks.start-local'}>[]=[];
@@ -36,9 +37,25 @@ export async function offlineTaskEntry(page:Page,port=4180,options:{ready?:boole
   if(command.type==='source.text'){
    fixture.commands.push(structuredClone(command));if(command.edit){const result=await fixture.core.saveTextSource({taskId:command.taskId,source:command.source,expectedSource:command.expectedSource,...command.edit});await fixture.emit({type:'changed',taskId:command.taskId});return {...result,task:await fixture.core.getTask(command.taskId)};}const task=await fixture.core.putSource(command.taskId,command.source,undefined,command.expectedSource);await fixture.emit({type:'changed',taskId:command.taskId});return task;
   }
+  if(command.type==='source-selection.set'){
+   // Production host: core.setSourceSelection(command,guard) then a changed event (src/host/index.ts source-selection.set).
+   fixture.commands.push(structuredClone(command));const result=await fixture.core.setSourceSelection(command);await fixture.emit({type:'changed',taskId:command.taskId});return result;
+  }
   if(command.type==='source.document'){
    fixture.commands.push(structuredClone(command));const {type,...input}=command;
    const result=await fixture.core.copySavedDocumentSource(input);await fixture.emit({type:'changed',taskId:command.taskId});return result;
+  }
+  if(command.type==='workflow.example'){
+   fixture.commands.push(structuredClone(command));const result=await createWorkflowExample(fixture.core,{taskId:command.taskId,requestId:command.requestId});if(result.status!=='completed'||!result.artifactId)throw Error(result.error??'Example unavailable');const task=await fixture.core.getTask(command.taskId);await fixture.emit({type:'changed',taskId:task.id});return {task,artifactId:result.artifactId,revision:task.artifacts.find(a=>a.id===result.artifactId)!.revisions.at(-1)!.revision};
+  }
+  if(command.type==='document.create'){
+   fixture.commands.push(structuredClone(command));const {type,...input}=command,result=await fixture.core.createAuthoredDocument(input);await fixture.emit({type:'changed',taskId:command.taskId});return result;
+  }
+  if(command.type==='experiment.result.save'||command.type==='experiment.result.inspect'){
+   fixture.commands.push(structuredClone(command));
+   const result=command.type==='experiment.result.save'?await fixture.core.saveExperimentResult(command.input):await fixture.core.inspectExperimentResult(command.input);
+   if(command.type==='experiment.result.save')await fixture.emit({type:'changed',taskId:command.input.calculation.taskId});
+   return result;
   }
   if(command.type==='artifact.save'){
    fixture.commands.push(structuredClone(command));await fixture.core.saveArtifact(command.taskId,command.artifact);await fixture.emit({type:'changed',taskId:command.taskId});return fixture.core.getTask(command.taskId);

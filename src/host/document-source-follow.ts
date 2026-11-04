@@ -4,16 +4,17 @@ import {documentStampChange,persistedDocumentStamp,type DocumentBinding,type Doc
 import type {NativeWindow} from './native';
 import {sameWindowIdentity} from './context-target';
 
+export type DocumentFollowScope='address'|'visible-content';
 type Selection={task:Task;sourceId:string;target:NativeWindow;capture?:DocumentCapture};
 type Bound={binding:DocumentBinding;target:NativeWindow;stamp?:RuntimeDocumentStamp};
 export type DocumentFollowStatus=
  | {kind:'off';capabilityVersion:1;reason:string}
- | {kind:'bound';capabilityVersion:1;taskId:string;sourceId:string;windowId:string;automaticSnapshots:'off'|'on'|'paused';reason:string;evidence:'foreground-application-correlation'|'unavailable'};
+ | {kind:'bound';capabilityVersion:1;taskId:string;sourceId:string;windowId:string;automaticSnapshots:'off'|'on'|'paused';scope?:DocumentFollowScope;reason:string;evidence:'foreground-application-correlation'|'unavailable'};
 type Dependencies={
  core:Pick<Companion,'getTask'|'reconcileDocumentSource'>;
  observe(target:NativeWindow,options:{signal:AbortSignal;assertCurrent:()=>void}):Promise<DocumentObservation>;
- approve(scope:{taskId:string;sourceId:string;windowId:string;application:string;title:string},assertCurrent:()=>void):Promise<boolean>;
- refresh(binding:DocumentBinding,stamp:RuntimeDocumentStamp,assertCurrent:()=>void):Promise<Selection|null>;
+ approve(scope:{taskId:string;sourceId:string;windowId:string;application:string;title:string},assertCurrent:()=>void):Promise<false|DocumentFollowScope>;
+ refresh(binding:DocumentBinding,stamp:RuntimeDocumentStamp,assertCurrent:()=>void,scope:DocumentFollowScope):Promise<Selection|null>;
  retire(binding:DocumentBinding):void;
  changed(taskId:string):void;
 };
@@ -29,7 +30,7 @@ export class DocumentSourceFollow{
  private epoch=0;
  private abort=new AbortController();
  private selected:Bound|undefined;
- private granted=false;
+ private granted:false|DocumentFollowScope=false;
  private reviewing:symbol|undefined;
  private running:Promise<DocumentFollowStatus>|undefined;
  private status:DocumentFollowStatus={kind:'off',capabilityVersion:1,reason:'Choose a window explicitly to follow its document metadata.'};
@@ -41,19 +42,19 @@ export class DocumentSourceFollow{
  }
  bind(selection:Selection){
   let next:Bound;try{next=bindingFor(selection);}catch(error){this.stop('The selected snapshot could not be verified. Bind the window again explicitly.');throw error;}
-  const previous=this.selected,source=selection.task.sources.find(source=>source.id===next.binding.ref.sourceId),version=source?.versions.at(-1);
+  const previousGrant=this.granted,previous=this.selected,source=selection.task.sources.find(source=>source.id===next.binding.ref.sourceId),version=source?.versions.at(-1);
   const retained=this.granted&&!!previous&&!!selection.capture&&selection.task.status==='active'&&source?.freshness==='fresh'&&source.currentVersion===next.binding.ref.version&&version?.id===source.id&&version.documentToken===next.target.documentToken&&
    previous.binding.taskId===next.binding.taskId&&previous.binding.ref.sourceId===next.binding.ref.sourceId&&next.binding.ref.version===previous.binding.ref.version+1&&
    source.versions.some(version=>version.id===source.id&&version.version===previous.binding.ref.version&&version.digest===previous.binding.ref.digest&&version.kind==='window'&&version.windowId===previous.binding.windowId&&version.windowProcessId===previous.binding.processId&&version.documentToken===previous.target.documentToken)&&
    sameWindowIdentity(previous.target,next.target)&&previous.target.osId===next.target.osId&&!previous.target.knownProtected&&!next.target.knownProtected&&previous.target.owner.path===next.target.owner.path&&previous.target.owner.bundleId===next.target.owner.bundleId;
   // A verified immediate refresh advances the existing scope; old in-flight work still retires.
-  this.stop('Source binding replaced.');this.selected=next;this.granted=retained;
-  this.present(retained?'on':'off',retained?'Snapshot refreshed. The existing session follow choice continues for document-address changes in this same selected window.':next.stamp?'Document metadata is followed for this selected window. Snapshots need a separate follow choice.':'Document identity is unavailable. The captured window remains a frozen snapshot.');
+  this.stop('Source binding replaced.');this.selected=next;this.granted=retained?previousGrant:false;
+  this.present(retained?'on':'off',retained?`Snapshot refreshed. The existing session follow choice continues for ${this.granted==='visible-content'?'visible-pixel checks':'document-address changes'} in this same selected window.`:next.stamp?'Document metadata is followed for this selected window. Snapshots need a separate follow choice.':'Document identity is unavailable. The captured window remains a frozen snapshot.');
   return this.read();
  }
  private present(mode:'off'|'on'|'paused',reason:string){
   const current=this.selected;if(!current)return;
-  this.status={kind:'bound',capabilityVersion:1,taskId:current.binding.taskId,sourceId:current.binding.ref.sourceId,windowId:current.binding.windowId,automaticSnapshots:mode,reason,evidence:current.stamp?.evidence??'unavailable'};
+  this.status={kind:'bound',capabilityVersion:1,taskId:current.binding.taskId,sourceId:current.binding.ref.sourceId,windowId:current.binding.windowId,automaticSnapshots:mode,...(this.granted?{scope:this.granted}:{}),reason,evidence:current.stamp?.evidence??'unavailable'};
  }
  private guard(epoch:number,selected:Bound){
   if(epoch!==this.epoch||selected!==this.selected||this.abort.signal.aborted)throw Error('Document follow authority retired.');
@@ -77,7 +78,7 @@ export class DocumentSourceFollow{
    const task=await this.dependencies.core.getTask(selected.binding.taskId);guard();
    const source=task.sources.find(source=>source.id===selected.binding.ref.sourceId),version=source?.versions.at(-1);
    if(!source||version?.version!==selected.binding.ref.version||version.digest!==selected.binding.ref.digest)throw Error('The reviewed source changed. Refresh it explicitly.');
-   this.granted=true;this.present(after.kind==='inactive'?'paused':'on','Automatic snapshots follow document-address changes in this selected active window for this session. No requests are sent automatically.');return this.read();
+   this.granted=approved;this.present(after.kind==='inactive'?'paused':'on',approved==='visible-content'?'Visible pixels of this selected active window are checked for this session. Hidden content and changes between checks remain unknown. No requests are sent automatically.':'Automatic snapshots follow document-address changes in this selected active window for this session. No requests are sent automatically.');return this.read();
   }finally{if(this.reviewing===review)this.reviewing=undefined;}
  }
  poll():Promise<DocumentFollowStatus>{
@@ -103,17 +104,17 @@ export class DocumentSourceFollow{
    if(reconciled.kind==='superseded'){this.stop('The selected source was replaced. Bind it again explicitly.');return this.read();}
    const source=reconciled.task.sources.find(source=>source.id===selected.binding.ref.sourceId);
    if(reconciled.kind==='invalidated')this.dependencies.changed(selected.binding.taskId);
-   if(unchanged&&source?.freshness==='refresh-required'&&source.documentChange?.kind==='changed'&&source.documentChange.observedDigest===selected.stamp?.digest){this.dependencies.retire(selected.binding);this.present('paused','This same-address snapshot is historical. Capture it again explicitly. The existing follow choice covers document-address changes only.');return this.read();}
-   if(unchanged&&source?.freshness==='fresh'){this.present(this.granted?'on':'off','The document-address observation is unchanged. Content edits at the same address remain unknown.');return this.read();}
-   if(unchanged){this.dependencies.retire(selected.binding);if(source?.documentChange?.kind!=='changed'){this.present('paused','Window metadata changed without a reported document-address change. Take an explicit snapshot, or wait for a supported document change.');return this.read();}}
+   if(unchanged&&this.granted!=='visible-content'&&source?.freshness==='refresh-required'&&source.documentChange?.kind==='changed'&&source.documentChange.observedDigest===selected.stamp?.digest){this.dependencies.retire(selected.binding);this.present('paused','This same-address snapshot is historical. Capture it again explicitly. The existing follow choice covers document-address changes only.');return this.read();}
+   if(unchanged&&this.granted!=='visible-content'&&source?.freshness==='fresh'){this.present(this.granted?'on':'off','The document-address observation is unchanged. Content edits at the same address remain unknown.');return this.read();}
+   if(unchanged&&this.granted!=='visible-content'){this.dependencies.retire(selected.binding);if(source?.documentChange?.kind!=='changed'){this.present('paused','Window metadata changed without a reported document-address change. Take an explicit snapshot, or wait for a supported document change.');return this.read();}}
    if(observation.kind!=='document'){this.granted=false;this.present('paused',observation.kind==='frozen'?`Document following is frozen (${observation.reason}). Use an explicit snapshot.`:'The snapshot has no comparable document observation. Refresh it explicitly.');return this.read();}
    if(!this.granted){this.present('off','The document-address observation changed. The previous snapshot is historical. Choose a new snapshot.');return this.read();}
    this.assertGrant(selected.binding);
-   const refreshed=await this.dependencies.refresh(selected.binding,observation.stamp,()=>{guard();this.assertGrant(selected.binding);});guard();
+   const refreshed=await this.dependencies.refresh(selected.binding,observation.stamp,()=>{guard();this.assertGrant(selected.binding);},this.granted);guard();
    if(!refreshed){this.present('paused','The companion has no room beside this window. No new snapshot or model request was made.');return this.read();}
    const next=bindingFor(refreshed);
    if(next.binding.taskId!==selected.binding.taskId||next.binding.ref.sourceId!==selected.binding.ref.sourceId||next.binding.windowId!==selected.binding.windowId||next.binding.processId!==selected.binding.processId||!next.stamp||documentStampChange(observation.stamp,next.stamp)!==undefined)throw Error('The refreshed snapshot does not match the followed window.');
-   this.selected=next;this.present('on','A fresh snapshot of the selected active window replaced its previous version. Previous results remain historical.');return this.read();
+   this.selected=next;this.present('on',this.granted==='visible-content'?(next.binding.ref.version===selected.binding.ref.version?'Visible pixels matched the unexpired saved snapshot. Hidden content and changes between checks remain unknown.':'A fresh selected-window snapshot was saved after a visible-pixel check or expired-snapshot renewal. Previous results remain historical.'):'A fresh snapshot of the selected active window replaced its previous version. Previous results remain historical.');return this.read();
   }catch(error){
    if(epoch!==this.epoch||selected!==this.selected)return this.read();
    this.granted=false;this.dependencies.retire(selected.binding);this.present('paused',error instanceof Error?error.message:'Document following is unavailable.');return this.read();

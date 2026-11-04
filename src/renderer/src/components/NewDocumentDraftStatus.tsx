@@ -1,0 +1,13 @@
+import type {createNewDocumentDraftController} from '../new-document-draft-controller';
+import type {createLearningDrafts} from '../learning-drafts';
+import {LearningDraftEditFeedback} from './LearningDraftEditFeedback';
+export function NewDocumentDraftStatus({controller,cache}:{controller:ReturnType<typeof createNewDocumentDraftController>;cache:ReturnType<typeof createLearningDrafts>}){
+ const view=controller.snapshot(),state=cache.getSnapshot(),rejection=cache.getEditRejection(view.owner,view.slot);
+ return <div className="learning-draft-status">
+  {view.changed&&<p role="alert">A linked source changed or is excluded. Review Choose sources before saving this new document.</p>}
+  {view.operation?<p role="status">Saving this document…</p>:view.pending?<section role="alert"><p>The document may already be saved. Retry this exact save or look in Files. Your input and retry identity are kept.</p><button type="button" disabled={state.frozen||state.maintenance||view.form.status!=='ready'||!!view.form.error} onClick={()=>void controller.save(view.scope)}>Retry same document save</button><details><summary>Discard this local input</summary><p>This removes only the local input and retry identity. It does not remove any saved document.</p><button type="button" disabled={state.frozen||state.maintenance||!view.entry?.canDiscard} onClick={()=>void controller.discard(view.scope)}>Discard input and retry identity</button></details></section>:view.raw.present&&<p role="status">{view.entry?.status==='clean'?'Unfinished new document saved on this Mac. Choose Save draft to create it.':'Saving unfinished new document input…'}</p>}
+  {view.frozen&&<p role="status">Editing is paused while the app saves before closing. Your new document input is kept.</p>}
+  {(view.message||view.form.error||state.error||view.form.status==='recovery')&&<section role="alert"><p>{view.message||'New document input needs recovery. Your earlier input is kept; no document is created by recovery.'}</p><button type="button" disabled={view.operation||state.frozen||state.maintenance} onClick={()=>void controller.check()}>Check new document draft storage</button>{view.entry?.canResolve&&<><button type="button" onClick={()=>cache.resolve(view.owner,view.slot,view.entry!.generation,'local')}>Keep my local input</button><button type="button" onClick={()=>cache.resolve(view.owner,view.slot,view.entry!.generation,'remote')}>Use saved local input</button></>}</section>}
+  {rejection&&<LearningDraftEditFeedback rejection={rejection} disabled={state.frozen||state.maintenance} onUseAccepted={()=>cache.dismissEditRejection(view.owner,view.slot,rejection.id)}/>}
+ </div>;
+}

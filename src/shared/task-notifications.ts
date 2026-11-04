@@ -1,4 +1,5 @@
 import {Schema} from 'effect';
+import {RequestNotificationsSavedSchema} from './request-notifications';
 import type {BotState} from './bot-catalog';
 import type {StudyProgressEvent} from './study-workbench';
 const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200)),key=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(1600));
@@ -17,7 +18,7 @@ export const TaskNoticeSchema=Schema.Union(
  Schema.Struct({...noticeBase,kind:Schema.Literal('break','quiet')}),
 );
 export type TaskNotice=typeof TaskNoticeSchema.Type;
-export const NotificationSavedSchema=Schema.Struct({revision:number(0,Number.MAX_SAFE_INTEGER),preferences:NotificationPreferencesSchema,observed:Schema.Array(key).pipe(Schema.maxItems(10000)),meanings:Schema.Array(key).pipe(Schema.maxItems(10000)),notices:Schema.Array(TaskNoticeSchema).pipe(Schema.maxItems(500)),usage:Schema.Struct({date:Schema.String.pipe(Schema.maxLength(10)),milliseconds:number(0,86_400_000),snoozeUntil:number(0,Number.MAX_SAFE_INTEGER),breakDismissed:Schema.Boolean})});
+export const NotificationSavedSchema=Schema.Struct({requestNotifications:Schema.optional(RequestNotificationsSavedSchema),revision:number(0,Number.MAX_SAFE_INTEGER),preferences:NotificationPreferencesSchema,observed:Schema.Array(key).pipe(Schema.maxItems(10000)),meanings:Schema.Array(key).pipe(Schema.maxItems(10000)),notices:Schema.Array(TaskNoticeSchema).pipe(Schema.maxItems(500)),usage:Schema.Struct({date:Schema.String.pipe(Schema.maxLength(10)),milliseconds:number(0,86_400_000),snoozeUntil:number(0,Number.MAX_SAFE_INTEGER),breakDismissed:Schema.Boolean})});
 export type NotificationSaved=typeof NotificationSavedSchema.Type;
 export const freshNotifications=():NotificationSaved=>({revision:0,preferences:defaultNotificationPreferences(),observed:[],meanings:[],notices:[],usage:{date:'',milliseconds:0,snoozeUntil:0,breakDismissed:false}});
 export type NotificationState={kind:'available';current:NotificationSaved}|{kind:'unavailable';message:string};

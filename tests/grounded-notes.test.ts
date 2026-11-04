@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -22,7 +23,7 @@ afterEach(async()=>{await core.close();await rm(root,{recursive:true,force:true}
 async function fixture(cited=false,ambiguous=true){
  const f=extractionFixture(ambiguous,cited),task=await core.createTask({title:'Readable source notes'});
  await core.putSource(task.id,{kind:'text',role:'fact',label:'Synthetic member tables',content:f.content});
- const basis=await core.saveArtifact(task.id,{title:'Source brief',content:'Review the two supplied tables.'});
+ const basis=await currentAnswerOrigin(core,task.id,'grounded-notes-origin',{title:'Source brief',content:'Review the two supplied tables.'},(await core.getTask(task.id)).sources.map(source=>({sourceId:source.id,version:source.currentVersion,digest:source.versions.at(-1)!.digest})));
  const created=await createGroundedJoinArtifact(core,{taskId:task.id,requestId:'readable-notes',id:'readable-join',title:'Review the cited tables',version:1,basis:{artifactId:basis.artifactId,revision:1,digest:basis.revision.digest},proposal:f.proposal,transfer:f.transfer});
  const current=await core.getTask(task.id),artifact=current.artifacts.find(a=>a.id===created.artifactId)!;
  const data=parseModuleAnswer(JSON.parse(artifact.revisions[0].content)).modules[0].data as GroundedJoinData;

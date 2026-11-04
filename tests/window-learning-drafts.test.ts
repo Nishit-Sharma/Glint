@@ -12,6 +12,7 @@ test('an exact saved brief owns raw review edits without a fabricated module, an
   const task=await core.createTask({title:'Owned synthetic image-learning review'});
   const saved=await core.saveArtifact(task.id,{title:'Saved brief',mimeType:'application/json',content:JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'An owned state diagram.',actions:[]})});
   const owner=parseLearningDraftOwner({kind:'window-workflow-review',taskId:task.id,artifactId:saved.artifactId,artifactRevision:1,artifactDigest:saved.revision.digest});
+  if(!('kind' in owner)||owner.kind!=='window-workflow-review')throw Error('Expected window review owner.');
   expect(learningDraftKey(owner,'review')).toContain('window-workflow-review');
   const store=new LearningDraftStore({directory,lookupTask:id=>core.getTask(id).catch(()=>undefined)}),raw={initial:serializeLearningDraftJson({text:''}),value:serializeLearningDraftJson({text:'Corrected quote'}),basis:'exact candidate pending'};
   expect(await store.save(owner,'review','initial',0,raw)).toMatchObject({kind:'saved',record:{owner,value:raw}});

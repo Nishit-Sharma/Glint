@@ -16,3 +16,17 @@ export function windowReviewDraft(candidate:WindowWorkflowReviewCandidate,form:W
   return original&&serializeLearningDraftJson(location)===serializeLearningDraftJson(original)?{citationId:row.citationId,kind:'confirmed-transcription',reason:row.reason}:{citationId:row.citationId,kind:'corrected-transcription',location,reason:row.reason};
  }),initialStateId:form.initialStateId||null,eventIds:split(form.eventSequence),assumptions:form.assumptions.split('\n').map(line=>line.trim()).filter(Boolean),issueResolutions:form.issueResolutions.map(row=>({issueId:row.issueId,kind:row.resolution,reason:row.reason}))};
 }
+
+/** Additions start incomplete and need the same reviewed evidence and final confirmation. */
+export function addWindowReviewRow(form:WindowReviewForm,category:'states'|'events'|'transitions'):WindowReviewForm{
+ const prefix={states:'reviewer-state-',events:'reviewer-event-',transitions:'reviewer-rule-'}[category],limit=category==='transitions'?24:8;
+ if(form[category].length>=limit)return form;
+ const ids=new Set([...form.states,...form.events,...form.transitions].map(row=>row.id).concat(form.evidence.map(row=>row.citationId),form.issueResolutions.map(row=>row.issueId)));
+ let n=1;while(ids.has(prefix+n))n++;
+ const id=prefix+n,row=category==='transitions'?{id,selected:true,unresolved:false,fromStateId:'',eventId:'',toStateId:'',citationIds:'',reason:''}:{id,selected:true,unresolved:false,label:'',citationId:'',interpretation:'user-interpreted',reason:''};
+ return {...form,[category]:[...form[category],row]};
+}
+
+export function windowReviewRowInUse(form:WindowReviewForm,category:'states'|'events',id:string):boolean{
+ return category==='states'?form.initialStateId===id||form.transitions.some(row=>row.fromStateId===id||row.toStateId===id):form.eventSequence.split(',').some(value=>value.trim()===id)||form.transitions.some(row=>row.eventId===id);
+}

@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {Schema} from 'effect';
 import type {Companion} from './companion';
-import type {Task} from './types';
+import type {Task,RequestInput} from './types';
 import {prepareWorkflowSourceContext} from './workflow-lab-host';
 import {prepareWorkflowPassages} from '../learning/workflow-review';
 import {parseSignalAssignment,signalConceptDocument} from '../learning/signal-concept';
@@ -26,23 +26,28 @@ export function admittedSignalConcept(task:Task,value:Input){
 }
 const attemptId=(binding:ReturnType<typeof admittedSignalConcept>['binding'],index:number)=>(binding.example?'signal-concept-v2-':'signal-concept-v1-')+hash(binding)+(index?'_'+index:'');
 const attemptNumber=(binding:ReturnType<typeof admittedSignalConcept>['binding'],requestId:string)=>{for(let index=0;index<maxAttempts;index++)if(attemptId(binding,index)===requestId)return index;return -1;};
-function savedResult(task:Task,value:Input,request:Task['requests'][number]){
+export function signalConceptResult(task:Task,value:Input,request:Task['requests'][number]){
  const {binding,content}=admittedSignalConcept(task,value),saved=request.artifactId&&task.artifacts.find(a=>a.id===request.artifactId)?.revisions.at(-1);
  if(request.status!=='completed'||!saved||saved.revision!==request.answer?.revision||saved.digest!==request.answer.digest||saved.mimeType!=='text/markdown'||saved.content!==content||JSON.stringify(saved.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The saved explanation changed. Review its source before continuing.');
  return {task,artifactId:request.artifactId!,revision:saved.revision};
 }
-export async function createSignalConcept(core:Companion,raw:unknown){
+export function readSignalConceptSubmission(raw:unknown){
  let value:typeof create.Type;try{value=Schema.decodeUnknownSync(create,{onExcessProperty:'error'})(raw);}catch{throw Error('Review and confirm one exact linked source line.');}
- const task=await core.getTask(value.taskId),{binding}=admittedSignalConcept(task,value);let index=0;
- if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
- const result=await core.runRequest({taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Explain one reviewed signal assignment.',executionScope:(binding.example?'signal-concept-v2:':'signal-concept-v1:')+hash(binding),sourceIds:binding.sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]},async context=>{const fresh=admittedSignalConcept(context.task,value);return {title:'Understanding a signal assignment',mimeType:'text/markdown',content:fresh.content};});
- if(result.status!=='completed'||!result.artifactId)throw Error(result.error??'The reviewed explanation could not be created.');return savedResult(await core.getTask(value.taskId),value,result);
+ return value;
 }
+export function signalConceptPublication(task:Task,value:ReturnType<typeof readSignalConceptSubmission>){
+ const {binding}=admittedSignalConcept(task,value);let index=0;
+ if(value.retryOf!==undefined){const previous=attemptNumber(binding,value.retryOf),request=task.requests.find(r=>r.id===value.retryOf);if(previous<0||previous>=maxAttempts-1||!request||request.kind!=='experiment'||!['failed','interrupted','cancelled'].includes(request.status)||request.artifactId!==undefined||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('Check the previous publication before starting a new attempt.');index=previous+1;}
+ const request:RequestInput={taskId:value.taskId,requestId:attemptId(binding,index),kind:'experiment',prompt:'Explain one reviewed signal assignment.',executionScope:(binding.example?'signal-concept-v2:':'signal-concept-v1:')+hash(binding),sourceIds:binding.sourceRefs.map(ref=>ref.sourceId),expectedSourceRefs:binding.sourceRefs,expectedArtifacts:[binding.basis]};
+ const artifact=(()=>{const fresh=admittedSignalConcept(task,value);return {title:'Understanding a signal assignment',mimeType:'text/markdown',content:fresh.content};})();return {request,artifact};
+}
+export async function createSignalConcept(core:Companion,raw:unknown,assertCurrent:()=>void=()=>{}){return core.saveSignalConcept(raw,assertCurrent);}
+
 export async function inspectSignalConcept(core:Companion,raw:unknown){
  let value:Input;try{value=Schema.decodeUnknownSync(input,{onExcessProperty:'error'})(raw);}catch{throw Error('Review and confirm one exact linked source line.');}
  const task=await core.getTask(value.taskId),{binding}=admittedSignalConcept(task,value);let latest:Task['requests'][number]|undefined;
  for(let index=0;index<maxAttempts;index++){const request=task.requests.find(r=>r.id===attemptId(binding,index));if(!request)break;if(request.kind!=='experiment'||JSON.stringify(request.sourceRefs)!==JSON.stringify(binding.sourceRefs))throw Error('The publication record needs review.');latest=request;}
  if(!latest)return {kind:'not-started' as const};if(latest.status==='running')return {kind:'running' as const,requestId:latest.id};
- if(latest.status==='completed'){const saved=savedResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision};}
+ if(latest.status==='completed'){const saved= signalConceptResult(task,value,latest);return {kind:'completed' as const,requestId:latest.id,artifactId:saved.artifactId,revision:saved.revision};}
  if(latest.artifactId!==undefined)throw Error('The previous publication needs review.');return {kind:'terminal' as const,requestId:latest.id,status:latest.status,canRetry:attemptNumber(binding,latest.id)<maxAttempts-1};
 }

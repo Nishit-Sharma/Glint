@@ -1,3 +1,4 @@
+import {buildCodexInput} from '../src/host/codex-provider';
 import {afterEach,describe,expect,it} from 'vitest'
 import {build} from 'esbuild'
 import {mkdtemp,readFile,rm} from 'node:fs/promises'
@@ -17,11 +18,11 @@ async function fixture(){
   const work={x:0,y:0,width:1800,height:1100}
   let source:Rect={x:100,y:80,width:900,height:700},bounds:Rect={x:1350,y:20,width:430,height:760},minimum=[360,500],visible=true
   const window=(id:string)=>({id,title:'Synthetic source',owner:{name:'Fixture source',processId:1},documentToken:'stable',bounds:{...source}})
-  const seams={work,placeCompanion,inspect:async(id:string)=>window(id),capture:()=>{calls.captures++;throw Error('No capture expected')},provider:()=>{calls.provider++;throw Error('No provider expected')},confirm:()=>{calls.confirmations++;return {response:0}}}
+  const seams={work,buildCodexInput,placeCompanion,inspect:async(id:string)=>window(id),capture:()=>{calls.captures++;throw Error('No capture expected')},provider:()=>{calls.provider++;throw Error('No provider expected')},confirm:()=>{calls.confirmations++;return {response:0}}}
   Reflect.set(globalThis,key,seams)
   const seam=`globalThis[${JSON.stringify(key)}]`
-  const electron=`const noop=()=>{};export const app={getPath:()=>process.env.WINDOW_COMPANION_DATA_DIR,setPath:noop,whenReady:()=>new Promise(()=>{}),on:noop};export const BrowserWindow=class{};export const Menu=undefined;export const dialog={showMessageBox:()=>${seam}.confirm()};export const Tray=class{};export const systemPreferences={isTrustedAccessibilityClient:()=>false};export const globalShortcut={};export const ipcMain={};export const nativeImage={};export const safeStorage={};export const screen={getDisplayMatching:()=>({workArea:${seam}.work})};export const session={};`
-  const provider=`export class MetaProvider{run(){return ${seam}.provider()};reset(){};close(){}};export class CodexProvider extends MetaProvider{}`
+  const electron=`const noop=()=>{};export const app={getPath:()=>process.env.WINDOW_COMPANION_DATA_DIR,setPath:noop,isReady:()=>false,disableHardwareAcceleration:noop,whenReady:()=>new Promise(()=>{}),on:noop};export const Notification={isSupported:()=>false};export const BrowserWindow=class{};export const clipboard={};export class ClipboardItem{};export const Menu=undefined;export const dialog={showMessageBox:()=>${seam}.confirm()};export const Tray=class{};export const systemPreferences={isTrustedAccessibilityClient:()=>false};export const globalShortcut={};export const ipcMain={};export const nativeImage={};export const safeStorage={};export const screen={getDisplayMatching:()=>({workArea:${seam}.work})};export const session={};`
+  const provider=`export const buildCodexInput=(...args)=>${seam}.buildCodexInput(...args);export class MetaProvider{run(){return ${seam}.provider()};reset(){};close(){}};export class CodexProvider extends MetaProvider{}`
   const native=`export class NativeSourceAdapter{inspect(id){return ${seam}.inspect(id)};capture(){return ${seam}.capture()}};export const placeCompanion=(...a)=>${seam}.placeCompanion(...a);`
   const outfile=join(dir,'host.mjs')
   await build({stdin:{contents:await readFile(join(root,'src/host/index.ts'),'utf8')+'\nexport {command,validate,monitorAttached,retireUnavailableWindow};export const setPanel=p=>{panel=p;core={listTasks:async()=>[]}};export const dispose=()=>{cancelEntrancePresentation(false);cancelCollapsePresentation(false)};',resolveDir:join(root,'src/host'),loader:'ts'},bundle:true,platform:'node',format:'esm',packages:'external',outfile,plugins:[{name:'inert-native-fit-boundaries',setup(b){b.onResolve({filter:/^(electron|\.\/provider|\.\/codex-provider|\.\/native)$/},a=>({path:a.path,namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:a.path==='electron'?electron:a.path==='./native'?native:provider,loader:'js'}))}}]})

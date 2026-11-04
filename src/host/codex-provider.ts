@@ -1,3 +1,4 @@
+import {INDEPENDENT_TASK_LIMIT} from '../shared/task-concurrency';
 import {codexInferenceModels,modelImageInput,assertAdvertisedInference,buildCodexInferenceWire,readRequestInferenceSelection,type RequestInferenceSelection,type RequestInferenceModel,type RequestInferenceCatalog} from '../shared/request-inference';
 import {readProviderModelReceipt} from '../shared/response-model';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -156,9 +157,9 @@ export class CodexProvider {
   private configured = false;
   private advertised:RequestInferenceModel[]=[];
   private verified = false;
-  private active?: AbortController;
+  private readonly active=new Map<AbortController,{connection?:CodexConnection;terminal?:boolean}>();
+  private generation=0;
   private capabilityCache?: { at: number; configured: boolean };
-  private connection?: CodexConnection;
   private readonly accountSalt=randomUUID();
   lastRun?: CodexRunEvidence;
   readonly cliPath: string;
@@ -175,8 +176,8 @@ export class CodexProvider {
   }
   private update(state: ConnectionStatus['state'], detail: string) { this.state = state; this.detail = detail; this.options.onStatus?.(this.snapshot()); }
   defaultInference():RequestInferenceSelection{return {provider:'codex',model:CODEX_MODEL,effort:CODEX_EFFORT,tier:this.tier};}
-  private async initialize(connection: CodexConnection,bindAccount=false,selection=this.defaultInference(),catalogueOnly=false) {
-    await connection.request('initialize', { clientInfo: { name: 'window_companion', title: 'Window Companion temporary Codex adapter', version: '0.1.0' }, capabilities: { experimentalApi: true } });
+  private async initialize(connection: CodexConnection,bindAccount=false,selection=this.defaultInference(),catalogueOnly=false,current:()=>boolean=()=>true) {
+    await connection.request('initialize', { clientInfo: { name: 'window_companion', title: 'Glint temporary Codex adapter', version: '0.1.0' }, capabilities: { experimentalApi: true } });
     connection.notify('initialized');
     const account = await connection.request('account/read', { refreshToken: false });
     // Only a process-salted metadata fingerprint may leave this adapter; never raw account metadata.
@@ -188,15 +189,16 @@ export class CodexProvider {
       if(!Array.isArray(catalog.data)||catalog.data.length>100)throw new CodexProviderError('PROTOCOL','The model catalog is invalid.');raw.push(...catalog.data);
       cursor=typeof catalog.nextCursor==='string'?catalog.nextCursor:undefined;if(!cursor)break;
     }
-    this.advertised=codexInferenceModels(raw);
+    const advertised=codexInferenceModels(raw);
     if(!catalogueOnly){
       const rawModel=raw.find((candidate:any)=>candidate?.model===selection.model) as {supportedReasoningEfforts?:{reasoningEffort:string}[]}|undefined;
       if(!rawModel)throw new CodexProviderError('MODEL_UNAVAILABLE','The selected model is not advertised by this connection. No substitute model was selected.');
       if(!rawModel.supportedReasoningEfforts?.some(effort=>effort.reasoningEffort===selection.effort))throw new CodexProviderError('MODEL_UNAVAILABLE','The selected reasoning effort is not advertised for this model.');
-      try{assertAdvertisedInference(selection,this.advertised);}catch{throw new CodexProviderError('TIER_UNAVAILABLE','The selected speed tier is not advertised for this model. No fallback was selected.');}
+      try{assertAdvertisedInference(selection,advertised);}catch{throw new CodexProviderError('TIER_UNAVAILABLE','The selected speed tier is not advertised for this model. No fallback was selected.');}
     }
-    this.configured = true;
-    return accountScope;
+    if(!current())throw new CodexProviderError('CANCELLED','The Codex connection changed before generation.');
+    this.advertised=advertised;this.configured = true;
+    return {accountScope,models:advertised};
   }
   cachedCatalog():RequestInferenceCatalog{
     if(this.options.enabled?.()===false||!this.configured||!this.advertised.length)return {kind:'unavailable',message:'No cached advertised Codex model options are available. Saved schedule choices are kept; this view does not refresh the connection.'};
@@ -204,9 +206,9 @@ export class CodexProvider {
   }
   async catalog():Promise<RequestInferenceCatalog>{
     if(this.options.enabled?.()===false)return {kind:'unavailable',message:'Codex is disconnected in this app. Connect it in Settings to choose model options.'};
-    if(this.active)return this.advertised.length?{kind:'available',models:structuredClone(this.advertised),defaultSelection:this.defaultInference()}:{kind:'unavailable',message:'Model options are unavailable while this response is starting.'};
-    let connection:CodexConnection|undefined,directory:string|undefined;
-    try{directory=await mkdtemp(join(tmpdir(),'glint-inference-catalog-'));connection=await(this.options.connect??connectStdio)(this.cliPath,directory);await this.initialize(connection,false,this.defaultInference(),true);return {kind:'available',models:structuredClone(this.advertised),defaultSelection:this.defaultInference()};}
+    if(this.active.size)return this.advertised.length?{kind:'available',models:structuredClone(this.advertised),defaultSelection:this.defaultInference()}:{kind:'unavailable',message:'Model options are unavailable while this response is starting.'};
+    const generation=this.generation;let connection:CodexConnection|undefined,directory:string|undefined;
+    try{directory=await mkdtemp(join(tmpdir(),'glint-inference-catalog-'));connection=await(this.options.connect??connectStdio)(this.cliPath,directory);const initialized=await this.initialize(connection,false,this.defaultInference(),true,()=>generation===this.generation);return {kind:'available',models:structuredClone(initialized.models),defaultSelection:this.defaultInference()};}
     catch(error){return {kind:'unavailable',message:error instanceof CodexProviderError?error.message:'The current model catalog could not be read. Saved choices are kept.'};}
     finally{connection?.close();if(directory)await rm(directory,{recursive:true,force:true});}
   }
@@ -223,37 +225,38 @@ export class CodexProvider {
   }
   async accountScope():Promise<string>{
     if(this.options.enabled?.()===false)throw new CodexProviderError('UNCONFIGURED','Codex is disconnected in this app.');
-    let directory:string|undefined,connection:CodexConnection|undefined;
-    try{directory=await mkdtemp(join(tmpdir(),'window-companion-codex-scope-'));connection=await(this.options.connect??connectStdio)(this.cliPath,directory);const scope=await this.initialize(connection,true,this.defaultInference(),true);if(!scope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.');return scope;}
+    const generation=this.generation;let directory:string|undefined,connection:CodexConnection|undefined;
+    try{directory=await mkdtemp(join(tmpdir(),'window-companion-codex-scope-'));connection=await(this.options.connect??connectStdio)(this.cliPath,directory);const scope=(await this.initialize(connection,true,this.defaultInference(),true,()=>generation===this.generation)).accountScope;if(!scope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in metadata is unavailable. Recurring responses cannot be authorized.');return scope;}
     finally{connection?.close();if(directory)await rm(directory,{recursive:true,force:true});}
   }
   async status(): Promise<ConnectionStatus> {
     if (this.options.enabled?.() === false) { this.configured = false; this.update('unconfigured', 'The temporary Codex route is disconnected in this app. Your global Codex sign-in is unchanged.'); return this.snapshot(); }
-    if (this.active || (this.capabilityCache && Date.now() - this.capabilityCache.at < 60_000)) return this.snapshot();
-    let connection: CodexConnection | undefined;
+    if (this.active.size || (this.capabilityCache && Date.now() - this.capabilityCache.at < 60_000)) return this.snapshot();
+    const generation=this.generation;let connection: CodexConnection | undefined;
     let directory: string | undefined;
     try {
       directory = await mkdtemp(join(tmpdir(), 'window-companion-codex-check-'));
       connection = await (this.options.connect ?? connectStdio)(this.cliPath, directory);
-      await this.initialize(connection);
+      await this.initialize(connection,false,this.defaultInference(),false,()=>generation===this.generation);
+      if(generation!==this.generation)throw new CodexProviderError('CANCELLED','The Codex connection changed before availability was published.');
       this.capabilityCache = { at: Date.now(), configured: true };
-      this.update('ready', this.verified ? `Temporary GPT-6 Luna connection verified; ${this.tierLabel} requested with medium reasoning.` : `Existing Codex sign-in and Luna ${this.tierLabel} catalog verified. Generation has not yet been tested.`);
+      if(!this.active.size)this.update('ready', this.verified ? `Temporary GPT-6 Luna connection verified; ${this.tierLabel} requested with medium reasoning.` : `Existing Codex sign-in and Luna ${this.tierLabel} catalog verified. Generation has not yet been tested.`);
     } catch (error) {
-      this.configured = false;
-      this.update('unconfigured', error instanceof CodexProviderError ? error.message : 'Local Codex availability could not be verified.');
+      if(generation===this.generation&&!this.active.size){this.configured=false;this.update('unconfigured',error instanceof CodexProviderError?error.message:'Local Codex availability could not be verified.');}
     } finally { connection?.close(); if (directory) await rm(directory, { recursive: true, force: true }); }
     return this.snapshot();
   }
-  reset() { this.active?.abort(new CodexProviderError('CANCELLED', 'Local Codex request stopped because the connection changed. Remote completion and charges are unverified.')); this.capabilityCache = undefined; this.advertised=[]; this.verified = false; this.configured = false; this.state = 'unconfigured'; }
-  close() { this.reset(); this.connection?.close(); this.connection = undefined; }
+  reset(){this.generation++;for(const controller of this.active.keys())controller.abort(new CodexProviderError('CANCELLED','Local Codex request stopped because the connection changed. Remote completion and charges are unverified.'));this.active.clear();this.capabilityCache=undefined;this.advertised=[];this.verified=false;this.configured=false;this.state='unconfigured';}
+  close(){const connections=[...this.active.values()].map(owner=>owner.connection);this.reset();for(const connection of connections)connection?.close();}
+  private runStatus(controller:AbortController,state:ConnectionStatus['state'],detail:string){const owner=this.active.get(controller);if(!owner)return;if(state!=='streaming')owner.terminal=true;const others=[...this.active.keys()].filter(item=>item!==controller&&!item.signal.aborted&&!this.active.get(item)?.terminal).length;this.update(others?'streaming':state,others?`${others} other independent task is still running. ${detail}`:detail);}
 
   async run(input: MetaRunInput): Promise<string> {
     if (this.options.enabled?.() === false) throw new CodexProviderError('UNCONFIGURED', 'The temporary Codex route is disconnected in this app.');
-    if (this.active) throw new CodexProviderError('BUSY', 'A Codex request is already running.');
+    if(this.active.size>=(this.options.purpose==='browser-planner'?1:INDEPENDENT_TASK_LIMIT))throw new CodexProviderError('BUSY','The local Codex task limit is already in use.');
     if (input.signal.aborted) throw new CodexProviderError('CANCELLED', 'Request cancelled before transmission.');
     const selection=input.inference?readRequestInferenceSelection(input.inference):this.defaultInference(),wire=buildCodexInferenceWire(selection);
     const parts = buildCodexInput(input);
-    const controller = new AbortController(); this.active = controller;
+    const controller = new AbortController(),ownership:{connection?:CodexConnection;terminal?:boolean}={};this.active.set(controller,ownership);this.runStatus(controller,'streaming','Preparing an independent Codex request.');
     const cancel = () => controller.abort(new CodexProviderError('CANCELLED', 'Local request stopped. Remote completion and charges are unverified.'));
     input.signal.addEventListener('abort', cancel, { once: true });
     const start = Date.now();
@@ -276,12 +279,12 @@ export class CodexProvider {
     try {
       deadline = setTimeout(() => controller.abort(new CodexProviderError('DEADLINE', 'Local Codex deadline reached. Remote completion and charges are unverified.')), this.options.deadlineMs ?? 120_000);
       directory = await mkdtemp(join(tmpdir(), 'window-companion-codex-'));
-      connection = await (this.options.connect ?? connectStdio)(this.cliPath, directory); this.connection = connection;
-      const accountScope=await this.initialize(connection,!!input.expectedAccountScope,selection);
-      if(input.sources.some(source=>source.kind==='image'||source.kind==='window')&&modelImageInput(this.advertised.find(model=>model.id===selection.model))==='text-only')throw new CodexProviderError('MODEL_UNAVAILABLE','The selected model explicitly advertises text-only input. Choose an image-capable model; no request was sent.');
+      connection = await (this.options.connect ?? connectStdio)(this.cliPath, directory); ownership.connection=connection;
+      const initialized=await this.initialize(connection,!!input.expectedAccountScope,selection,false,()=>this.active.has(controller)&&!controller.signal.aborted),accountScope=initialized.accountScope;
+      if(input.sources.some(source=>source.kind==='image'||source.kind==='window')&&modelImageInput(initialized.models.find(model=>model.id===selection.model))==='text-only')throw new CodexProviderError('MODEL_UNAVAILABLE','The selected model explicitly advertises text-only input. Choose an image-capable model; no request was sent.');
       if(input.expectedAccountScope&&input.expectedAccountScope!==accountScope)throw new CodexProviderError('UNCONFIGURED','Codex sign-in or instructions changed. Resume the schedule to authorize its current scope. Nothing was generated.');
       if (controller.signal.aborted) throw controller.signal.reason;
-      this.update('streaming', `Sending explicitly selected references through Codex ${selection.model}, ${selection.tier}, ${selection.effort} reasoning.`);
+      this.runStatus(controller,'streaming', `Sending explicitly selected references through Codex ${selection.model}, ${selection.tier}, ${selection.effort} reasoning.`);
       const thread = await connection.request('thread/start', {
         ...wire.thread,
         cwd: directory, ephemeral: true, environments: [], dynamicTools: [], selectedCapabilityRoots: [],
@@ -297,6 +300,7 @@ export class CodexProvider {
       if (evidence.instructionSourceCount && !allowedInstructions) throw new CodexProviderError('PROTOCOL', 'Codex loaded instruction sources outside the exact authorized user AGENTS.md allowlist. Generation was not started.');
       if (controller.signal.aborted) throw controller.signal.reason;
       const messages = new Map<string, { text: string; phase?: string }>();
+      const answerItems = new Set<string>();
       let streamed = '';
       const completed = new Promise<string>((resolve, reject) => {
         const abort = () => reject(controller.signal.reason);
@@ -313,10 +317,14 @@ export class CodexProvider {
           if (method === 'item/agentMessage/delta') {
             evidence.streamedChunks++; streamed += params.delta;
             if (streamed.length > 500_000) controller.abort(new CodexProviderError('PROTOCOL', 'Codex output exceeded the text limit.'));
-            else if (!controller.signal.aborted) input.onChunk?.(params.delta);
+            else if (!controller.signal.aborted) {input.onChunk?.(params.delta);if(typeof params.itemId==='string'&&answerItems.has(params.itemId)&&(!params.turnId||params.turnId===evidence.turnId))input.onAnswerChunk?.(params.delta);}
           }
           if (method === 'item/started' || method === 'item/completed') {
             const item = params.item;
+            if(item?.type==='agentMessage'&&typeof item.id==='string'){
+              if(method==='item/started'&&item.phase==='final_answer'&&(!params.turnId||params.turnId===evidence.turnId))answerItems.add(item.id);
+              else answerItems.delete(item.id);
+            }
             if (!item || !['userMessage', 'agentMessage', 'reasoning'].includes(item.type)) { evidence.toolsObserved++; controller.abort(new CodexProviderError('PROTOCOL', 'Codex attempted an unsupported tool or action; the request was stopped.')); }
             if (item?.type === 'agentMessage' && method === 'item/completed') messages.set(item.id, { text: item.text, phase: item.phase });
           }
@@ -350,22 +358,22 @@ export class CodexProvider {
       const text = await completed;
       if (controller.signal.aborted) throw controller.signal.reason;
       this.verified = true; this.capabilityCache = { at: Date.now(), configured: true };
-      this.update('ready', `Codex request completed with the exact selected model, ${selection.tier} tier and ${selection.effort} reasoning.`);
+      this.runStatus(controller,'ready', `Codex request completed with the exact selected model, ${selection.tier} tier and ${selection.effort} reasoning.`);
       if(input.modelReceipt)input.modelReceipt.onConfirmed(readProviderModelReceipt({requestId:input.modelReceipt.requestId,provider:'codex',model:thread.model,effort:thread.reasoningEffort,tier:thread.serviceTier,confirmation:'accepted-thread-and-completed-turn'}));
       return text;
     } catch (error) {
       const safe = controller.signal.aborted ? controller.signal.reason as CodexProviderError : error instanceof CodexProviderError ? error : new CodexProviderError('PROTOCOL', 'Codex could not complete this request. No provider or model fallback was made.');
       evidence.status = safe.code === 'CANCELLED' ? 'cancelled' : safe.code === 'STALLED' ? 'stalled' : 'failed';
       controller.abort(safe);
-      this.update(safe.code === 'CANCELLED' ? 'ready' : safe.code === 'STALLED' ? 'stalled' : 'error', safe.message);
+      this.runStatus(controller,safe.code === 'CANCELLED' ? 'ready' : safe.code === 'STALLED' ? 'stalled' : 'error', safe.message);
       throw safe;
     } finally {
       clearTimeout(deadline); clearTimeout(stall);
       input.signal.removeEventListener('abort', cancel); controller.signal.removeEventListener('abort', interrupt);
       if (interruptSent && !evidence.interruptAcknowledged) await new Promise(resolve => setTimeout(resolve, 75));
-      unsubscribe?.(); connection?.close(); this.connection = undefined;
+      unsubscribe?.(); connection?.close();
       if (directory) await rm(directory, { recursive: true, force: true });
-      evidence.elapsedMs = Date.now() - start; this.active = undefined;
+      evidence.elapsedMs = Date.now() - start; this.active.delete(controller);
     }
   }
 }

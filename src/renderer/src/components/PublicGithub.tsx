@@ -9,7 +9,7 @@ export function PublicGithubSnapshotDetails({version}:{version:SourceVersion}){
  return <dl className="public-github-details"><dt>Repository</dt><dd>{snapshot.repository} · Public</dd><dt>Default branch</dt><dd>{snapshot.defaultBranch}</dd><dt>README</dt><dd>{snapshot.path}</dd><dt>Snapshot</dt><dd>{new Date(snapshot.snapshotAt).toLocaleString()} · Source version {version.version}</dd><dt>README blob</dt><dd><code>{snapshot.blobSha}</code></dd></dl>;
 }
 
-export function PublicGithub({task,busy,run,isCurrent,beforeAdd,onCaptured,onOpen,onBack}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void;onCaptured:(reference:SourceRef)=>void;onOpen:(reference:SourceRef)=>void;onBack:()=>void}){
+export function PublicGithub({task,busy,run,isCurrent,beforeAdd,onCaptured,onOpen,onBack}:{task:Task;busy:boolean;run:Run;isCurrent:()=>boolean;beforeAdd:()=>void|Promise<void>;onCaptured:(reference:SourceRef)=>void|Promise<void>;onOpen:(reference:SourceRef)=>void;onBack:()=>void}){
  const [input,setInput]=useState(task.publicGithub?.repository??''),[working,setWorking]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
  const mounted=useRef(true),locked=useRef(false),attempt=useRef<string|undefined>(undefined),currentRef=useRef(isCurrent);currentRef.current=isCurrent;
  const current=()=>mounted.current&&currentRef.current();
@@ -21,10 +21,11 @@ export function PublicGithub({task,busy,run,isCurrent,beforeAdd,onCaptured,onOpe
   if(locked.current||busy||!current())return;
   let selected:string;try{selected=parsePublicGithubRepository(connection?.repository??input);}catch(error){setError(error instanceof Error?error.message:'Enter a public GitHub repository.');return;}
   locked.current=true;setWorking(true);setMessage('');setError('');const operationId=crypto.randomUUID();attempt.current=operationId;
-  try{beforeAdd();if(!current())return;const result=await run<PublicGithubResult>({type:'github.capture',taskId:task.id,operationId,repository:selected,expectedConnection:connection??null,...(reference?{expectedSource:reference}:{})},undefined,{isCurrent:current});
+  let added=false;try{await beforeAdd();if(!current())return;const result=await run<PublicGithubResult>({type:'github.capture',taskId:task.id,operationId,repository:selected,expectedConnection:connection??null,...(reference?{expectedSource:reference}:{})},undefined,{isCurrent:current});
    if(!current()||attempt.current!==operationId)return;
-   if(result){onCaptured(result.reference);setInput(selected);setMessage(result.unchanged?'README text is unchanged. The saved source version was retained.':'README saved as a text source.');}else setError('GitHub capture was not confirmed. The previous saved snapshot is retained. Review the error above before trying again.');
-  }finally{if(attempt.current===operationId)attempt.current=undefined;locked.current=false;if(current())setWorking(false);}
+   if(result){added=true;await onCaptured(result.reference);if(!current()||attempt.current!==operationId)return;setInput(selected);setMessage(result.unchanged?'README text is unchanged. The saved source version was retained.':'README saved as a text source.');}else setError('GitHub capture was not confirmed. The previous saved snapshot is retained. Review the error above before trying again.');
+  }catch{if(current()&&attempt.current===operationId)setError(added?'The README is saved, but its source selection was not confirmed. Review Context before using it.':'The source selection or README capture was not confirmed. Review Context before retrying.');}
+  finally{if(attempt.current===operationId)attempt.current=undefined;locked.current=false;if(current())setWorking(false);}
  }
  async function disconnect(){
   if(!connection||locked.current||busy||!current())return;locked.current=true;setError('');

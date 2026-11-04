@@ -5,6 +5,7 @@ import {mkdir,open,readFile,rename,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {isCode} from '../core/store';
 import {Schema} from 'effect';
+import {defaultLocalResearchPreferences,type LocalResearchPreferenceState,type LocalResearchUpdate} from '../shared/local-research-suggestions';
 import {TaskViewSavedSchema,readFileFavoritesChange,favoriteFileViews,favoriteFileKey,type TaskViewSaved,type FileFavoritesChange,type FileFavoritesState,type TaskViewState,type TaskPinsState} from '../shared/task-view';
 import type {Task} from '../core/types';
 import type {TaskAttentionChange} from '../shared/task-attention';
@@ -16,6 +17,16 @@ const Pins=Schema.Struct({schemaVersion:Schema.Literal(1),taskIds:Schema.Array(S
 
 export class TaskViewPreferences{
  private queue:Promise<unknown>=Promise.resolve();
+ private researchPaused=false;private researchEpoch=0;
+ get localResearchEpoch(){return this.researchEpoch;}
+ readLocalResearch():Promise<LocalResearchPreferenceState>{return this.serialize(async()=>{if(this.researchPaused)return {kind:'unavailable',message:'Local research is paused for this session after an unconfirmed save. The previous saved choice may return after restarting.'};try{return {kind:'available',current:(await this.loadDocument()).localResearch??defaultLocalResearchPreferences()};}catch{return {kind:'unavailable',message:'Local research choices could not be read. Suggestions and alerts are off; saved bytes have been kept.'};}});}
+ changeLocalResearch(value:LocalResearchUpdate,assertCurrent:()=>void=()=>{}):Promise<LocalResearchPreferenceState>{
+  this.researchEpoch++;
+  return this.serialize(async()=>{if(this.researchPaused)throw Error('Local research remains paused until restarting.');let document:TaskViewSaved;try{document=await this.loadDocument();}catch{this.researchPaused=true;throw Error('Local research choices could not be read. Suggestions and alerts are paused.');}
+   const current=document.localResearch??defaultLocalResearchPreferences();if(value.expectedRevision!==current.revision){this.researchPaused=true;throw Error('Local research choices changed. Suggestions and alerts are paused until restarting.');}if(current.revision===Number.MAX_SAFE_INTEGER){this.researchPaused=true;throw Error('Local research preference revision limit reached. Suggestions and alerts are paused.');}
+   const next={revision:current.revision+1,enabled:value.enabled,memory:value.memory,notices:value.notices};try{assertCurrent();await this.writeView({...document,localResearch:next},assertCurrent);return {kind:'available',current:next};}catch(error){this.researchPaused=true;this.researchEpoch++;throw Error('Saving local research choices could not be confirmed. Suggestions and alerts are paused for this session; the old choice may return after restarting.',{cause:error});}
+  });
+ }
  constructor(private readonly directory:string,private readonly exists:(taskId:string)=>Promise<boolean>,private readonly getTask?:(taskId:string)=>Promise<Task>,private readonly listTaskIds?:()=>Promise<readonly string[]>){}
  private async sectionsView(current:TaskSectionsSaved):Promise<TaskSectionsState>{
   const savedIds=current.sections.flatMap(item=>item.taskIds),present=this.listTaskIds?new Set(await this.listTaskIds()):new Set((await Promise.all(savedIds.map(async id=>await this.exists(id)?id:undefined))).filter((id):id is string=>id!==undefined));

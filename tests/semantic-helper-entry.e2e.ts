@@ -7,7 +7,8 @@ const evidence=process.env.SEMANTIC_HELPER_RUN_EVIDENCE??process.env.SEMANTIC_HE
 test.beforeAll(async()=>{await mkdir(evidence,{recursive:true});});
 const workspace=(page:Page)=>page.locator('.workspace:visible');
 const dialog=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true});
-const helper=(page:Page)=>dialog(page).locator('.helper-studio');
+// The saved-table batch panel (SourceHelperBatch) is a separate .helper-studio.typed-helper section; scope the record lane.
+const helper=(page:Page)=>dialog(page).locator('.helper-studio:not(.typed-helper)');
 async function menu(page:Page){await workspace(page).getByRole('button',{name:'Task options',exact:true}).click();await workspace(page).getByRole('button',{name:'Files',exact:true}).click();}
 
 test('ordinary helper entry builds, checks, activates, corrects, rolls back and reopens local records',async({page})=>{

@@ -8,6 +8,8 @@ import {createCompanion} from '../src/core/companion';
 import {BrowserCoordinator} from '../src/host/browser/coordinator';
 import {BrowserControl} from '../src/host/browser/control';
 import {LocalBrowser} from '../src/host/browser/local-browser';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 it('fences a late exact approval until explicit return and a fresh plan',async()=>{
  let visits=0;const server=createServer((req,res)=>{res.setHeader('content-type','text/html');if(req.url==='/next'){visits++;res.end('<h1>Result</h1>');}else res.end('<h1>Owned page</h1><a href="/next">Next</a>');});

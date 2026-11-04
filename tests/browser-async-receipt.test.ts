@@ -1,6 +1,8 @@
 import {createServer,type ServerResponse} from 'node:http';
-import {it,expect} from 'vitest';
+import {it,expect,vi} from 'vitest';
 import {LocalBrowser} from '../src/host/browser/local-browser';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 async function fixture(mode:'static'|'async'|'no-write'){
  const writes:string[]=[];let received!:()=>void,held:ServerResponse|undefined;
@@ -36,9 +38,9 @@ it('a consumed asynchronous write with no response receipt stays uncertain and c
  }finally{await f.close();}
 });
 
-it('prevented submission with no consumed write fails without inventing a receipt or uncertainty',async()=>{
+it('an attempted prevented submission without a receipt stays uncertain and cannot replay despite zero observed writes',async()=>{
  const f=await fixture('no-write');
- try{await expect(f.browser.execute(f.proposal.id,f.token)).rejects.toThrow('receipt');expect(f.browser.proposal(f.proposal.id)?.status).toBe('failed');expect(f.writes).toEqual([]);}finally{await f.close();}
+ try{await expect(f.browser.execute(f.proposal.id,f.token)).rejects.toThrow('receipt');expect(f.browser.proposal(f.proposal.id)).toMatchObject({status:'uncertain'});expect(f.browser.proposal(f.proposal.id)?.result).toBeUndefined();expect(f.writes).toEqual([]);await expect(f.browser.execute(f.proposal.id,f.token)).rejects.toThrow('already');expect(f.writes).toEqual([]);}finally{await f.close();}
 });
 
 it('cancellation after asynchronous commit preserves uncertainty and no replay',async()=>{

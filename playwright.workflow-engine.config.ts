@@ -1,0 +1,2 @@
+import {defineConfig} from '@playwright/test';
+export default defineConfig({testDir:'tests',testMatch:'workflow-engine.e2e.ts',outputDir:'work/continuation/renderer-results',workers:1,timeout:60000,use:{baseURL:'http://127.0.0.1:4631',headless:true,viewport:{width:1080,height:800},reducedMotion:'reduce',trace:'retain-on-failure'},reporter:[['list'],['json',{outputFile:'work/continuation/renderer-results.json'}]],webServer:{command:'./node_modules/.bin/vite --config vite.workflow-engine.config.ts --configLoader runner',url:'http://127.0.0.1:4631',reuseExistingServer:false}});

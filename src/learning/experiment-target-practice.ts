@@ -1,3 +1,4 @@
+import {experimentExampleLimits,OPEN_REVIEW_EXAMPLES} from '../shared/experiment-examples';
 import {evaluateExperiment} from '../core/experiments';
 import type {ExperimentDraft} from '../core/model-drafts';
 import type {ExperimentResult} from '../core/types';
@@ -7,14 +8,14 @@ import {pickingDigest} from '../shared/picking-digest';
 
 export const TARGET_SHARING='Saving creates a regular local document with your first answer, exact reasoning and source citation. This saved content can be included in future AI or browser context under the existing request and source-sharing controls. Raw fields and local previews stay local; saving here makes no AI request.';
 
-export const targetPracticeLimits=Object.freeze({samples:12,examples:2,reasonCharacters:2000,attempts:8});
+export const targetPracticeLimits=Object.freeze({samples:12,examples:experimentExampleLimits.examples,reasonCharacters:2000,attempts:8});
 export type TargetChallenge={variable:string;knownInputs:Record<string,number>;minimum:number;maximum:number;inputUnit:string;target:number;outputUnit:string;tolerance:number;integer?:true};
 export type TargetProblem={challenge:TargetChallenge;witness:number;witnessResult:ExperimentResult};
 const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));
 const ref=Schema.Struct({sourceId:id,version:Schema.Int.pipe(Schema.positive()),digest:id});
 const basis=Schema.Struct({artifactId:id,revision:Schema.Int.pipe(Schema.positive()),digest:id});
 const numericRecord=Schema.Record({key:Schema.String,value:Schema.Number});
-const input=Schema.Struct({taskId:id,basis,expectedSourceRefs:Schema.Array(ref).pipe(Schema.minItems(1),Schema.maxItems(64)),variable:Schema.String.pipe(Schema.pattern(/^[A-Za-z][A-Za-z0-9_]{0,31}$/)),demonstratedInputs:Schema.Array(numericRecord).pipe(Schema.maxItems(2))});
+const input=Schema.Struct({taskId:id,basis,expectedSourceRefs:Schema.Array(ref).pipe(Schema.minItems(1),Schema.maxItems(64)),variable:Schema.String.pipe(Schema.pattern(/^[A-Za-z][A-Za-z0-9_]{0,31}$/)),demonstratedInputs:Schema.Array(numericRecord).pipe(Schema.maxItems(experimentExampleLimits.examples)),exampleContext:Schema.optional(Schema.Literal(OPEN_REVIEW_EXAMPLES))});
 const submission=Schema.Struct({...input.fields,answer:Schema.Number,reasoning:Schema.String.pipe(Schema.minLength(1),Schema.maxLength(2000)),shareWithTask:Schema.Literal(true),retryOf:Schema.optional(id)});
 export type TargetPracticeInput=typeof input.Type;
 export type TargetPracticeSubmission=typeof submission.Type;
@@ -28,7 +29,7 @@ export const readTargetPracticeInspection=(raw:unknown)=>read(inspectionSchema,r
 export const targetPracticeIdentity=(value:TargetPracticeInput,challenge:TargetChallenge)=>pickingDigest({taskId:value.taskId,basis:value.basis,sourceRefs:value.expectedSourceRefs,challenge});
 /** Retry envelopes identify an attempt; the receipt binds all reviewed data,
  * including exact answer/reasoning, independently of challenge deduplication. */
-export const targetSubmissionIdentity=(value:TargetPracticeSubmission)=>{const {retryOf,...submitted}=value;return pickingDigest({format:'experiment-target-submission-v1',...submitted});};
+export const targetSubmissionIdentity=(value:TargetPracticeSubmission)=>{const {retryOf,...submitted}=value;return pickingDigest({format:value.exampleContext===OPEN_REVIEW_EXAMPLES?'experiment-target-submission-v2':'experiment-target-submission-v1',...submitted});};
 const fractions=[.25,.75,.5,.125,.875,.375,.625,0,1,.0625,.9375,.3125] as const;
 export const targetTolerance=(value:number)=>Math.max(1e-9,Math.abs(value)*1e-9);
 
@@ -36,7 +37,7 @@ export const targetTolerance=(value:number)=>Math.max(1e-9,Math.abs(value)*1e-9)
  * that one sampled value works in this AST; alternative answers may also work. */
 export function makeTargetProblem(draft:ExperimentDraft,variable:string,demonstratedInputs:readonly Record<string,number>[]=[]):TargetProblem{
  if(draft.unknownInputs?.length)throw Error('Confirm the saved input defaults before target practice.');
- if(demonstratedInputs.length>targetPracticeLimits.examples)throw Error('At most two current comparison examples are supported.');
+ if(demonstratedInputs.length>targetPracticeLimits.examples)throw Error('At most fourteen recorded comparison and trial examples are supported.');
  evaluateExperiment(draft.spec,draft.inputs);
  const selected=draft.spec.variables.find(item=>item.name===variable);
  if(!selected||selected.min===selected.max)throw Error('Choose a variable with a nonzero supported range.');

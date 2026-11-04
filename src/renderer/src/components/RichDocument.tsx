@@ -11,9 +11,12 @@ import {canEditRichText,editableDocumentBody} from '../document-format';
 const SafeCodeBlock=CodeBlock.extend({renderMarkdown(node,helpers){const text=helpers.renderChildren(node.content??[]);let longest=2;for(const match of text.matchAll(/`+/g))longest=Math.max(longest,match[0].length);const fence='`'.repeat(longest+1);return fence+(node.attrs?.language||'')+'\n'+text+'\n'+fence;}});
 type Props={value:string;title:string;documentKey:string;onChange:(value:string)=>void;disabled?:boolean};
 export default function RichDocument(props:Props){
- const supported=useMemo(()=>canEditRichText(props.value),[props.documentKey,props.value]);
- if(!supported)return <textarea aria-label="Draft content" value={props.value} disabled={props.disabled} onChange={event=>props.onChange(event.target.value)}/>;
- return <RichDocumentEditor {...props}/>;
+ // A value this component just emitted keeps the mode it was typed in; only an outside value (revision load, page reference) re-checks support.
+ const own=useRef<{key:string;value:string;rich:boolean}>(undefined),typed=own.current?.key===props.documentKey&&own.current.value===props.value?own.current.rich:undefined;
+ const supported=useMemo(()=>typed??canEditRichText(props.value),[props.documentKey,props.value,typed]);
+ const emit=(value:string,rich:boolean)=>{own.current={key:props.documentKey,value,rich};props.onChange(value);};
+ if(!supported)return <textarea aria-label="Draft content" value={props.value} disabled={props.disabled} onChange={event=>emit(event.target.value,false)}/>;
+ return <RichDocumentEditor {...props} onChange={value=>emit(value,true)}/>;
 }
 function RichDocumentEditor({value,title,onChange,disabled=false}:Props){
  const change=useRef(onChange),currentTitle=useRef(title),lastEmitted=useRef(value),prefix=useRef(editableDocumentBody(value,title).prefix);change.current=onChange;currentTitle.current=title;

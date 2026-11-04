@@ -91,21 +91,17 @@ test('full ordered source references, task ownership and current basis are requi
  await expect(createReviewedWorkflow(core,input)).rejects.toThrow(/source changed|fresh capture/);
  expect((await core.getTask(f.taskId)).requests).toHaveLength(0);
 });
-test.each(['source','basis','cancel'] as const)('publication refuses a %s change after inner admission',async change=>{
- const f=await fixture(),prepared=await prepareWorkflowReview(core,{taskId:f.taskId,basis:f.basis}),input={taskId:f.taskId,requestId:'publication-'+change,basis:f.basis,expectedSourceRefs:f.refs,review:draft(prepared)},run=core.runRequest.bind(core);
- const spy=vi.spyOn(core,'runRequest').mockImplementation((request,runner,assertCurrent)=>run(request,async context=>{
-  const output=await runner(context);
+// Local serialization now commits atomically, so races enter at its actual core boundary (no unused model runner).
+test.each(['source','basis','cancel'] as const)('publication refuses a %s change between construction and atomic admission',async change=>{
+ const f=await fixture(),prepared=await prepareWorkflowReview(core,{taskId:f.taskId,basis:f.basis}),input={taskId:f.taskId,requestId:'publication-'+change,basis:f.basis,expectedSourceRefs:f.refs,review:draft(prepared)},save=core.saveWorkflowArtifact.bind(core);
+ const spy=vi.spyOn(core,'saveWorkflowArtifact').mockImplementation(async(request,assertCurrent)=>{
   if(change==='source')await core.putSource(f.taskId,{id:f.sourceId,kind:'text',role:'fact',label:'Changed during creation',content:sourceText+'\nChanged'});
   else if(change==='basis')await core.saveArtifact(f.taskId,{artifactId:f.basis.artifactId,expectedRevision:1,title:'Changed during creation',content:'Changed basis',sourceRefs:f.refs});
-  else await core.cancelRequest(f.taskId,input.requestId);
-  return output;
- },assertCurrent));
+  return save(request,change==='cancel'?()=>{throw Error('Host submission retired before local commit');}:assertCurrent);
+ });
  try{await expect(createReviewedWorkflow(core,input)).rejects.toThrow();}finally{spy.mockRestore();}
- const task=await core.getTask(f.taskId);expect(task.artifacts).toHaveLength(1);expect(task.requests[0].status).toBe(change==='basis'?'failed':'cancelled');
- if(change==='cancel'){
-  await expect(createReviewedWorkflow(core,input)).rejects.toThrow();expect((await core.getTask(f.taskId)).requests).toHaveLength(1);
-  const fresh=await createReviewedWorkflow(core,{...input,requestId:'deliberate-new-attempt'});expect(fresh.task.requests).toHaveLength(2);expect(fresh.task.artifacts).toHaveLength(2);
- }
+ const task=await core.getTask(f.taskId);expect(task.artifacts).toHaveLength(1);expect(task.requests).toHaveLength(0);
+ if(change==='cancel'){const fresh=await createReviewedWorkflow(core,input);expect(fresh.task.requests).toHaveLength(1);expect(fresh.task.artifacts).toHaveLength(2);}
 });
 test('finite choices and limits reject unresolved rules while preserving prose as explicit interpretation',async()=>{
  const f=await fixture(),prepared=await prepareWorkflowReview(core,{taskId:f.taskId,basis:f.basis}),review=draft(prepared),sources=prepared.sources.map(source=>({sourceId:source.ref.sourceId,text:source.text}));

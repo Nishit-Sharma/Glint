@@ -17,7 +17,7 @@ test('only actual host diagnostic conditions produce warnings, preserving origin
  expect(hostWarningDiagnostics()).toEqual([]);expect(hostWarningDiagnostics(host)).toEqual([]);
  expect(hostWarningDiagnostics({...host,modifierShortcutStatus:'ready',shortcutStatus:'registered',fallbackShortcutStatus:'registered'})).toEqual([]);
  expect(hostWarningDiagnostics({...host,modifierShortcutStatus:'starting'})).toEqual([]);
- expect(hostWarningDiagnostics({...host,modifierShortcutStatus:'permission-required'})[0].message).toBe('Allow Accessibility access for Window Companion in System Settings, then reopen Glint to enable the physical shortcut.');
+ expect(hostWarningDiagnostics({...host,modifierShortcutStatus:'permission-required'})[0].message).toBe('Allow Accessibility access for Glint in System Settings, then reopen Glint to enable the physical shortcut.');
  expect(hostWarningDiagnostics({...host,modifierShortcutStatus:'unsupported'})[0].message).toContain('not supported');
  for(const state of ['unavailable','stopped'] as const)expect(hostWarningDiagnostics({...host,modifierShortcutStatus:state})[0].message).toContain('could not start');
  expect(hostWarningDiagnostics({...host,shortcutStatus:'unavailable',fallbackShortcut:'Control+Alt+G',fallbackShortcutStatus:'unavailable'})).toHaveLength(2);

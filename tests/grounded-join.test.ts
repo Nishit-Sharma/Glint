@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {mkdtemp,rm,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -18,7 +19,7 @@ afterEach(async()=>{await core.close();await rm(root,{recursive:true,force:true}
 async function fixture(ambiguous=false){
  const f=extractionFixture(ambiguous),task=await core.createTask({title:'Owned synthetic source → join'});
  const updated=await core.putSource(task.id,{id:'source with full identity '+ 'x'.repeat(90),kind:'text',label:'Owned synthetic table transcription',role:'fact',content:f.content});
- const saved=await core.saveArtifact(task.id,{title:'Source explanation',content:'Owned synthetic table source.'});
+ const refs=updated.sources.map(source=>({sourceId:source.id,version:source.currentVersion,digest:source.versions.at(-1)!.digest})),saved=await currentAnswerOrigin(core,task.id,'fixture-join-origin:'+task.id,{title:'Source explanation',content:'Owned synthetic table source.'},refs);
  const basis:ArtifactRef={artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest};
  const input={id:'grounded-join-example',title:'Join the cited tables',version:1,basis,proposal:f.proposal,transfer:f.transfer};
  return {...f,taskId:task.id,input,basis,sourceId:updated.sources[0].id,task:await core.getTask(task.id)};
@@ -163,12 +164,12 @@ test('style or inspiration sources cannot be silently promoted to observed table
  const current=await core.getTask(task.id);
  expect(()=>admitJoinExtraction(current,{id:'role-test',title:'Role',version:1,basis:{artifactId:saved.artifactId,revision:1,digest:saved.revision.digest},proposal:f.proposal,transfer:f.transfer})).toThrow(/fact source/);
 });
-test('refresh-required invalidation blocks a prepared commit even when the session revision is unchanged',async()=>{
+test('refresh-required invalidation advances context and blocks a prepared commit against the latest session revision',async()=>{
  const f=await fixture(),created=await createGroundedJoinArtifact(core,{...f.input,taskId:f.taskId,requestId:'invalidation-guard'}),task=await core.getTask(f.taskId),artifact=task.artifacts.find(a=>a.id===created.artifactId)!,v=artifact.revisions[0],session=task.session??emptyTaskSession();
  const data=parseModuleAnswer(JSON.parse(v.content)).modules[0].data,guard=groundedJoinCommitGuard(task,data,{artifactId:artifact.id,revision:1,digest:v.digest});
  await core.invalidateSource(f.taskId,f.sourceId,'The owned synthetic source requires refresh.');
- expect((await core.getTask(f.taskId)).session?.revision).toBe(session.revision);
- await expect(core.replaceSession(f.taskId,session.revision,session,guard)).rejects.toThrow(/Source changed/);
+ const current=(await core.getTask(f.taskId)).session!;expect(current.revision).toBe(session.revision+1);expect(current.contextRevision).toBe((session.contextRevision??0)+1);
+ await expect(core.replaceSession(f.taskId,current.revision,current,guard)).rejects.toThrow(/Source changed/);
 });
 test('source basis cannot be overwritten by the generated experiment',async()=>{
  const f=await fixture(),before=await core.getTask(f.taskId);
@@ -190,12 +191,10 @@ test('saved notes retain local experiment origin and reject a changed basis arti
  expect((await core.getTask(f.taskId)).artifacts).toHaveLength(count);
 });
 test('basis and module state snapshot guards remain attached through the actual note-save commit',async()=>{
- const f=await fixture(),created=await createGroundedJoinArtifact(core,{...f.input,taskId:f.taskId,requestId:'notes-commit-race'}),task=await core.getTask(f.taskId),save=core.saveArtifact.bind(core);
- const intercept=vi.spyOn(core,'saveArtifact').mockImplementationOnce(async(taskId,input)=>{
-  expect(input.expectedArtifacts?.some(r=>r.artifactId===f.basis.artifactId)).toBe(true);
-  expect(input.expectedModuleStates?.[0]).toMatchObject({moduleId:f.input.id,stateRevision:0});
-  await save(taskId,{artifactId:f.basis.artifactId,expectedRevision:1,title:'Concurrent basis revision',content:'Changed immediately before note commit.'});
-  return save(taskId,input);
+ const f=await fixture(),created=await createGroundedJoinArtifact(core,{...f.input,taskId:f.taskId,requestId:'notes-commit-race'}),task=await core.getTask(f.taskId),save=core.saveModuleNotes.bind(core);
+ const intercept=vi.spyOn(core,'saveModuleNotes').mockImplementationOnce(async(input,assertCurrent)=>{
+  await core.saveArtifact(f.taskId,{artifactId:f.basis.artifactId,expectedRevision:1,title:'Concurrent basis revision',content:'Changed immediately before note commit.'});
+  return save(input,assertCurrent);
  });
  try{await expect(saveModuleDocument(core,{taskId:f.taskId,artifactId:created.artifactId!,artifactRevision:1,sessionRevision:task.session!.revision})).rejects.toThrow(/cited artifact changed/);}finally{intercept.mockRestore();}
  expect((await core.getTask(f.taskId)).artifacts).toHaveLength(2);

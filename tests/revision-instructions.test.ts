@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {afterEach,expect,it,vi} from 'vitest';
 vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('./controlled-renderer.fixture')).hooks}));
 import {createElement} from 'react';
@@ -35,7 +36,7 @@ it('restores exact unsent revision instructions through the real shared sidecar 
 async function controllerFixture(){
  const directory=await mkdtemp(join(tmpdir(),'revision-instruction-submit-'));let core=await createCompanion({dataDir:directory});
  cleanup.push(async()=>{await core.close();await rm(directory,{recursive:true,force:true});});
- const created=await core.createTask({title:'Bound revision instructions'}),saved=await core.saveArtifact(created.id,{title:'Committed document',content:'Committed body.',mimeType:'text/plain',sourceRefs:[]});
+ const created=await core.createTask({title:'Bound revision instructions'}),saved=await currentAnswerOrigin(core,created.id,'fixture-revision-origin:'+created.id,{title:'Committed document',content:'Committed body.',mimeType:'text/plain'},[]);
  let task=await core.getTask(created.id),base=saved.revision,scope='original',calls=0,lastSubmission:RevisionInstructionSubmission|undefined;
  const faults:{raw?:'reject-before';tombstone?:'reject-before'|'lose-after';onTombstone?:()=>void}={},script:{run:(context:RequestContext)=>Promise<void>;reply:(task:Task)=>Task|undefined|Promise<Task|undefined>}={run:async()=>{},reply:task=>task};
  const store=()=>new LearningDraftStore({directory,lookupTask:async id=>(await core.listTasks()).find(item=>item.id===id)}),makeCache=()=>{const current=store();return createLearningDrafts({read:()=>current.read(),save:async(...args)=>{const mode=args[4]===null?faults.tombstone:faults.raw;if(args[4]===null){faults.tombstone=undefined;const hook=faults.onTombstone;faults.onTombstone=undefined;hook?.();}else faults.raw=undefined;if(mode==='reject-before')throw Error('Controlled sidecar write rejection.');const result=await current.save(...args);if(mode==='lose-after')throw Error('Controlled tombstone acknowledgement loss.');return result;}});},cache=makeCache();await cache.load();
@@ -45,13 +46,13 @@ async function controllerFixture(){
   task=await core.getTask(task.id);base=task.artifacts[0].revisions.at(-1)!;return script.reply(structuredClone(task));
  };
  const options={cache,artifactId:saved.artifactId,task:()=>task,base:()=>base,scope:()=>scope,isCurrent:()=>true,send},controller=createRevisionInstructionsController(options);
- return {directory,get core(){return core},saved,cache,makeCache,options,controller,faults,script,get task(){return task},get base(){return base},get calls(){return calls},get lastSubmission(){return lastSubmission},refresh:async()=>{task=await core.getTask(task.id);base=task.artifacts[0].revisions.at(-1)!;},retarget:()=>{scope='incoming-selection';},restart:async()=>{await core.close();core=await createCompanion({dataDir:directory});}};
+ return {directory,get core(){return core},saved,originRequestId:saved.requestId,cache,makeCache,options,controller,faults,script,get task(){return task},get base(){return base},get calls(){return calls},get lastSubmission(){return lastSubmission},refresh:async()=>{task=await core.getTask(task.id);base=task.artifacts[0].revisions.at(-1)!;},retarget:()=>{scope='incoming-selection';},restart:async()=>{await core.close();core=await createCompanion({dataDir:directory});}};
 }
 it('only an exactly confirmed revision clears its captured raw instructions after durable acknowledgement',async()=>{
  const f=await controllerFixture(),raw='  Keep α and 👋 exactly.  ';
  expect(f.controller.edit(raw).kind).toBe('accepted');expect(await f.controller.submit(raw.trim())).toBe(true);
  expect(f.controller.snapshot().raw.text).toBe('');expect(f.controller.snapshot().pendingClear).toBe(false);expect(f.calls).toBe(1);
- expect(f.task.requests).toHaveLength(1);expect(f.task.requests[0]).toMatchObject({status:'completed',kind:'revise',prompt:raw.trim(),expectedRevision:1,targetArtifactId:f.saved.artifactId,answer:{artifactId:f.saved.artifactId,revision:2}});
+ expect(f.task.requests.filter(request=>request.id!==f.originRequestId)).toHaveLength(1);expect(f.task.requests.find(request=>request.id===f.lastSubmission!.requestId)!).toMatchObject({status:'completed',kind:'revise',prompt:raw.trim(),expectedRevision:1,targetArtifactId:f.saved.artifactId,answer:{artifactId:f.saved.artifactId,revision:2}});
  await f.restart();const reopened=f.makeCache();await reopened.load();expect(reopened.readForm(f.controller.snapshot().owner,f.controller.snapshot().slot,{present:false,text:''},savedDocumentDraftBasis(f.task,f.saved.artifactId,f.base))).toMatchObject({status:'ready',value:{text:''}});
 });
 
@@ -60,7 +61,7 @@ it('intentional whitespace survives safe unmount-style reuse and real core/store
  const f=await controllerFixture(),raw=' \t  \n \t ';expect(f.controller.edit(raw).kind).toBe('accepted');await f.cache.flush();
  const mirror=createRevisionInstructionsController(f.options);expect(mirror.snapshot().raw.text).toBe(raw);expect(mirror.snapshot().canSubmit).toBe(false);
  f.cache.setFrozen(true);await f.cache.flushForQuit();await f.restart();const cache=f.makeCache();await cache.load();
- const reopened=createRevisionInstructionsController({...f.options,cache});expect(reopened.snapshot().raw.text).toBe(raw);expect(reopened.snapshot().canSubmit).toBe(false);expect(f.calls).toBe(0);expect((await f.core.getTask(f.task.id)).requests).toEqual([]);
+ const reopened=createRevisionInstructionsController({...f.options,cache});expect(reopened.snapshot().raw.text).toBe(raw);expect(reopened.snapshot().canSubmit).toBe(false);expect(f.calls).toBe(0);expect((await f.core.getTask(f.task.id)).requests.filter(request=>request.id!==f.originRequestId)).toEqual([]);
 });
 it.each(['new-text','edit-undo'] as const)('a confirmation preserves a newer %s generation and exposes recovery instead of applying it to the new revision',async mode=>{
  const f=await controllerFixture(),hold=gate(),raw='Original instructions';f.script.run=async()=>{hold.enter();await hold.waiting;};f.controller.edit(raw);const sending=f.controller.submit();await hold.entered;
@@ -72,7 +73,7 @@ it.each(['failed','cancelled','unknown','wrong-answer'] as const)('a %s model ou
  if(mode==='failed')f.script.run=async()=>{throw Error('Scripted model failure.');};
  if(mode==='cancelled')f.script.run=async()=>{await f.core.cancelRequest(f.task.id,f.lastSubmission!.requestId);};
  if(mode==='unknown')f.script.reply=()=>undefined;
- if(mode==='wrong-answer')f.script.reply=task=>{task.requests[0].answer!.digest='f'.repeat(64);return task;};
+ if(mode==='wrong-answer')f.script.reply=task=>{task.requests.find(request=>request.id===f.lastSubmission!.requestId)!.answer!.digest='f'.repeat(64);return task;};
  f.controller.edit(raw);expect(await f.controller.submit()).toBe(false);await f.cache.flush();expect(f.controller.snapshot().raw.text).toBe(raw);expect(f.calls).toBe(1);
  const cache=f.makeCache();await cache.load();expect(createRevisionInstructionsController({...f.options,cache}).snapshot().raw.text).toBe(raw);
 });
@@ -85,7 +86,7 @@ it('a raw persistence failure refuses dispatch and blocks quit until an explicit
 });
 it.each(['reject-before','lose-after'] as const)('a confirmed revision with %s tombstone failure keeps recoverable input and storage check never resends',async mode=>{
  const f=await controllerFixture(),raw='Confirmed request, uncertain draft clear';f.controller.edit(raw);await f.cache.flush();f.faults.tombstone=mode;
- expect(await f.controller.submit()).toBe(false);expect(f.task.requests[0].status).toBe('completed');expect(f.controller.snapshot().pendingClear).toBe(true);expect(f.controller.snapshot().raw.text).toBe(raw);expect(f.calls).toBe(1);
+ expect(await f.controller.submit()).toBe(false);expect(f.task.requests.find(request=>request.id===f.lastSubmission!.requestId)!.status).toBe('completed');expect(f.controller.snapshot().pendingClear).toBe(true);expect(f.controller.snapshot().raw.text).toBe(raw);expect(f.calls).toBe(1);
  f.cache.setFrozen(true);await expect(f.cache.flushForQuit()).rejects.toThrow();f.cache.setFrozen(false);expect(await f.controller.check()).toBe(true);expect(f.controller.snapshot().raw.text).toBe('');expect(f.controller.snapshot().pendingClear).toBe(false);expect(f.calls).toBe(1);
 });
 it('quit waits for the matching request and tombstone while interrupted quit resumes without an old successful acknowledgement',async()=>{
@@ -134,7 +135,7 @@ it('the actual inline recovery and Files controls expose earlier instruction tex
  const status=createControlledRenderer(()=>createElement(RevisionInstructionsStatus,{controller:f.controller,cache:f.cache}));status.render();
  expect(status.find(node=>node.type==='textarea').props).toMatchObject({readOnly:true,value:raw});expect(status.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join(' ')).toContain('will not run automatically');
  const files=createControlledRenderer(()=>createElement(LearningDraftReview,{task:f.task,cache:f.cache}));files.render();const text=files.nodes().filter(node=>node.type==='#text').map(node=>node.props.text).join(' ');
- expect(text).toContain('Revision instructions');expect(text).toContain(raw);expect(text).toContain('will not be sent or applied automatically');expect(f.calls).toBe(0);expect(f.task.requests).toEqual([]);
+ expect(text).toContain('Revision instructions');expect(text).toContain(raw);expect(text).toContain('will not be sent or applied automatically');expect(f.calls).toBe(0);expect(f.task.requests.filter(request=>request.id!==f.originRequestId)).toEqual([]);
  status.find(node=>node.type==='button'&&node.children.some(child=>child.props.text==='Discard earlier revision instructions')).props.onClick();await f.cache.flush();await Promise.resolve();expect(f.controller.snapshot().raw.text).toBe('');expect(f.calls).toBe(0);
 });
 it('a failed save of a newer intentionally emptied instruction never refills older saved text',async()=>{
@@ -152,7 +153,7 @@ it('a stale recovery Discard button cannot erase another mirror’s newer instru
 });
 it('the actual revision input render and change handler allow newer typing during its own request while Send stays blocked and all holds remain strict',async()=>{
  const f=await controllerFixture(),hold=gate();let stopped=0;f.script.run=async()=>{hold.enter();await hold.waiting;};f.controller.edit('Submitted g1');const sending=f.controller.submit();await hold.entered;
- const render=(requestId=f.lastSubmission!.requestId)=>{const revision=RevisionInstructionsInput({controller:f.controller,cache:f.cache,busy:true,dirty:false,conflict:false,stale:false,connection:{provider:'Codex (temporary)',configured:true,endpoint:'fixture://no-network',model:'scripted',state:'ready',detail:'Scripted unit boundary',specialized:{sam:'',computer:''}},runningRequestId:requestId,onStop:()=>{stopped++;},onConfigure:()=>{throw Error('No configuration route.');}});return Composer(revision.props.children[1].props).props.children[0].props;};
+ const render=(requestId=f.lastSubmission!.requestId)=>{let input:any;const renderer=createControlledRenderer(()=>createElement(function Input(){const revision=RevisionInstructionsInput({controller:f.controller,cache:f.cache,busy:true,dirty:false,conflict:false,stale:false,connection:{provider:'Codex (temporary)',configured:true,endpoint:'fixture://no-network',model:'scripted',state:'ready',detail:'Scripted unit boundary',specialized:{sam:'',computer:''}},runningRequestId:requestId,onStop:()=>{stopped++;},onConfigure:()=>{throw Error('No configuration route.');}});input=Composer(revision.props.children[1].props).props.children[1].props.children.props;return null;}));renderer.render();return input;};
  const input=render();expect(input.disabled).toBe(false);expect(input.streaming).toBe(true);expect(input.submitDisabled).toBe(true);input.onValueChange('  Newer public-input g2 α 👋  ');input.onSubmit('Another Send must not run');expect(f.calls).toBe(1);expect(f.controller.snapshot().raw.text).toBe('  Newer public-input g2 α 👋  ');
  const foreign=render('different-request');expect(foreign.disabled).toBe(true);expect(foreign.streaming).toBe(false);
  f.cache.setFrozen(true);const frozen=render();expect(frozen.disabled).toBe(true);frozen.onValueChange('Rejected stale frozen edit');expect(f.controller.snapshot().raw.text).toBe('  Newer public-input g2 α 👋  ');f.cache.setFrozen(false);
@@ -167,7 +168,7 @@ it('over-limit instructions stay exact and durable without dispatch, while the e
  const f=await controllerFixture(),raw='  '+'👋'.repeat(8001)+'  ';expect(raw.trim().length).toBe(16002);expect(new TextEncoder().encode(raw.trim()).length).toBe(32004);expect(f.controller.edit(raw).kind).toBe('accepted');await f.cache.flush();
  expect(await f.controller.submit(raw.trim())).toBe(false);expect(f.calls).toBe(0);expect(f.controller.snapshot().raw.text).toBe(raw);expect(f.controller.snapshot().message).toContain('too long to send');
  f.cache.setFrozen(true);await f.cache.flushForQuit();await f.restart();const cache=f.makeCache();await cache.load();const reopened=createRevisionInstructionsController({...f.options,cache});expect(reopened.snapshot().raw.text).toBe(raw);
- const valid='  '+'👋'.repeat(8000)+'  ';expect(valid.trim().length).toBe(16000);expect(reopened.edit(valid).kind).toBe('accepted');expect(await reopened.submit(valid.trim())).toBe(true);expect(f.calls).toBe(1);expect(f.task.requests[0].prompt).toBe(valid.trim());
+ const valid='  '+'👋'.repeat(8000)+'  ';expect(valid.trim().length).toBe(16000);expect(reopened.edit(valid).kind).toBe('accepted');expect(await reopened.submit(valid.trim())).toBe(true);expect(f.calls).toBe(1);expect(f.task.requests.find(request=>request.id===f.lastSubmission!.requestId)!.prompt).toBe(valid.trim());
 });
 it('the unchanged generic raw limit counts UTF-16 units separately from its UTF-8 JSON byte limit',async()=>{
  const f=await controllerFixture(),raw='👋'.repeat(16384);expect(raw.length).toBe(32768);expect(new TextEncoder().encode(raw).length).toBe(65536);expect(f.controller.edit(raw).kind).toBe('accepted');await f.cache.flush();

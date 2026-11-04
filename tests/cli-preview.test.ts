@@ -5,8 +5,8 @@ import {CliPreviewHost,readCliCommand} from '../src/host/cli-preview';
 afterEach(()=>boundary.exec.mockReset());
 test('GUI preview executes the fixed bundled script with a host-owned directory and a narrow environment',async()=>{
  const kill=vi.fn();let finish:(error:Error|null,stdout:string)=>void=()=>{};boundary.exec.mockImplementation((_exe,_args,_options,callback)=>{finish=callback;return {kill};});
- const host=new CliPreviewHost({executable:'/fixed/Window Companion',script:'/fixed/cli.js',launcher:'/fixed/glint'}),pending=host.preview('task-id','/host/data');
- expect(boundary.exec.mock.calls[0].slice(0,3)).toEqual(['/fixed/Window Companion',['/fixed/cli.js','task','task-id','--data-dir','/host/data'],{env:{ELECTRON_RUN_AS_NODE:'1',LANG:'en_US.UTF-8'},encoding:'utf8',timeout:5000,maxBuffer:262144,windowsHide:true}]);
+ const host=new CliPreviewHost({executable:'/fixed/Glint',script:'/fixed/cli.js',launcher:'/fixed/glint'}),pending=host.preview('task-id','/host/data');
+ expect(boundary.exec.mock.calls[0].slice(0,3)).toEqual(['/fixed/Glint',['/fixed/cli.js','task','task-id','--data-dir','/host/data'],{env:{ELECTRON_RUN_AS_NODE:'1',LANG:'en_US.UTF-8'},encoding:'utf8',timeout:5000,maxBuffer:262144,windowsHide:true}]);
  expect(await host.preview('task-id','/host/data')).toMatchObject({kind:'unavailable'});finish(null,'ACTUAL CHILD OUTPUT\n');expect(await pending).toEqual({kind:'ready',output:'ACTUAL CHILD OUTPUT\n',launcher:'/fixed/glint'});expect(kill).not.toHaveBeenCalled();
 });
 test('tentative quit retires a child outcome and allows a fresh preview after quit is cancelled',async()=>{

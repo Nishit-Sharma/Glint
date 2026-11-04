@@ -1,3 +1,4 @@
+import {SourceSelectionSchema} from '../shared/source-selection';
 import {TaskResponseModeSchema} from '../shared/task-response-mode';
 import {TaskMemoryPolicySchema} from '../shared/task-memory-policy';
 import {OutputArchiveReceiptSchema,OutputArchivePendingSchema} from '../shared/task-output-archive';
@@ -40,6 +41,7 @@ export const BrowserOperationSchema = Schema.Struct({
   error: Schema.optional(text),
 });
 export const TaskSessionSchema = Schema.Struct({
+  sourceSelection:Schema.optional(SourceSelectionSchema),
   responseMode:Schema.optional(TaskResponseModeSchema),
   outputArchives:Schema.optional(Schema.Array(OutputArchiveReceiptSchema).pipe(Schema.maxItems(20))),
   outputArchivePending:Schema.optional(OutputArchivePendingSchema),

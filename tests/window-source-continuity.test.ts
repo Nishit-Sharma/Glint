@@ -4,7 +4,7 @@ vi.mock('../src/renderer/src/components/GeneratedSurface',()=>({GeneratedSurface
 vi.mock('../src/renderer/src/components/SourceSnapshotReview',()=>({FrozenSourcePreview:()=>null}));
 vi.mock('../src/renderer/src/components/TaskMenu',()=>({TaskMenu:({children}:any)=>children}));
 vi.mock('../src/renderer/src/components/ReadableText',()=>({ReadableText:({text}:any)=>text}));
-vi.mock('lucide-react',()=>Object.fromEntries(['ArrowLeft','FileText','Image','AppWindow','Plus','RefreshCw','ArrowUpRight','ChevronDown','Layers','Minus','Square'].map(name=>[name,()=>null])));
+vi.mock('lucide-react',()=>Object.fromEntries(['EyeOff','ArrowLeft','FileText','Image','AppWindow','Plus','RefreshCw','ArrowUpRight','ChevronDown','Layers','Minus','Square'].map(name=>[name,()=>null])));
 import {createElement} from 'react';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';

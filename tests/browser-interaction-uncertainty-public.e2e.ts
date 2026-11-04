@@ -4,6 +4,9 @@ import {BrowserCoordinator,type BrowserPlanner} from '../src/host/browser/coordi
 import {BrowserReconciliation} from '../src/host/browser/reconciliation';
 import {LocalBrowser} from '../src/host/browser/local-browser';
 import {revealPublicViewport} from './picking-public-frame';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+// Loopback-locked engine only: these specs never launch or select the person's installed browsers.
+installLoopbackTestEngine();
 
 let fixture:BrowserFixture;
 const originalOpen=LocalBrowser.open;

@@ -23,9 +23,10 @@ it('finds only latest saved revisions affected by the selected source through ch
  await core.saveArtifact(task.id,{title:'Current A',content:'New answer',sourceRefs:[a2]});
  task=await core.getTask(task.id);expect(sourceAffectedWork(task,a.id).map(x=>x.item.id)).toEqual([old.artifactId,procedureId]);
  await core.saveArtifact(task.id,{artifactId:old.artifactId,expectedRevision:1,title:'A document updated',content:'Updated',sourceRefs:[a2]});
- task=await core.getTask(task.id);expect(sourceAffectedWork(task,a.id).map(x=>x.item.id)).toEqual([procedureId]);
+ task=await core.getTask(task.id);expect(sourceAffectedWork(task,a.id).map(x=>x.item.id)).toEqual([old.artifactId,procedureId]);
+ const inherited=sourceAffectedWork(task,a.id)[0];expect(inherited.kind==='artifact'&&inherited.inheritedRefs).toEqual([a1]);expect(inherited.refs).toEqual([]);
  await core.close();core=await createCompanion({dataDir:directory});task=await core.getTask(task.id);
- expect(sourceAffectedWork(task,a.id).map(x=>[x.kind,x.item.id,x.refs])).toEqual([['procedure',procedureId,[a1]]]);expect(sourceAffectedWork(task,'missing')).toEqual([]);
+ expect(sourceAffectedWork(task,a.id).map(x=>[x.kind,x.item.id,x.refs])).toEqual([['artifact',old.artifactId,[]],['procedure',procedureId,[a1]]]);expect(sourceAffectedWork(task,'missing')).toEqual([]);
 });
 it('treats an exact-version digest mismatch as affected and never attributes another source',()=>{
  const task={sources:[{id:'a',freshness:'fresh',currentVersion:1,versions:[{version:1,digest:'actual',label:'A'}]}],artifacts:[{id:'x',revisions:[{title:'X',sourceRefs:[{sourceId:'a',version:1,digest:'other'},{sourceId:'b',version:1,digest:'b'}]}]}],procedures:[]} as unknown as import('../src/core/types').Task;

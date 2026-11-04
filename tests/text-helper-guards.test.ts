@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -16,7 +17,7 @@ afterEach(async()=>{vi.restoreAllMocks();await core.close();await rm(root,{recur
 
 async function fixture(){
  const task=await core.createTask({title:'Owned helper guard fixture'});
- const artifact=await core.saveArtifact(task.id,{title:'Text helper',mimeType:MODULE_MIME,sourceRefs:[],content:JSON.stringify({schemaVersion:1,markdown:'Local pasted-text helper.',modules:[{id:'helper',version:1,data:helperExample,provenance:[]}]})});
+ const artifact=await currentAnswerOrigin(core,task.id,'helper-original',{title:'Text helper',mimeType:MODULE_MIME,content:JSON.stringify({schemaVersion:1,markdown:'Local pasted-text helper.',modules:[{id:'helper',version:1,data:helperExample,provenance:[]}]})},[]);
  const target={taskId:task.id,artifactId:artifact.artifactId,artifactRevision:1,moduleId:'helper'};
  async function act(action:HelperAction){return editModule(core,{...target,action});}
  async function notes(){const current=await core.getTask(task.id);return saveModuleDocument(core,{...target,sessionRevision:current.session?.revision??0});}
@@ -44,12 +45,12 @@ test('helper edit rejects an artifact replaced between read and atomic state com
 });
 
 test('helper notes with no prior state reject the first edit racing the atomic save',async()=>{
- const f=await fixture(),saveArtifact=core.saveArtifact.bind(core);
- vi.spyOn(core,'saveArtifact').mockImplementationOnce(async(...args)=>{
+ const f=await fixture(),saveModuleNotes=core.saveModuleNotes.bind(core);
+ vi.spyOn(core,'saveModuleNotes').mockImplementationOnce(async(...args)=>{
   await f.act({kind:'append-operation',operation:{kind:'trim'},expectedRevision:0});
-  return saveArtifact(...args);
+  return saveModuleNotes(...args);
  });
- await expect(f.notes()).rejects.toThrow(/module state changed/i);
+ await expect(f.notes()).rejects.toThrow(/answer or choices changed/i);
  const current=await core.getTask(f.taskId);
  expect(current.artifacts).toHaveLength(1);
  expect(helperStudio.parseState(helperExample,current.session!.moduleStates[0].state).draft.operations).toEqual([{kind:'trim'}]);
@@ -61,21 +62,21 @@ test.each([
  {label:'new tested version',action:{kind:'save-version',changeNote:'Second tested snapshot',expectedRevision:4}},
 ] satisfies {label:string;action:HelperAction}[])('helper notes reject $label racing the atomic save',async({action})=>{
  const f=await fixture();await savedVersion(f);
- const saveArtifact=core.saveArtifact.bind(core);
- vi.spyOn(core,'saveArtifact').mockImplementationOnce(async(...args)=>{await f.act(action);return saveArtifact(...args);});
- await expect(f.notes()).rejects.toThrow(/module state changed/i);
+ const saveModuleNotes=core.saveModuleNotes.bind(core);
+ vi.spyOn(core,'saveModuleNotes').mockImplementationOnce(async(...args)=>{await f.act(action);return saveModuleNotes(...args);});
+ await expect(f.notes()).rejects.toThrow(/answer or choices changed/i);
  const current=await core.getTask(f.taskId);
  expect(current.artifacts).toHaveLength(1);
  expect(helperStudio.parseState(helperExample,current.session!.moduleStates[0].state).revision).toBe(5);
 });
 
 test('helper notes reject an artifact replacement racing the atomic save',async()=>{
- const f=await fixture(),saveArtifact=core.saveArtifact.bind(core);
- vi.spyOn(core,'saveArtifact').mockImplementationOnce(async(...args)=>{
-  await saveArtifact(f.taskId,{artifactId:f.artifact.artifactId,expectedRevision:1,title:'Changed output',content:'Replacement document',sourceRefs:[]});
-  return saveArtifact(...args);
+ const f=await fixture(),saveModuleNotes=core.saveModuleNotes.bind(core);
+ vi.spyOn(core,'saveModuleNotes').mockImplementationOnce(async(...args)=>{
+  await core.saveArtifact(f.taskId,{artifactId:f.artifact.artifactId,expectedRevision:1,title:'Changed output',content:'Replacement document',sourceRefs:[]});
+  return saveModuleNotes(...args);
  });
- await expect(f.notes()).rejects.toThrow(/artifact changed/i);
+ await expect(f.notes()).rejects.toThrow(/answer or choices changed/i);
  const current=await core.getTask(f.taskId);
  expect(current.artifacts).toHaveLength(1);expect(current.artifacts[0].revisions).toHaveLength(2);
 });
@@ -93,7 +94,7 @@ test('unchanged helper notes save and reuse the exact snapshot',async()=>{
 
 test('helper and workflow notes sharing an artifact keep their guards deduplicated',async()=>{
  const f=await fixture(),workflow=localWorkflow(workflowExample);
- const artifact=await core.saveArtifact(f.taskId,{title:'Two local tools',mimeType:MODULE_MIME,sourceRefs:[],content:JSON.stringify({schemaVersion:1,markdown:'Explicit local tools.',modules:[{id:'helper',version:1,data:helperExample,provenance:[]},{id:workflow.id,version:workflow.version,data:workflow,provenance:[]}]})});
+ const artifact=await currentAnswerOrigin(core,f.taskId,'two-tools-original',{title:'Two local tools',mimeType:MODULE_MIME,content:JSON.stringify({schemaVersion:1,markdown:'Explicit local tools.',modules:[{id:'helper',version:1,data:helperExample,provenance:[]},{id:workflow.id,version:workflow.version,data:workflow,provenance:[]}]})},[]);
  const notes=await saveModuleDocument(core,{taskId:f.taskId,artifactId:artifact.artifactId,artifactRevision:1,sessionRevision:0});
  const saved=(await core.getTask(f.taskId)).artifacts.find(a=>a.id===notes.artifactId)!.revisions[0];
  expect(saved.content).toContain(helperExample.title);expect(saved.content).toContain(workflow.title);
@@ -108,7 +109,7 @@ test('identical helper notes reuse only the same exact source references',async(
  const two=await core.putSource(f.taskId,{kind:'text',role:'fact',label:'Second supplied text',content:'Second supplied text'});
  const secondSource=two.sources[1],secondVersion=secondSource.versions.at(-1)!;
  const secondRefs=[{sourceId:secondSource.id,version:secondVersion.version,digest:secondVersion.digest}];
- const create=(sourceRefs:typeof firstRefs)=>core.saveArtifact(f.taskId,{title:'Identical helper',content:f.artifact.revision.content,mimeType:MODULE_MIME,sourceRefs});
+ const create=(sourceRefs:typeof firstRefs)=>currentAnswerOrigin(core,f.taskId,'helper-original-'+sourceRefs[0].sourceId,{title:'Identical helper',content:f.artifact.revision.content,mimeType:MODULE_MIME},sourceRefs);
  const first=await create(firstRefs),second=await create(secondRefs);
  const save=async(artifactId:string)=>{const current=await core.getTask(f.taskId);return saveModuleDocument(core,{taskId:f.taskId,artifactId,artifactRevision:1,sessionRevision:current.session?.revision??0});};
  const firstNotes=await save(first.artifactId),secondNotes=await save(second.artifactId);

@@ -9,7 +9,7 @@ import type {Command} from '../src/shared/bridge';
  * injects an explicitly reviewed owned-text fixture through the real host API;
  * it is not a product review UI, live inference or a screen capture. */
 export async function workflowEntry(page:Page,reviewed=false){
- const fixture=await OnboardingFixture.open(page,{ready:true,port:4180});
+ const fixture=await OnboardingFixture.open(page,{ready:true,port:Number(process.env.WINDOW_COMPANION_TEST_PORT??4180)});
  const catalog=await fixture.ready(),task=await fixture.core.createTask({title:reviewed?'Reviewed synthetic workflow fixture':'Offline workflow practice',assignedBotId:catalog.defaultBotId});
  const counters={exampleRequests:[] as {taskId:string;requestId:string}[]};
  const invoke=fixture.invoke.bind(fixture);

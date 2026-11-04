@@ -1,3 +1,4 @@
+import {currentAnswerOrigin} from './current-answer-origin.fixture';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -18,7 +19,8 @@ afterEach(async()=>{await core.close();await rm(root,{recursive:true,force:true}
 async function fixture(){
  const task=await core.createTask({title:'Owned synthetic finite workflow'});
  const t=await core.putSource(task.id,{kind:'text',role:'fact',label:'Synthetic review rules, no real procedure',content:workflowSourceText});
- const basis=await core.saveArtifact(task.id,{title:'Reviewed text basis',content:'Explicit synthetic rule interpretations.'});
+ const source=t.sources[0],version=source.versions.at(-1)!,refs=[{sourceId:source.id,version:version.version,digest:version.digest}];
+ const basis=await currentAnswerOrigin(core,task.id,'workflow-basis-original-'+task.id,{title:'Reviewed text basis',content:'Explicit synthetic rule interpretations.'},refs);
  const ref:ArtifactRef={artifactId:basis.artifactId,revision:basis.revision.revision,digest:basis.revision.digest};
  const input={definition:reviewedWorkflowDefinition,review:{basis:ref,acknowledgement:'reviewed-rules' as const,ruleCitations:workflowRuleCitations(t.sources[0].id)}};
  return {task:await core.getTask(task.id),taskId:task.id,sourceId:t.sources[0].id,basis:ref,input};
@@ -94,7 +96,7 @@ test('identical readable notes retain each exact reviewed source binding and reu
  const sourceTask=await core.putSource(first.taskId,{id:'second-owned-rules',kind:'text',role:'fact',label:'Second synthetic source',content:workflowSourceText});
  const source=sourceTask.sources.find(source=>source.id==='second-owned-rules')!,version=source.versions.at(-1)!;
  const refs=[{sourceId:source.id,version:version.version,digest:version.digest}];
- const basis=await core.saveArtifact(first.taskId,{title:'Second reviewed basis',content:'Explicit synthetic rule interpretations.',sourceRefs:refs});
+ const basis=await currentAnswerOrigin(core,first.taskId,'second-workflow-basis-original',{title:'Second reviewed basis',content:'Explicit synthetic rule interpretations.'},refs);
  const second=await createWorkflowArtifact(core,{taskId:first.taskId,requestId:'second-reviewed-workflow',definition:reviewedWorkflowDefinition,review:{basis:{artifactId:basis.artifactId,revision:basis.revision.revision,digest:basis.revision.digest},acknowledgement:'reviewed-rules',ruleCitations:workflowRuleCitations(source.id)}});
  expect(second.status).toBe('completed');
  const save=async(artifactId:string)=>{const task=await core.getTask(first.taskId);return saveModuleDocument(core,{taskId:first.taskId,artifactId,artifactRevision:1,sessionRevision:task.session?.revision??0});};

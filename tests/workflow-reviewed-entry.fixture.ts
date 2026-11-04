@@ -24,7 +24,7 @@ export const interpretedWorkflowText=[
  * Workflow preparation, review and module creation are driven by the actual App.
  * OS/provider boundaries retain the existing disconnected fixture substitutes. */
 export async function reviewedWorkflowEntry(page:Page,kind:'literal'|'ambiguous'='literal'){
- const fixture=await OnboardingFixture.open(page,{ready:true,port:4180});
+ const fixture=await OnboardingFixture.open(page,{ready:true,port:Number(process.env.WINDOW_COMPANION_TEST_PORT??4180)});
  const catalog=await fixture.ready(),task=await fixture.core.createTask({title:kind==='literal'?'Owned source workflow review':'Owned ambiguous workflow review',assignedBotId:catalog.defaultBotId});
  const documentTitle='Owned workflow source notes',sourceLabels=['Owned synthetic workflow rules','Owned conflicting synthetic rule'];
  const sourceTexts=kind==='literal'?[literalWorkflowText]:[interpretedWorkflowText,'Ready + Edit -> In review'];

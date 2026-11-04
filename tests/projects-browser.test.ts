@@ -1,10 +1,12 @@
 import {createServer} from 'node:http';
-import {expect,it} from 'vitest';
+import {expect,it,vi} from 'vitest';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCompanion} from '../src/core/companion';
 import {BrowserCoordinator} from '../src/host/browser/coordinator';
+import {installLoopbackTestEngine} from './loopback-browser.fixture';
+installLoopbackTestEngine();
 
 it.each(['source-copy','instructions','membership'] as const)('a %s change cancels a pending browser interaction without consuming a late approval',async change=>{
  let visits=0;
