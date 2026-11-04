@@ -1,0 +1,5 @@
+import {workflowExample} from '../../src/learning/workflow-example';
+export const workflowSourceText='Owned synthetic text rules, supplied for testing only.\nDraft + Submit -> In review\nIn review + Approve -> Ready\nReady + Edit -> Draft\nDraft + Edit -> Draft\nIn review + Edit -> Draft\nIn review + Request changes -> Draft';
+const ruleQuotes=[['draft-submit','Draft + Submit -> In review'],['review-approve','In review + Approve -> Ready'],['ready-edit','Ready + Edit -> Draft'],['draft-edit','Draft + Edit -> Draft'],['review-edit','In review + Edit -> Draft'],['review-changes','In review + Request changes -> Draft']] as const;
+export const reviewedWorkflowDefinition={...workflowExample,assumptions:workflowExample.assumptions.slice(1)};
+export function workflowRuleCitations(sourceId:string){return ruleQuotes.map(([ruleId,quote])=>({ruleId,sourceId,start:workflowSourceText.indexOf(quote),end:workflowSourceText.indexOf(quote)+quote.length,quote,reason:'Explicit interpretation of this owned synthetic rule text; no real organization is represented.'}));}

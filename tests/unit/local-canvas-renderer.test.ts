@@ -1,0 +1,27 @@
+import {afterEach,expect,it,vi} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('../support/controlled-renderer.fixture')).hooks}));
+vi.mock('../../src/renderer/src/components/ReadyArtifact',()=>({ReadyArtifact:({children}:any)=>children}));
+import {createElement} from 'react';
+import {DesignCanvasEditor} from '../../src/renderer/src/components/DesignCanvas';
+import {LearningDraftStore} from '../../src/host/learning-drafts';
+import {createLearningDrafts} from '../../src/renderer/src/learning-drafts';
+import {saveDesignCanvas,saveCanvasSvg} from '../../src/core/design-canvas';
+import {canvasDraftOwner,canvasDraftBasis,canvasRaw,DESIGN_CANVAS_SLOT} from '../../src/shared/design-canvas';
+import {createControlledRenderer} from '../support/controlled-renderer.fixture';
+import {localCanvasFixture} from '../support/local-canvas.fixture';
+import type {Run} from '../../src/renderer/src/ui';
+const cleanup:Array<()=>Promise<void>>=[];afterEach(async()=>{for(const close of cleanup.splice(0).reverse())await close();});
+type R=ReturnType<typeof createControlledRenderer>;type Node=ReturnType<R['nodes']>[number];const text=(node:Node):string=>node.type==='#text'?node.props.text:node.children.map(text).join('');
+async function fixture(){const f=await localCanvasFixture();await f.core.setSourceSelection({type:'source-selection.set',taskId:f.task.id,expectedRevision:0,sourceIds:[]});const store=new LearningDraftStore({directory:f.directory,lookupTask:async id=>(await f.core.listTasks()).find(task=>task.id===id)}),cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();cleanup.push(async()=>{await cache.flush().catch(()=>{});await f.close();});return {...f,cache};}
+function field(r:R,label:string){const owner=r.find(node=>node.type==='label'&&text(node)===label);return r.find(node=>node.type==='input'&&node.props.id===owner.props.htmlFor);}
+const button=(r:R,label:string)=>r.find(node=>node.type==='button'&&text(node)===label);
+it('actual canvas controls save excluded-source raw edits and prepare local SVG with real cache/core and no sketch/export',async()=>{
+ const f=await fixture();let task=await f.core.getTask(f.task.id);const calls:string[]=[],onSaved=vi.fn(),sketch=vi.fn(),run=(async(command:any)=>{calls.push(command.type);const {type,...input}=command;const result=type==='canvas.save'?await saveDesignCanvas(f.core,input):type==='canvas.svg'?await saveCanvasSvg(f.core,input):undefined;if(!result)throw Error('No model/export command is permitted.');task=result.task;return result;}) as Run;
+ const render=()=>createControlledRenderer(()=>createElement(DesignCanvasEditor,{task,artifact:task.artifacts.find(item=>item.id===f.basis.artifactId)!,cache:f.cache,busy:false,run,isCurrent:()=>true,onSaved,onRevision:()=>{},runningSketch:false,onStop:()=>{},onSketch:sketch}));let r=render();r.render();field(r,'Canvas title').props.onChange({target:{value:'Excluded source UI edit'}});r.render();expect(button(r,'Save canvas revision').props.disabled).toBe(false);expect(calls).toEqual([]);button(r,'Save canvas revision').props.onClick();await vi.waitFor(()=>{r.render();expect(onSaved).toHaveBeenCalledOnce();});expect(calls).toEqual(['canvas.save']);expect(task.artifacts[0].revisions.at(-1)?.title).toBe('Excluded source UI edit');
+ r=render();r.render();expect(button(r,'Prepare SVG copy').props.disabled).toBe(false);button(r,'Prepare SVG copy').props.onClick();await vi.waitFor(()=>{r.render();expect(onSaved).toHaveBeenCalledTimes(2);});expect(calls).toEqual(['canvas.save','canvas.svg']);expect(sketch).not.toHaveBeenCalled();expect(task.actions).toEqual([]);
+});
+it('a delayed saved reply cannot acknowledge a newer raw generation or open a result after task retirement',async()=>{
+ const f=await fixture(),task=await f.core.getTask(f.task.id),artifact=task.artifacts.find(item=>item.id===f.basis.artifactId)!,revision=artifact.revisions.at(-1)!,owner=canvasDraftOwner(task.id,artifact.id,revision),basis=canvasDraftBasis(owner);let current=true,enter!:()=>void,release!:()=>void;const published=new Promise<void>(resolve=>enter=resolve),gate=new Promise<void>(resolve=>release=resolve),onSaved=vi.fn(),run=(async(command:any)=>{const {type,...input}=command;if(type!=='canvas.save')throw Error('Unexpected command');const saved=await saveDesignCanvas(f.core,input,()=>{if(!current)throw Error('Retired canvas owner');});enter();await gate;return saved;}) as Run;
+ const r=createControlledRenderer(()=>createElement(DesignCanvasEditor,{task,artifact,cache:f.cache,busy:false,run,isCurrent:()=>current,onSaved,onRevision:()=>{},runningSketch:false,onStop:()=>{},onSketch:async()=>undefined}));r.render();field(r,'Canvas title').props.onChange({target:{value:'Confirmed older edit'}});r.render();button(r,'Save canvas revision').props.onClick();await published;
+ const baseline=canvasRaw(f.canvas),newer={...baseline,title:'Newer retained raw edit'};expect(f.cache.tryEdit(owner,DESIGN_CANVAS_SLOT,baseline,basis,()=>newer,['shapes']).kind).toBe('accepted');current=false;release();await vi.waitFor(()=>{r.render();expect(button(r,'Save canvas revision').props.disabled).toBe(false);});expect(onSaved).not.toHaveBeenCalled();expect(f.cache.readForm(owner,DESIGN_CANVAS_SLOT,baseline,basis,['shapes']).value.title).toBe('Newer retained raw edit');expect((await f.core.getTask(task.id)).artifacts[0].revisions.at(-1)?.title).toBe('Confirmed older edit');
+});

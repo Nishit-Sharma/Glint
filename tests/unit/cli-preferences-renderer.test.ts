@@ -1,0 +1,18 @@
+import {afterEach,expect,test,vi} from 'vitest';
+vi.mock('react',async original=>{const fixture=await import('../support/controlled-renderer.fixture');return {...await original<typeof import('react')>(),...fixture.hooks};});
+const navigation=vi.hoisted(()=>({dirty:false,clear:vi.fn()}));
+vi.mock('../../src/renderer/src/draft-navigation',()=>({useNavigationDraft:(dirty:boolean)=>{navigation.dirty=dirty;return navigation.clear;}}));
+import {createElement} from 'react';
+import {CliPreferencesEditor} from '../../src/renderer/src/CliPreferencesEditor';
+import {createControlledRenderer} from '../support/controlled-renderer.fixture';
+async function settle(){for(let i=0;i<10;i++)await Promise.resolve();}
+afterEach(()=>vi.unstubAllGlobals());
+test('CLI preferences search supported settings, require Save and preview the selected task through the host',async()=>{
+ let saved={revision:0,format:'text',includeSourceLabels:true,excerptChars:0};const commands:unknown[]=[];vi.stubGlobal('window',{companion:{invoke:vi.fn(async(command:{type:string;format?:string;includeSourceLabels?:boolean;excerptChars?:number})=>{commands.push(command);if(command.type==='cli.preferences.get')return saved;if(command.type==='cli.preferences.update'){saved={revision:1,format:command.format!,includeSourceLabels:command.includeSourceLabels!,excerptChars:command.excerptChars!};return {kind:'saved',current:saved};}return {kind:'ready',output:'ACTUAL FIXED CHILD OUTPUT',launcher:'/fixed/glint'};})}});
+ const r=createControlledRenderer(()=>createElement(CliPreferencesEditor,{taskId:'selected-task'}));r.render();await settle();r.render();const text=(node:ReturnType<typeof r.find>):string=>node.type==='#text'?node.props.text:node.children.map(text).join(''),button=(label:string)=>r.find(node=>node.type==='button'&&text(node)===label);
+ r.find(node=>node.type==='input'&&node.props.type==='search').props.onChange({target:{value:'format'}});r.render();expect(r.nodes().some(node=>node.type==='input'&&node.props.type==='number')).toBe(false);r.find(node=>node.type==='select').props.onChange({target:{value:'json'}});r.render();expect(navigation.dirty).toBe(true);expect(commands).toEqual([{type:'cli.preferences.get'}]);expect(button('Run CLI preview').props.disabled).toBe(true);
+ r.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await settle();r.render();expect(saved).toEqual({revision:1,format:'json',includeSourceLabels:true,excerptChars:0});expect(navigation.dirty).toBe(false);expect(text(r.find(node=>node.props.role==='status'))).toContain('No restart');button('Run CLI preview').props.onClick();await settle();r.render();expect(r.find(node=>node.type==='pre').children[0].props.text).toBe('ACTUAL FIXED CHILD OUTPUT');expect(commands.at(-1)).toEqual({type:'cli.preview',taskId:'selected-task'});
+});
+test('a CLI preference conflict preserves edits and prevents preview until saved defaults are reloaded',async()=>{
+ const current={revision:2,format:'text',includeSourceLabels:false,excerptChars:0};vi.stubGlobal('window',{companion:{invoke:vi.fn(async(command:{type:string})=>command.type==='cli.preferences.get'?current:{kind:'conflict',current})}});const r=createControlledRenderer(()=>createElement(CliPreferencesEditor));r.render();await settle();r.render();r.find(node=>node.type==='select').props.onChange({target:{value:'json'}});r.render();r.find(node=>node.type==='form').props.onSubmit({preventDefault(){}});await settle();r.render();expect(r.find(node=>node.type==='select').props.value).toBe('json');expect(r.find(node=>node.props.role==='alert').children.map(node=>node.props.text).join('')).toContain('changed elsewhere');expect(navigation.dirty).toBe(true);
+});

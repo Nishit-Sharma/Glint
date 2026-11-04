@@ -1,0 +1,13 @@
+import {mkdir,mkdtemp,rm} from 'node:fs/promises';
+import {join,resolve} from 'node:path';
+import {createCompanion,type Companion} from '../../src/core/companion';
+import {blankCanvas,newCanvasShape,DESIGN_CANVAS_MIME} from '../../src/shared/design-canvas';
+export async function localCanvasFixture(skilled=false){
+ const root=resolve('work/continuation/runtime');await mkdir(root,{recursive:true});const directory=await mkdtemp(join(root,'local-canvas-'));let core:Companion=await createCompanion({dataDir:directory});
+ const task=await core.createTask({title:'Owned local canvas'});await core.putSource(task.id,{id:'a',kind:'text',role:'fact',label:'Explicit canvas source',content:'CANVAS_SOURCE_A_PRIVATE'});const sourced=await core.putSource(task.id,{id:'b',kind:'text',role:'fact',label:'Inherited canvas source',content:'CANVAS_SOURCE_B_PRIVATE'}),refs=sourced.sources.map(source=>({sourceId:source.id,version:1,digest:source.versions[0].digest}));
+ let skill:Awaited<ReturnType<Companion['saveInstructionSkill']>>|undefined,skillOwner:string|undefined;
+ if(skilled){const owner=await core.createTask({title:'Owned canvas skill'});skillOwner=owner.id;const knowledge=await core.putSource(owner.id,{id:'knowledge',kind:'text',role:'fact',label:'Canvas skill knowledge',content:'CANVAS_SKILL_PRIVATE'}),v=knowledge.sources[0].versions[0];skill=await core.saveInstructionSkill({taskId:owner.id,intentId:'canvas-skill',name:'Canvas evidence',description:'Synthetic',instructions:'Review only supplied evidence.',resources:[{sourceId:v.id,version:1,digest:v.digest}]});await core.setInstructionSkill(task.id,0,skill.reference);}
+ const canvas={...blankCanvas,title:'Owned scene',shapes:[{...newCanvasShape('text',0),id:'label',text:'Owned <script>text</script> & shape'}]},seed=await core.runRequest({taskId:task.id,requestId:'synthetic-canvas-fixture',kind:'create',prompt:'Synthetic authored canvas fixture; no provider transport',sourceIds:['a','b'],...(skill?{instructionSkill:skill.reference,instructionSkillRevision:1}:{})},async()=>({title:canvas.title,content:JSON.stringify(canvas),mimeType:DESIGN_CANVAS_MIME}));
+ if(seed.status!=='completed'||!seed.artifactId)throw Error('Owned canvas fixture failed.');const saved=await core.saveArtifact(task.id,{artifactId:seed.artifactId,expectedRevision:1,title:canvas.title,content:JSON.stringify(canvas),mimeType:DESIGN_CANVAS_MIME,sourceRefs:[refs[0]]}),basis={artifactId:saved.artifactId,revision:saved.revision.revision,digest:saved.revision.digest};
+ return {get core(){return core},directory,task,refs,canvas,basis,skill,skillOwner,reopen:async()=>{await core.close();core=await createCompanion({dataDir:directory});},close:async()=>{await core.close();await rm(directory,{recursive:true,force:true});}};
+}

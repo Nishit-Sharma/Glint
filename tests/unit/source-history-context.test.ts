@@ -1,0 +1,67 @@
+import {expect,test,vi} from 'vitest';
+vi.mock('react',async original=>({...await original<typeof import('react')>(),...(await import('../support/controlled-renderer.fixture')).hooks}));
+vi.mock('lucide-react',()=>({ArrowLeft:()=>null,FileText:()=>null,Image:()=>null,AppWindow:()=>null,Plus:()=>null,RefreshCw:()=>null}));
+vi.mock('../../src/renderer/src/components/TaskMenu',()=>({TaskMenu:({children}:{children:unknown})=>children}));
+import {createElement} from 'react';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import type {Artifact,Task} from '../../src/core/types';
+import {createCompanion} from '../../src/core/companion';
+import {LearningDraftStore} from '../../src/host/learning-drafts';
+import {ContextInspector} from '../../src/renderer/src/components/ContextInspector';
+import {createLearningDrafts} from '../../src/renderer/src/learning-drafts';
+import {createSavedDocumentDraftController} from '../../src/renderer/src/saved-document-draft-controller';
+import {createControlledRenderer} from '../support/controlled-renderer.fixture';
+type Node=ReturnType<ReturnType<typeof createControlledRenderer>['nodes']>[number];
+const text=(node:Node):string=>node.type==='#text'?node.props.text:node.children.map(text).join('');
+test('Context offers source history comparison with no outputs and no transport, capture or saved-source changes',()=>{
+ const task:Task={id:'task-a',title:'Only a source',goal:'',status:'active',createdAt:'time',updatedAt:'time',sources:[{id:'source-a',currentVersion:2,freshness:'refresh-required',versions:[{id:'source-a',version:1,digest:'one',kind:'text',role:'fact',label:'Policy',content:'Earlier policy.',capturedAt:'time'},{id:'source-a',version:2,digest:'two',kind:'text',role:'fact',label:'Policy',content:'Later policy.',capturedAt:'time'}]}],artifacts:[],procedures:[],requests:[],checkpoints:[],actions:[],memory:{enabled:false}},saved=structuredClone(task),unexpected=vi.fn(async()=>{throw Error('Read-only history must not call transport');}),cache=createLearningDrafts({read:unexpected,save:unexpected}),r=createControlledRenderer(()=>createElement(ContextInspector,{task,busy:false,cache,run:unexpected,reference:{sourceId:'source-a',version:2,digest:'two'},onWindow:unexpected,onArtifact:unexpected,onProcedure:unexpected,renderImageEditor:()=>null}));
+ r.render();expect(r.nodes().some(node=>node.props['aria-label']==='Saved work to review')).toBe(false);r.find(node=>node.type==='button'&&text(node)==='Compare saved versions').props.onClick();r.render();expect(r.nodes().some(node=>node.props['aria-label']==='Selected source version comparison')).toBe(true);expect(r.nodes().some(node=>node.type==='pre'&&text(node)==='Earlier policy.')).toBe(true);expect(r.nodes().some(node=>node.type==='pre'&&text(node)==='Later policy.')).toBe(true);expect(r.nodes().some(node=>text(node).includes('Current live content is unknown.'))).toBe(true);expect(unexpected).not.toHaveBeenCalled();expect(task).toEqual(saved);
+});
+
+test('Context keeps inherited dependencies visible through explicit direct-source review',async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'source-dependency-overview-')),core=await createCompanion({dataDir:directory});
+ let cache:ReturnType<typeof createLearningDrafts>|undefined;
+ try{
+  let task=await core.createTask({title:'Selected sources'});
+  for(const label of ['A','B'])task=await core.putSource(task.id,{kind:'text',role:'fact',label,content:label+' original.'});
+  const [a,b]=task.sources.map(source=>source.id),[a1,b1]=task.sources.map(source=>({sourceId:source.id,version:1,digest:source.versions[0].digest}));
+  const saved=await core.saveArtifact(task.id,{title:'Original plan',content:'Original plan body.',mimeType:'text/plain',sourceRefs:[a1,b1]});
+  const authored=await core.saveArtifact(task.id,{artifactId:saved.artifactId,expectedRevision:1,title:'Authored plan',content:'Authored saved corrections.',mimeType:'text/plain',sourceRefs:[a1,b1]});
+  await core.saveArtifact(task.id,{title:'Only B',content:'Unrelated saved corrections.',sourceRefs:[b1]});
+  const detached=await core.saveArtifact(task.id,{title:'Historical A link',content:'Earlier A work.',sourceRefs:[a1]});
+  await core.saveArtifact(task.id,{artifactId:detached.artifactId,expectedRevision:1,title:'Now only B',content:'Current B work.',sourceRefs:[b1]});
+  task=await core.saveProcedure(task.id,{title:'A procedure',steps:[{intent:'Review',target:'A',preconditions:[],expectedResult:'Done'}],sourceRefs:[a1]});
+  const store=new LearningDraftStore({directory,lookupTask:async id=>(await core.listTasks()).find(item=>item.id===id)});
+  cache=createLearningDrafts({read:()=>store.read(),save:(...args)=>store.save(...args)});await cache.load();
+  let base=authored.revision;
+  const controller=createSavedDocumentDraftController({cache,artifactId:saved.artifactId,task:()=>task,base:()=>base,isCurrent:()=>true,send:async input=>{await core.saveArtifact(task.id,input);task=await core.getTask(task.id);return task;},onSaved:revision=>{base=revision;}});
+  const raw={title:'Unsent exact title',content:'Unsent exact body.\n  '};
+  expect(controller.edit(raw).kind).toBe('accepted');await cache.flush();
+  task=await core.putSource(task.id,{id:a,kind:'text',role:'fact',label:'A updated',content:'A updated.'});
+  const a2={sourceId:a,version:2,digest:task.sources[0].versions[1].digest};
+  await core.saveArtifact(task.id,{title:'Already current A',content:'Current saved work.',sourceRefs:[a2]});
+  task=await core.getTask(task.id);
+  const before=structuredClone(task),draftBefore=await store.read(),unexpected=vi.fn(async()=>{throw Error('Discovery must not write or capture.');});let opened:Artifact|undefined;
+  const r=createControlledRenderer(()=>createElement(ContextInspector,{task,busy:false,cache:cache!,run:unexpected,onWindow:unexpected,onArtifact:item=>{opened=item;},onProcedure:unexpected,renderImageEditor:()=>null}));
+  const row=(sourceId:string)=>r.find(node=>node.type==='button'&&node.props['data-source-id']===sourceId);
+  r.render();expect(text(row(a))).toContain('3 saved items to review');expect(text(row(b))).not.toContain('saved item');
+  row(a).props.onClick();r.render();
+  const affected=r.find(node=>node.props['aria-label']==='Saved work to review');
+  expect(text(affected)).toContain('Authored plan');expect(text(affected)).toContain('A procedure');
+  expect(text(affected)).toContain('Now only B');
+  for(const title of ['Only B','Already current A'])expect(text(affected)).not.toContain(title);
+  r.find(node=>node.type==='button'&&text(node).includes('Authored plan')&&!node.props['aria-label']).props.onClick();
+  expect(opened?.id).toBe(saved.artifactId);expect(opened?.revisions.at(-1)).toEqual(authored.revision);
+  expect(unexpected).not.toHaveBeenCalled();expect(await core.getTask(task.id)).toEqual(before);expect(await store.read()).toEqual(draftBefore);
+  expect(controller.snapshot().fields).toEqual({...raw,sourceRefs:[a1,b1]});expect(controller.snapshot().canSave).toBe(false);
+  const review=controller.snapshot().sourceReview;expect(review).toBeDefined();expect(controller.reviewSources(review!,a)).toBe(true);await cache.flush();
+  expect(controller.snapshot().fields).toEqual({...raw,sourceRefs:[a2,b1]});expect(await core.getTask(task.id)).toEqual(before);
+  expect(await controller.save()).toBe(true);r.find(node=>node.type==='button'&&node.props.title==='All context').props.onClick();r.render();
+  expect(text(row(a))).toContain('3 saved items to review');expect(text(row(b))).not.toContain('saved item');
+  const revisions=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions;
+  expect(revisions.slice(0,2)).toEqual([saved.revision,authored.revision]);expect(revisions.at(-1)).toMatchObject({...raw,sourceRefs:[a2,b1]});
+  await core.runRequest({taskId:task.id,requestId:'current-source-projection',kind:'explain',prompt:'Use only current sources',sourceIds:[a,b]},async context=>{expect(context.task.artifacts.some(item=>item.id===saved.artifactId)).toBe(false);expect(context.taskHistory).not.toContain('Authored saved corrections.');expect(context.taskHistory).not.toContain(raw.content);return {title:'Current-source response',content:'Only permitted context'};});
+ }finally{await cache?.flush().catch(()=>{});await core.close();await rm(directory,{recursive:true,force:true});}
+});

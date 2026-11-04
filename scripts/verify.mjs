@@ -12,8 +12,8 @@ const plan=[['npm',['run','build']]];
 if(scope==='all'||scope==='unit')plan.push(['npm',['test']]);
 if(scope==='all')plan.push(['npm',['run','test:e2e']]);
 const nativeSpecs=['electron.e2e.ts','native-content-fit.e2e.ts','native-privacy.e2e.ts','native-drafts.e2e.ts','native-onboarding.e2e.ts'];
-if(scope==='browser')plan.push(['npm',['run','test:e2e','--',...(await readdir('tests')).filter(name=>name.endsWith('.e2e.ts')&&!nativeSpecs.includes(name)).sort().map(name=>join('tests',name))]]);
-if(scope==='native')plan.push(['npm',['run','test:e2e','--',...nativeSpecs.map(name=>join('tests',name))]]);
+if(scope==='browser')plan.push(['npm',['run','test:e2e','--',...(await readdir('tests/e2e')).filter(name=>name.endsWith('.e2e.ts')&&!nativeSpecs.includes(name)).sort().map(name=>join('tests/e2e',name))]]);
+if(scope==='native')plan.push(['npm',['run','test:e2e','--',...nativeSpecs.map(name=>join('tests/e2e',name))]]);
 if(args.includes('--dry-run')){console.log(JSON.stringify({scope,plan,liveProviders:false,native:scope==='all'||scope==='native'},null,2));process.exit(0)}
 const paths=[];
 async function collect(dir){for(const e of await readdir(dir,{withFileTypes:true})){const p=join(dir,e.name);if(e.isDirectory())await collect(p);else if(e.isFile())paths.push(p)}}

@@ -8,9 +8,9 @@
     "../../src/host/mac-window-target.ts",
     "../../src/host/native.ts",
     "../../src/renderer/src/character.tsx",
-    "../../tests/source-drag-host.test.ts",
-    "../../tests/source-drag-preview.test.ts",
-    "../../tests/source-drag-native-adapter.test.ts",
-    "../../tests/mac-window-target.test.ts"
+    "../../tests/unit/source-drag-host.test.ts",
+    "../../tests/unit/source-drag-preview.test.ts",
+    "../../tests/unit/source-drag-native-adapter.test.ts",
+    "../../tests/unit/mac-window-target.test.ts"
   ]
 }

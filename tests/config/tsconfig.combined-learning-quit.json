@@ -1,8 +1,8 @@
 {
   "extends": "../../tsconfig.json",
   "include": [
-    "../../tests/combined-learning-quit.e2e.ts",
-    "../../tests/combined-learning-quit.fixture.ts",
+    "../../tests/e2e/combined-learning-quit.e2e.ts",
+    "../../tests/support/combined-learning-quit.fixture.ts",
     "playwright.combined-learning-quit.config.ts"
   ],
   "exclude": [
