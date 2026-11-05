@@ -59,8 +59,8 @@ export function Composer({explainDepth,onExplainDepth,active,idPrefix,value,plac
  function dismiss(){if(generation.current!==offeredGeneration||!canSuggest||!suggestions)return;generation.current++;setDismissed(suggestions.key);}
  function format(action:ComposerFormat){
   const element=input.current;if(formatDisabled||composing.current||!element||element.disabled||element.value!==composerDomText(value))return;
-  if(action==='quote'&&element.selectionStart===element.selectionEnd){setFormatNotice('Select composer text to quote.');return;}
-  let next;try{next=formatComposerSelection(value,element.selectionStart,element.selectionEnd,action);}catch{setFormatNotice('Select complete characters in the current composer before formatting.');return;}
+  if(action==='quote'&&element.selectionStart===element.selectionEnd){setFormatNotice('Select some text in your message to quote.');return;}
+  let next;try{next=formatComposerSelection(value,element.selectionStart,element.selectionEnd,action);}catch{setFormatNotice('Select whole characters in your message before formatting.');return;}
   if(next.text===value){element.focus();element.setSelectionRange(next.start,next.end);return;}
   pending.current={element,...next};setFormatNotice('');onChange({text:next.text});
  }
@@ -85,7 +85,7 @@ export function Composer({explainDepth,onExplainDepth,active,idPrefix,value,plac
    <button type="button" disabled={formatDisabled} onMouseDown={event=>event.preventDefault()} onClick={()=>format('outdent')}>Outdent</button>
    <button type="button" disabled={formatDisabled} aria-keyshortcuts="Meta+L Control+L" onMouseDown={event=>event.preventDefault()} onClick={()=>format('quote')}>Quote selection</button>
    <label><input type="checkbox" checked={spellCheck} disabled={formatDisabled} onChange={event=>setSpellCheck(event.currentTarget.checked)}/>Native spell-check</label>
-  </div><p className="tiny">Lists and nesting apply to selected lines. Quote selected text with Cmd/Ctrl+L. Spell-check uses available system dictionaries; this composer’s switch resets to on when reopened.</p>{formatNotice&&<p className="tiny" role="status">{formatNotice}</p>}</details>
+  </div><p className="tiny">Lists and nesting apply to selected lines. Quote selected text with Cmd/Ctrl+L. Spell-check uses available system dictionaries; this switch turns back on when you reopen the window.</p>{formatNotice&&<p className="tiny" role="status">{formatNotice}</p>}</details>
   <div className="prompt-suggestion-input"><AiInput ref={input} spellCheck={spellCheck} onKeyDown={keyDown}
    onCompositionStart={()=>{mentionEpoch.current++;generation.current++;composing.current=true;setCompositionActive(true);pending.current=undefined;}}
    onCompositionEnd={()=>{composing.current=false;setCompositionActive(false);}}

@@ -13,7 +13,7 @@ export function WarningViewer({host}:{host?:HostStatus}){
  function problem(message:string,capacity=false){view.current.error=message;view.current.collectionBlocked=capacity;if(alive.current){setError(message);setCollectionBlocked(capacity);}}
  function publish(next:WarningSnapshot){current.current=next;if(alive.current)setSnapshot(next);}
  function store(){
-  if(!navigator.locks)throw Error('Warning storage locking is unavailable. Warnings cannot be kept or dismissed here.');
+  if(!navigator.locks)throw Error('Warnings can’t be kept or dismissed in this window right now.');
   return createWarningStore(localStorage,async work=>await navigator.locks.request('glint.warning-review.v1',()=>work()));
  }
  function enqueue<T,>(work:()=>Promise<T>):Promise<T>{
@@ -74,16 +74,16 @@ export function WarningViewer({host}:{host?:HostStatus}){
   void update(value=>changeWarning(value,warning.id,kept),releaseCapacity?'release':undefined);
  }
  return <section className="warning-review-entry" aria-label="Shortcut warning review">
-  <button ref={trigger} type="button" onClick={()=>{if(!alive.current||view.current.open)return;reviewed.current.clear();const id=warnings[0]?.id;view.current.open=true;view.current.selected=id;setSelected(id);setOpen(true);}}>Warnings{warnings.length?` · ${warnings.length}`:''}</button>
-  {error&&!open&&<span role="status">Warning storage needs attention</span>}
+  <button ref={trigger} type="button" onClick={()=>{if(!alive.current||view.current.open)return;reviewed.current.clear();const id=warnings[0]?.id;view.current.open=true;view.current.selected=id;setSelected(id);setOpen(true);}} className="warning-review-trigger" title="Warnings" data-count={warnings.length}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span className="sr-only">Warnings{warnings.length?' · ':''}</span>{warnings.length?<span className="warning-review-count">{warnings.length}</span>:null}</button>
+  {error&&!open&&<span role="status">Warnings need attention</span>}
   <dialog ref={dialog} className="warning-viewer" aria-labelledby="warning-viewer-title" aria-describedby="warning-viewer-help" onCancel={event=>{event.preventDefault();void close();}} onFocusCapture={markReviewed} onKeyDown={event=>{
    const target=event.target as HTMLElement;
    if(isWarningKeepKey({...event,isComposing:event.nativeEvent.isComposing},!!target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]'),focused())&&warning&&!pending.current&&!view.current.error&&view.current.selected===warning.id){event.preventDefault();keep();}
   }}>
    <header className="warning-viewer-heading"><h2 id="warning-viewer-title">Shortcut warnings</h2><Button disabled={busy} onClick={()=>void close()}>{error&&!collectionBlocked?'Close without dismissing':'Close'}</Button></header>
    <p id="warning-viewer-help" className="tiny">Closing dismisses warnings you viewed unless you keep them. Select a warning and choose Keep for later, or press <kbd>k</kbd>.</p>
-   <p className="tiny">This list records shortcut diagnostics. Check Preferences for current status and setup.</p>
-   {error&&<div role="alert"><p>{error}</p>{collectionBlocked&&<p>Stop keeping a warning if needed. Closing dismisses viewed warnings, then retries collecting new warnings.</p>}<Button disabled={busy} onClick={()=>{if(alive.current&&!pending.current)void reconcile(latestObserved.current,true);}}>Reload warning list</Button></div>}
+   <p className="tiny">This list shows problems with your shortcut. Check Preferences for its current status and setup.</p>
+   {error&&<div role="alert"><p>{error}</p>{collectionBlocked&&<p>Stop keeping a warning if needed. Closing dismisses viewed warnings, then checks for new warnings.</p>}<Button disabled={busy} onClick={()=>{if(alive.current&&!pending.current)void reconcile(latestObserved.current,true);}}>Reload warning list</Button></div>}
    {!snapshot?<p role="status">{error?'The warning list is unavailable. Reload to try again.':'Opening warning list…'}</p>:!warnings.length&&<p>No warnings to review.</p>}
    {!!warnings.length&&<div className="warning-viewer-content"><nav aria-label="Warnings">{warnings.map(item=><button type="button" key={item.id} aria-current={item.id===selected?'true':undefined} onClick={()=>{if(!alive.current||!view.current.open)return;view.current.selected=item.id;setSelected(item.id);}}>{item.title}<small>{item.state==='kept'?'Kept for later':reviewed.current.has(item.id)?'Viewed':'Not viewed'}</small></button>)}</nav>
     {warning?<article aria-label="Selected warning"><h3>{warning.title}</h3><p className="warning">{warning.message}</p><p className="tiny">Recorded <time dateTime={warning.observedAt}>{new Date(warning.observedAt).toLocaleString()}</time></p><button type="button" disabled={busy||!!error&&!(collectionBlocked&&warning.state==='kept')} aria-pressed={warning.state==='kept'} aria-keyshortcuts="k" onClick={()=>keep(warning.state!=='kept')}>{warning.state==='kept'?'Stop keeping':'Keep for later'}</button><p role="status" className="tiny">{error?'Saved status may have changed. Reload to confirm.':warning.state==='kept'?'Kept on this device for your next visit.':reviewed.current.has(warning.id)?'Viewed. Closing will dismiss this warning.':'Focus this warning to review it.'}</p></article>:<p>Select a warning to review it.</p>}

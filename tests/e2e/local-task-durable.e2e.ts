@@ -68,7 +68,7 @@ async function frame(page:Page,name:string,anchor:Locator,visible:Locator[]=[anc
 async function ledger(entry:Entry,name:string){await writeFile(join(evidence,name+'.json'),JSON.stringify({boundary:'Actual public React App + disposable real core/sidecar. Explicit transport/disk-adversarial controls; no native/process quit/provider.',phases:entry.phases,events:entry.events,frames:[...frames],commands:entry.fixture.commands,creations:entry.creations,dispatchRaw:entry.dispatchRaw,writes:entry.writes,tasks:await entry.fixture.core.listTasks(),sidecar:JSON.parse((await readFile(join(entry.fixture.directory,'learning-drafts.json'))).toString())},null,2));}
 async function openCreated(page:Page,form:Form,name:string){
  await chooseTask(page,name);
- if(form==='text'){await taskTool(page,'Sources');const row=page.getByRole('dialog',{name:'Context',exact:true}).locator('.source-list-row').filter({has:page.getByText(name,{exact:true})});await expect(row).toHaveCount(1);await row.click();return page.getByRole('region',{name:'Source snapshot',exact:true});}
+ if(form==='text'){await taskTool(page,'Sources');const row=page.getByRole('dialog',{name:'Attachments',exact:true}).locator('.source-list-row').filter({has:page.getByText(name,{exact:true})});await expect(row).toHaveCount(1);await row.click();return page.getByRole('region',{name:'Source snapshot',exact:true});}
  const row=workspace(page).locator('.conversation-manual-files').getByRole('button',{name,exact:true});await expect(row).toHaveCount(1);await row.click();return document(page);
 }
 

@@ -11,7 +11,7 @@ async function openImage(page:Page){
  await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal','settled');
  const data=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=600;canvas.height=360;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#174c3b';ctx.fillRect(0,0,600,360);ctx.fillStyle='#e2c87c';ctx.fillRect(250,100,100,100);return canvas.toDataURL('image/png');});
  const task=await fixture.core.putSource(fixture.taskA.id,{kind:'image',label:'Owned image preview',role:'fact',content:data}),source=task.sources.at(-1)!;
- await fixture.changed(task.id);await taskTool(page,'Context');await page.getByRole('button',{name:'Owned image preview Source material',exact:true}).click();
+ await fixture.changed(task.id);await taskTool(page,'Attachments');await page.getByRole('button',{name:'Owned image preview Source material',exact:true}).click();
  const contextPreview=await page.getByAltText('Source snapshot: Owned image preview',{exact:true}).boundingBox();
  await sourceTool(page,'Crop & annotate');await expect(page.getByRole('button',{name:'Save edited image',exact:true})).toBeEnabled();
  return {task,source,data,contextPreview};

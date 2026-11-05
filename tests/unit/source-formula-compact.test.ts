@@ -21,7 +21,7 @@ test('compact saved formula shows its original experiment card without the struc
 test('compact malformed source formula never renders or opens its raw bytes',async()=>{
  const f=await sourceFormulaFixture();try{
   const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id);task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0].content='MALFORMED_PRIVATE_SENTINEL';const before=JSON.stringify(task),html=render(task);
-  expect(html).toContain('This saved source formula needs inspection.');expect(html).not.toContain('MALFORMED_PRIVATE_SENTINEL');expect(html).not.toContain('compact-structured');expect(html).not.toContain('compact-open-result');expect(JSON.stringify(task)).toBe(before);
+  expect(html).toContain('This saved formula needs a check.');expect(html).not.toContain('MALFORMED_PRIVATE_SENTINEL');expect(html).not.toContain('compact-structured');expect(html).not.toContain('compact-open-result');expect(JSON.stringify(task)).toBe(before);
  }finally{await f.close();}
 });
 
@@ -36,7 +36,7 @@ test('compact ordinary text and JSON keep their existing presentation',async()=>
 
 test('compact formula MIME suppresses unrelated screen-brief interpretation',async()=>{
  const f=await sourceFormulaFixture();try{
-  const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'UNRELATED_BRIEF_SENTINEL',actions:[]});expect(readScreenBrief(revision.content,revision.sourceRefs)).toBeDefined();const renderBrief=vi.fn(()=>createElement('p',{},'UNRELATED_BRIEF_SENTINEL'));const html=render(task,renderBrief);expect(renderBrief).not.toHaveBeenCalled();expect(html).toContain('This saved source formula needs inspection.');expect(html).not.toContain('UNRELATED_BRIEF_SENTINEL');
+  const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'UNRELATED_BRIEF_SENTINEL',actions:[]});expect(readScreenBrief(revision.content,revision.sourceRefs)).toBeDefined();const renderBrief=vi.fn(()=>createElement('p',{},'UNRELATED_BRIEF_SENTINEL'));const html=render(task,renderBrief);expect(renderBrief).not.toHaveBeenCalled();expect(html).toContain('This saved formula needs a check.');expect(html).not.toContain('UNRELATED_BRIEF_SENTINEL');
  }finally{await f.close();}
 });
 

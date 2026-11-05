@@ -5,7 +5,7 @@ import {pickingPublicFrame as frame} from '../support/picking-public-frame';
 import {saveSourceFormula,inspectSourceFormulaSave} from '../../src/core/source-formula-host';
 import {evaluateExperiment} from '../../src/core/experiments';
 const source='total = 2\nfor item in range(5):\n    total += item',title='Owned range unit display';
-const ws=(page:Page)=>page.locator('.workspace:visible'),doc=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const ws=(page:Page)=>page.locator('.workspace:visible'),doc=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 async function expand(details:Locator){if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();await expect(details).toHaveAttribute('open','');}
 
 test('the reviewed loop shows dimensionless target and live comparison values without a unit-one suffix at full and narrow widths',async({page},info)=>{

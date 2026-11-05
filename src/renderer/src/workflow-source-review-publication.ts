@@ -29,7 +29,7 @@ export async function publishLiteralWorkflow(input:Intent&{publish:(requestId:st
  const requestId=await prepareWindowRequestIntent(await intentInput(input));
  if(!input.isCurrent()||input.cache.getSnapshot().frozen||input.cache.getSnapshot().maintenance)throw Error('Review the current inputs and confirm them again.');
  const result=await input.publish(requestId);
- if(!result||result.task.id!==learningDraftTaskId(input.owner))throw Error('Publication was not confirmed. Your raw review and attempt are kept. Check Activity, then retry this same confirmed input.');
+ if(!result||result.task.id!==learningDraftTaskId(input.owner))throw Error('Publication was not confirmed. Your raw review and attempt are kept. Check History, then retry this same confirmed input.');
  const ref=literalWorkflowReceipt(result.task,requestId,input.prepared);
  if(!ref||ref.artifactId!==result.artifactId||ref.revision!==result.revision)throw Error('The saved publication receipt did not match this review. Your raw input is kept.');
  return {result,ref,requestId,current:input.isCurrent()};

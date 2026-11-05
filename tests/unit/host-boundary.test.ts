@@ -115,7 +115,7 @@ describe('Projects production path',()=>{
   for(const task of [owner,sibling])await f.command({type:'projects.assign',taskId:task.id,projectId:project.id,expectedProjectId:null});
   await f.core.saveComposerDraft(owner.id,0,{text:'PRIVATE_UNSENT_PROJECT_DRAFT',kind:'create'});
   for(const [index,task] of [owner,sibling,outside].entries())await f.command({type:'model.run',taskId:task.id,requestId:'project-request-'+index,kind:'explain',prompt:'Explain the visit evidence.',sourceIds:[]});
-  expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?']);
+  expect(f.calls.confirmations).toEqual(['Send your question to OpenAI?']);
   for(const index of [0,1]){if(index===0)expect(f.calls.details[index].detail).toContain(instructions);expect(f.calls.provider[index].projectInstructions).toEqual({projectId:project.id,name:project.name,revision:2,text:instructions});}
   expect(f.calls.provider[2].projectInstructions).toBeUndefined();expect(JSON.stringify(f.calls.provider[2])).not.toContain('PROJECT_GUIDANCE');expect(JSON.stringify(f.calls.provider)).not.toContain('PRIVATE_UNSENT_PROJECT_DRAFT');expect(f.calls.captures).toBe(0);
  });
@@ -136,7 +136,7 @@ describe('Concept map production path',()=>{
   const generated=conceptProposal();generated.nodes[0].detail='Synthetic generated prose that differs from its exact quotation.';const proposal=JSON.stringify(generated);f.seams.run=async input=>{f.calls.provider.push(input);input.onChunk(proposal.slice(0,40));input.onChunk(proposal.slice(40));return proposal;};
   const command={type:'model.run',taskId:task.id,requestId:'owned-map',kind:'concept-map',prompt:CONCEPT_MAP_PROMPT,sourceIds:[source.id],expectedSourceRefs:[ref]},result:Task=await f.command(command),saved=result.artifacts.at(-1)!.revisions[0];
   expect(saved.mimeType).toBe(CONCEPT_MAP_MIME);expect(readConceptMap(saved.content,saved.sourceRefs)?.nodes[0]).toMatchObject({basis:'quotation',detail:'Sunlight heats surface water.'});expect(saved.content).not.toContain('Synthetic generated prose');expect(readConceptMap(saved.content,saved.sourceRefs)?.relationships[1]).toMatchObject({from:'water',to:'vapor',label:'evaporates into'});expect(result.session?.draft).toBe('UNSENT_MAP_SECRET');
-  expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?']);expect(f.calls.details[0].detail).toContain('Owned evaporation notes');expect(f.calls.details[0].detail).toContain('Relationships are proposed interpretations');expect(f.calls.provider[0].sources).toHaveLength(1);expect(f.calls.provider[0].sources[0].content).toBe(conceptSource);expect(f.calls.provider[0].taskContext).toBeUndefined();expect(JSON.stringify(f.calls.provider[0])).not.toContain('UNSELECTED_MAP_SECRET');expect(JSON.stringify(f.calls.provider[0])).not.toContain('UNSENT_MAP_SECRET');expect(f.calls.events.filter(event=>event.type==='stream').map(event=>event.text)).toEqual([CONCEPT_MAP_PROGRESS]);
+  expect(f.calls.confirmations).toEqual(['Send your question to OpenAI?']);expect(f.calls.details[0].detail).toContain('Owned evaporation notes');expect(f.calls.details[0].detail).toContain('Relationships are proposed interpretations');expect(f.calls.provider[0].sources).toHaveLength(1);expect(f.calls.provider[0].sources[0].content).toBe(conceptSource);expect(f.calls.provider[0].taskContext).toBeUndefined();expect(JSON.stringify(f.calls.provider[0])).not.toContain('UNSELECTED_MAP_SECRET');expect(JSON.stringify(f.calls.provider[0])).not.toContain('UNSENT_MAP_SECRET');expect(f.calls.events.filter(event=>event.type==='stream').map(event=>event.text)).toEqual([CONCEPT_MAP_PROGRESS]);
   await f.command(command);expect(f.calls.provider).toHaveLength(1);expect(f.calls.confirmations).toHaveLength(1);expect(f.calls.captures).toBe(0);
  });
  it('does not send unsupported source kinds or a denied request, and preserves readable unsupported evidence',async()=>{
@@ -170,7 +170,7 @@ it('revision instruction host rejects stale or redirected request basis before s
  expect(f.calls.confirmations).toEqual([]);expect(f.calls.provider).toEqual([]);expect((await f.core.getTask(task.id)).requests).toEqual([]);
  const result=await f.command(command);expect(result.requests).toHaveLength(1);expect(result.requests[0]).toMatchObject({id:command.requestId,status:'completed',kind:'revise',expectedRevision:1,targetArtifactId:saved.artifactId,answer:{artifactId:saved.artifactId,revision:2}});expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(0);
  await expect(f.command({...command,requestId:randomUUID()})).rejects.toThrow(/changed/);const currentBasis=savedDocumentDraftBasis(result,saved.artifactId,result.artifacts[0].revisions.at(-1));await f.core.putSource(task.id,{kind:'text',id:source.id,label:'Advanced linked source',content:'Unreviewed new content.',role:'fact'});
- await expect(f.command({...command,requestId:randomUUID(),revisionBasis:currentBasis})).rejects.toThrow(/changed/);expect(f.calls.provider).toHaveLength(1);expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?']);
+ await expect(f.command({...command,requestId:randomUUID(),revisionBasis:currentBasis})).rejects.toThrow(/changed/);expect(f.calls.provider).toHaveLength(1);expect(f.calls.confirmations).toEqual(['Send your question to OpenAI?']);
 });
 describe('Durable practice draft production boundary',()=>{
  it('admits the complete SQL row policy through IPC only for its actual installed kind and row',async()=>{
@@ -472,7 +472,7 @@ describe('Production host authority and capture boundaries',()=>{
       expect(done.requests.at(-1)?.status).toBe('completed');
     }
     expect(f.calls.captures).toBe(1);
-    expect(f.calls.confirmations).toEqual(['Capture this window?','Send this request to OpenAI?']);
+    expect(f.calls.confirmations).toEqual(['Take a screenshot of this window?','Send your question to OpenAI?']);
     expect(f.calls.provider).toHaveLength(2);
     for(const request of f.calls.provider){
       expect(request.sources).toHaveLength(1);
@@ -514,7 +514,7 @@ describe('Production host authority and capture boundaries',()=>{
       await f.command({type:'model.run',taskId,requestId,kind:'explain',prompt:'Use my selected source.',sourceIds:[sourceId]});
     }
     expect(f.calls.provider.map(request=>request.sources.map((source:any)=>source.content))).toEqual([['data:image/png;base64,Y2FwdHVyZS1B'],['data:image/png;base64,Y2FwdHVyZS1C'],['data:image/png;base64,Y2FwdHVyZS1B']]);
-    expect(f.calls.captures).toBe(2);expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(1);
+    expect(f.calls.captures).toBe(2);expect(f.calls.confirmations.filter(message=>message==='Send your question to OpenAI?')).toHaveLength(1);
   });
   it('keeps eligible frozen pixels after initial denial and requires consent again for retry',async()=>{
     const f=await fixture(),task=await f.command({type:'tasks.create',title:'Denied frozen follow-up'});
@@ -525,7 +525,7 @@ describe('Production host authority and capture boundaries',()=>{
     f.setResponse(1);
     await f.command({type:'model.run',taskId:task.id,requestId:'approved-retry',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]});
     expect(f.calls.provider).toHaveLength(1);expect(f.calls.captures).toBe(1);
-    expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(2);
+    expect(f.calls.confirmations.filter(message=>message==='Send your question to OpenAI?')).toHaveLength(2);
     expect(f.calls.provider[0].sources[0].content).toBe('data:image/png;base64,Y2FwdHVyZS1B');
   });
   it.each(['inspect','provider'] as const)('keeps initial connection consent for an explicit frozen retry after cancellation during %s',async boundary=>{
@@ -543,7 +543,7 @@ describe('Production host authority and capture boundaries',()=>{
     f.seams.native.inspect=inspect;f.seams.run=run;
     await f.command({type:'model.run',taskId:task.id,requestId:'retry-frozen',kind:'explain',prompt:'Use frozen pixels.',sourceIds:[source.id]});
     expect(f.calls.provider.at(-1).sources[0].content).toBe('data:image/png;base64,Y2FwdHVyZS1B');
-    expect(f.calls.captures).toBe(1);expect(f.calls.confirmations.filter(message=>message==='Send this request to OpenAI?')).toHaveLength(1);
+    expect(f.calls.captures).toBe(1);expect(f.calls.confirmations.filter(message=>message==='Send your question to OpenAI?')).toHaveLength(1);
   });
   it('rejects frozen pixels invalidated while native inspection is pending',async()=>{
     const f=await fixture(),task=await f.command({type:'tasks.create',title:'Invalidated delayed inspection'});
@@ -814,7 +814,7 @@ describe('Manual context geometry admission',()=>{
   it('captures the recorded settled rectangle after fresh manual consent',async()=>{
     const f=await geometryFixture(),request=await select(f);
     const result=await f.command(request),source=result.task.sources[0];
-    expect(f.calls.confirmations).toEqual(['Capture this window?']);
+    expect(f.calls.confirmations).toEqual(['Take a screenshot of this window?']);
     expect(f.calls.captures).toBe(1);expect(f.calls.provider).toEqual([]);
     expect(source.versions[0]).toMatchObject({windowId:settled.id,documentToken:settled.documentToken,boundsToken:JSON.stringify(settled.bounds)});
     expect(f.cache.get(`${result.task.id}:${source.id}`).capture.source).toEqual(settled);
@@ -861,7 +861,7 @@ describe('Manual context geometry admission',()=>{
   it('does not capture a settled window after manual consent is declined',async()=>{
     const f=await geometryFixture(),request=await select(f);f.setResponse(0);
     await expect(f.command(request)).rejects.toThrow('cancelled');
-    expect(f.calls.confirmations).toEqual(['Capture this window?']);expect(f.calls.captures).toBe(0);expect(f.calls.provider).toEqual([]);expect(await f.core.listTasks()).toEqual([]);
+    expect(f.calls.confirmations).toEqual(['Take a screenshot of this window?']);expect(f.calls.captures).toBe(0);expect(f.calls.provider).toEqual([]);expect(await f.core.listTasks()).toEqual([]);
   });
   it.each(['cancel','revoke'] as const)('refuses geometry admission after %s during its first inspection',async action=>{
     const f=await geometryFixture(),request=await select(f),barrier=hold(),inspect=f.seams.native.inspect;
@@ -882,7 +882,7 @@ describe('Manual context geometry admission',()=>{
       const confirm=f.seams.confirm;f.seams.confirm=async(...args)=>{const answer=await confirm(...args);f.setCurrent(next);return answer;};
     }else f.seams.native.inspect=async id=>{if(++reads===changeAt)f.setCurrent(next);return inspect(id);};
     await expect(f.command(request)).rejects.toThrow('Source changed');
-    expect(f.calls.confirmations).toEqual(stage==='after consent'?['Capture this window?']:[]);
+    expect(f.calls.confirmations).toEqual(stage==='after consent'?['Take a screenshot of this window?']:[]);
     expect(f.calls.captures).toBe(0);expect(f.calls.provider).toEqual([]);expect(await f.core.listTasks()).toEqual([]);expect(f.cache.size).toBe(0);
   });
   it('admits the same canonical geometry at shortcut intake without repeating saved setup',async()=>{
@@ -935,7 +935,7 @@ describe('Fresh shortcut geometry admission',()=>{
     expect(activation.target).toEqual(boundary==='selection list'?settled:foreground);
     expect(f.calls.captures).toBe(0);expect(f.calls.confirmations).toEqual([]);expect(await f.core.listTasks()).toEqual([]);
     const result=await f.command(request),source=result.task.sources[0];
-    expect(f.calls.confirmations).toEqual(['Set up shortcut snapshots?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toEqual([]);
+    expect(f.calls.confirmations).toEqual(['Set up shortcut screenshots?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toEqual([]);
     expect(source.versions[0]).toMatchObject({windowId:settled.id,windowProcessId:settled.owner.processId,documentToken:settled.documentToken,boundsToken:JSON.stringify(settled.bounds)});
     expect(f.cache.get(`${result.task.id}:${source.id}`).capture.source).toEqual(settled);
     expect(activation).toEqual(activationBefore);expect(await f.core.listTasks()).toHaveLength(1);
@@ -993,7 +993,7 @@ describe('Fresh shortcut geometry admission',()=>{
   });
   it('declining setup after geometry admission saves no grant or pixels',async()=>{
     const f=await freshFixture('first inspection'),request=await selectFresh(f);f.setResponse(0);
-    await expect(f.command(request)).rejects.toThrow('cancelled');await noCapture(f,['Set up shortcut snapshots?']);
+    await expect(f.command(request)).rejects.toThrow('cancelled');await noCapture(f,['Set up shortcut screenshots?']);
     expect(await f.command({type:'capture.settings.get'})).toMatchObject({current:{revision:0,policy:{setupApproval:'not-approved'}}});
   });
   it.each(['cancel','revoke','new activation'] as const)('cannot adopt after %s during first inspection',async action=>{
@@ -1025,7 +1025,7 @@ describe('Fresh shortcut geometry admission',()=>{
       f.seams.native.inspect=async id=>{if(++reads===changeAt)f.setCurrent(next);return inspect(id);};
     }
     await expect(f.command(request)).rejects.toThrow('Source changed');
-    expect(f.calls.confirmations).toEqual(['after setup review','native fence','native completion'].includes(stage)?['Set up shortcut snapshots?']:[]);
+    expect(f.calls.confirmations).toEqual(['after setup review','native fence','native completion'].includes(stage)?['Set up shortcut screenshots?']:[]);
     expect(f.calls.captures).toBe(stage==='native completion'?1:0);expect(f.calls.provider).toEqual([]);expect(await f.core.listTasks()).toEqual([]);expect(f.cache.size).toBe(0);
     if(stage==='after setup review')expect((await f.command({type:'capture.settings.get'})).current.revision).toBe(0);
   });
@@ -1038,7 +1038,7 @@ describe('Fresh shortcut geometry admission',()=>{
     // Detach uses a supported surface command; it does not retire this selection.
     await f.command({type:'surface.standalone'});
     if(changeAgain){f.setCurrent(changed({bounds:{...settled.bounds,y:70}}));await expect(f.command(request)).rejects.toThrow('Source changed');await noCapture(f);}
-    else{expect((await f.command(request)).state).toBe('captured');expect(f.calls.captures).toBe(1);expect(f.calls.confirmations).toEqual(['Set up shortcut snapshots?']);}
+    else{expect((await f.command(request)).state).toBe('captured');expect(f.calls.captures).toBe(1);expect(f.calls.confirmations).toEqual(['Set up shortcut screenshots?']);}
   });
 
 });
@@ -1183,7 +1183,7 @@ describe('Durable focused shortcut setup',()=>{
    const result=await f.command({type:'context.capture',activationId:a.activationId,windowId:a.target.id});
    expect(result.state).toBe('captured');
   }
-  expect(f.calls.confirmations).toEqual(['Set up shortcut snapshots?']);
+  expect(f.calls.confirmations).toEqual(['Set up shortcut screenshots?']);
   expect(f.calls.captures).toBe(2);expect(f.calls.provider).toEqual([]);
   expect(await f.command({type:'capture.settings.get'})).toMatchObject({kind:'available',current:{revision:1,policy:{setupApproval:'approved'}}});
  });
@@ -1211,7 +1211,7 @@ describe('Capture setup public command acceptance',()=>{
   const manual=await f.command({type:'context.capture',activationId:a.activationId,windowId:a.target.id});
   expect(await f.command({type:'capture.settings.get'})).toMatchObject({current:{revision:0,policy:{setupApproval:'not-approved'}}});
   await takeShortcut(f);await f.command({type:'windows.capture',taskId:manual.task.id,windowId:'window:2'});
-  expect(f.calls.confirmations).toEqual(['Capture this window?','Set up shortcut snapshots?','Capture this window?']);expect(f.calls.provider).toEqual([]);
+  expect(f.calls.confirmations).toEqual(['Take a screenshot of this window?','Set up shortcut screenshots?','Take a screenshot of this window?']);expect(f.calls.provider).toEqual([]);
  });
  it.each([
   {type:'context.start',trigger:'shortcut'}, {type:'context.start',invocation:'shortcut'},
@@ -1294,12 +1294,12 @@ describe('Capture setup public command acceptance',()=>{
  it('reconciles lost setup-save acknowledgement without retrying or reusing its activation',async()=>{
   const f=await fixture();f.seams.settingsSyncFail=true;const a=await shortcutSelection(f),request={type:'context.capture',activationId:a.activationId,windowId:a.target.id};await expect(f.command(request)).rejects.toThrow('appears saved');
   expect(await f.command({type:'capture.settings.get'})).toMatchObject({sessionPaused:true,current:{revision:1,policy:{setupApproval:'approved'}}});expect(f.calls.captures).toBe(0);await expect(f.command(request)).rejects.toThrow('expired');
-  await takeShortcut(f);expect(f.calls.confirmations).toEqual(['Set up shortcut snapshots?','Set up shortcut snapshots?']);expect((await f.command({type:'capture.settings.get'})).current.revision).toBe(2);expect(f.calls.captures).toBe(1);
+  await takeShortcut(f);expect(f.calls.confirmations).toEqual(['Set up shortcut screenshots?','Set up shortcut screenshots?']);expect((await f.command({type:'capture.settings.get'})).current.revision).toBe(2);expect(f.calls.captures).toBe(1);
  });
  it('failed atomic settings save keeps pixels fenced and allows a deliberate new review',async()=>{
   const f=await fixture(captureRecord());await takeShortcut(f);f.seams.settingsRenameFail=true;
   await expect(f.command({type:'capture.settings.revoke',expectedRevision:1})).rejects.toThrow('previous setup was preserved');expect(f.cache.size).toBe(0);expect((await f.command({type:'capture.settings.get'})).sessionPaused).toBe(true);
-  await takeShortcut(f);expect(f.calls.confirmations).toEqual(['Set up shortcut snapshots?']);expect((await f.command({type:'capture.settings.get'})).current.revision).toBe(2);
+  await takeShortcut(f);expect(f.calls.confirmations).toEqual(['Set up shortcut screenshots?']);expect((await f.command({type:'capture.settings.get'})).current.revision).toBe(2);
  });
 });
 
@@ -1422,7 +1422,7 @@ describe('Source brief to reviewed JoinLab production path',()=>{
   await expect(f.ipcCommand({...target,action:{kind:'accept-extraction',expectedRevision:2}})).rejects.toThrow('This action could not be completed. Review the task before continuing.');
   await f.ipcCommand({...target,action:{...correct,expectedRevision:2}});
   await f.core.invalidateSource(j.task.id,restored.sources[0].id,'Synthetic source became stale.');const before=await f.core.getTask(j.task.id);
-  await expect(f.ipcCommand({...target,action:{...remove,expectedRevision:3}})).rejects.toThrow('Refresh the selected window before asking again, and review any changed sources.');
+  await expect(f.ipcCommand({...target,action:{...remove,expectedRevision:3}})).rejects.toThrow('Refresh the window before asking again, and check anything that changed.');
   expect(await f.core.getTask(j.task.id)).toEqual(before);expect(f.calls.provider).toHaveLength(2);expect(f.calls.captures).toBe(0);
  });
  it('uses one existing send and ledger entry per deliberate intent, never streams proposal JSON, and publishes reviewed computation',async()=>{
@@ -1430,7 +1430,7 @@ describe('Source brief to reviewed JoinLab production path',()=>{
   f.seams.run=async input=>{f.calls.provider.push(input);input.onChunk(proposal.slice(0,80));input.onChunk(proposal.slice(80));return proposal;};
   const result=await f.command(j.command),moduleArtifact=result.artifacts.at(-1),revision=moduleArtifact.revisions[0],module=JSON.parse(revision.content).modules[0];
   expect(revision.mimeType).toBe('application/vnd.window-companion.modules+json');expect(module.data.kind).toBe('grounded-join');expect(module.data.basis.artifact).toEqual(j.command.briefAction.artifact);
-  expect(result.requests.map((request:{id:string})=>request.id)).toEqual(['source-brief','source-join']);expect(f.calls.provider).toHaveLength(2);expect(f.calls.confirmations).toEqual(['Send this request to OpenAI?','Send this request to OpenAI?']);expect(f.calls.captures).toBe(0);
+  expect(result.requests.map((request:{id:string})=>request.id)).toEqual(['source-brief','source-join']);expect(f.calls.provider).toHaveLength(2);expect(f.calls.confirmations).toEqual(['Send your question to OpenAI?','Send your question to OpenAI?']);expect(f.calls.captures).toBe(0);
   expect(f.calls.provider[1].prompt).toContain('Transcribe only the supplied frozen fact sources');expect(f.calls.provider[1].prompt).not.toContain('Shipments and warehouse scans');expect(f.calls.provider[1].taskContext).toBeUndefined();
   expect(f.calls.events.filter(event=>event.type==='stream'&&event.requestId==='source-join').map(event=>event.text)).toEqual(['Preparing the cited tables for your review…']);
   const target={taskId:j.task.id,artifactId:moduleArtifact.id,artifactRevision:1,moduleId:module.id};

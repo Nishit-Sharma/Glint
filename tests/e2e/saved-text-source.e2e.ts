@@ -8,7 +8,7 @@ const title='Saved source continuity';
 const applied='Original saved source.\nThis committed version stays unchanged.';
 const raw={label:'Raw source name Ω',content:'Unsubmitted line one.\nUnsubmitted line two: keep exactly.',role:'inspiration'};
 const workspace=(page:Page)=>page.locator('.workspace:visible');
-const editor=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const editor=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 const content=(page:Page)=>editor(page).getByRole('textbox',{name:'Source text',exact:true});
 const label=(page:Page)=>editor(page).getByRole('textbox',{name:'Source name (optional)',exact:true});
 const role=(page:Page)=>editor(page).getByRole('combobox',{name:'Use as',exact:true});

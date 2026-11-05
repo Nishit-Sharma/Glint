@@ -4,23 +4,24 @@ import {savedExperimentRunActivity} from '../../../learning/experiment-runs';
 import {localActivityLabel} from '../local-activity';
 
 /** Presentation only: exact saved revisions, never source contents or inferred answers. */
-export function savedSourceSummary(task:Pick<Task,'sources'>):{heading:string;description:string;action:string;preview:string;reference?:SourceRef}|undefined{
+export function savedSourceSummary(task:Pick<Task,'sources'>):{heading:string;description:string;action:string;preview:string;reference?:SourceRef;label?:string;stale?:boolean}|undefined{
  const sources=task.sources.flatMap(source=>{
   const version=source.versions.find(version=>version.version===source.currentVersion);
   if(!version)return [];
-  const label=version.label.trim()||(version.kind==='window'?'Window snapshot':version.kind==='image'?'Image source':'Text source');
+  const label=version.label.trim()||(version.kind==='window'?'Captured window':version.kind==='image'?'Added image':'Added text');
   return [{label,stale:source.freshness!=='fresh',reference:{sourceId:source.id,version:version.version,digest:version.digest}}];
  });
  if(!sources.length)return;
  if(sources.length===1){const source=sources[0];return {
-  heading:source.stale?'Saved source snapshot':'Source saved',
-  description:source.label+(source.stale?' · Review before using it again.':''),
-  action:source.stale?'Review saved snapshot':'Review source',
-  preview:(source.stale?'Saved snapshot: ':'Saved source: ')+source.label,
+  heading:source.stale?'Earlier copy saved':'Added to this task',
+  description:source.label+(source.stale?' · It may have changed. Check it before using it again.':''),
+  action:source.stale?'Review earlier copy':'Review what you added',
+  preview:(source.stale?'Earlier copy: ':'Added: ')+source.label,
   reference:source.reference,
+  label:source.label,stale:source.stale,
  };}
  const stale=sources.filter(source=>source.stale).length;
- return {heading:'Saved sources',description:`${sources.length} sources saved.`+(stale?` ${stale} ${stale===1?'snapshot needs':'snapshots need'} review.`:''),action:'Review sources',preview:`${sources.length} saved sources`+(stale?' · Review needed':'')};
+ return {heading:'What you added',description:`${sources.length} items added.`+(stale?` ${stale} may have changed.`:''),action:'Review what you added',preview:`${sources.length} items added`+(stale?' · Review needed':'')};
 }
 
 /** Preserve existing history/document/goal precedence; sources fill only the empty fallback. */

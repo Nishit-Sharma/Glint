@@ -37,7 +37,7 @@ test('Context keeps a readable row and leaves the conversation and composer usab
   }
   const context=page.locator('.workspace-compose .request-context');
   await context.locator(':scope>details:first-child>summary').click();
-  await expect(context.getByRole('button',{name:'Review or change context',exact:true})).toBeVisible();
+  await expect(context.getByRole('button',{name:'Review or change what’s sent',exact:true})).toBeVisible();
   await context.locator(':scope>details:first-child>summary').click();
   const options=page.getByRole('button',{name:'Request options',exact:true});
   await options.focus();await page.keyboard.press('Enter');

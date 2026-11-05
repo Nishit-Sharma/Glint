@@ -25,7 +25,7 @@ export async function publishContextualWorkflow(input:Input){
  const intent=await intentInput(input),requestId=await prepareWindowRequestIntent(intent);
  if(!input.isCurrent()||input.cache.getSnapshot().frozen||input.cache.getSnapshot().maintenance)throw Error('Review the current inputs and confirm them again.');
  const result=await input.publish(requestId);
- if(!result||result.task.id!==learningDraftTaskId(input.owner))throw Error('Publication was not confirmed. Your raw review and attempt are kept. Check Activity, then retry this same confirmed input.');
+ if(!result||result.task.id!==learningDraftTaskId(input.owner))throw Error('Publication was not confirmed. Your raw review and attempt are kept. Check History, then retry this same confirmed input.');
  const ref=contextualWorkflowReceipt(result.task,requestId,input.prepared,intent.binding);
  if(!ref||ref.artifactId!==result.artifactId||ref.revision!==result.revision)throw Error('The saved publication receipt did not match this contextual review. Your raw input is kept.');
  return {result,ref,requestId,current:input.isCurrent()};

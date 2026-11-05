@@ -34,7 +34,7 @@ export function FallbackShortcutSettings({host,disabled=false,onRefresh}:{host?:
  }
  return <section className="preference-area" aria-label="Fallback shortcut settings">
   <div className="preference-row"><div><h3>Screen context fallback</h3><p>{current??'Checking…'}{current?' · '+(registered?'Registered':'Unavailable'):''}</p></div>{!editing&&<Button disabled={disabled||pending||!current||blocked} onClick={()=>{setDraft(current!);setExpected(current!);setEditing(true);setMessage('');}}>Change fallback shortcut</Button>}</div>
-  <p className="preference-explanation" id="fallback-shortcut-help">This global shortcut opens the existing screen context flow. Capture still uses your current setup and permission review. The physical modifier shortcut and app menu bindings stay separate.</p>
+  <p className="preference-explanation" id="fallback-shortcut-help">This shortcut works from any app and opens screen context. Screenshots still follow your current setup and ask for permission as usual. The modifier-key shortcut and menu shortcuts stay separate.</p>
   <p className="tiny">Default fallback: {defaultShortcut??'Checking…'}</p>
   {message&&<p role={blocked?'alert':'status'}>{message}</p>}
   {editing&&<form onSubmit={event=>{event.preventDefault();if(!blocked&&draft.trim())void change({type:'shortcut.set',accelerator:draft.trim(),expectedShortcut:expected});}}>

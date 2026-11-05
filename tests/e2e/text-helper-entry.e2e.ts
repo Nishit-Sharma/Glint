@@ -29,7 +29,7 @@ async function startDraft(page:Page,title:string){
  await expect(document(page).getByRole('heading',{name:title,exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Back to task',exact:true}).click();
 }
-async function menu(page:Page,name:'Files'|'Activity'){
+async function menu(page:Page,name:'Files'|'History'){
  await workspace(page).getByRole('button',{name:'Task options',exact:true}).click();
  await workspace(page).getByRole('button',{name,exact:true}).click();
 }
@@ -88,7 +88,7 @@ test('real offline entry teaches checked versions, runs fresh text, rolls back a
   await shot(page,document(page).getByRole('heading',{name:'Saved versions',exact:true}),'full-readable-saved-notes');
   const withNotes=await entry.fixture.core.getTask(owner.id),notes=withNotes.artifacts.find(item=>item.revisions.at(-1)!.title==='Text helper notes')!.revisions.at(-1)!;
   expect(notes.sourceRefs).toEqual([]);for(const internal of [owner.id,artifact.id,module.id,state.helperId])expect(notes.content).not.toContain(internal);
-  await back(page);await menu(page,'Activity');await page.getByRole('dialog',{name:'Activity',exact:true}).getByRole('button',{name:'Text helper · Revision 1',exact:true}).click();const reviewed=page.getByRole('region',{name:'Saved revision',exact:true});await expect(reviewed).toContainText('Last run used version 1.');await expect(reviewed).not.toContainText('helperId');await shot(page,reviewed.getByRole('heading',{name:'Latest run — version 1',exact:true}),'full-readable-activity-projection');
+  await back(page);await menu(page,'History');await page.getByRole('dialog',{name:'History',exact:true}).getByRole('button',{name:'Text helper · Revision 1',exact:true}).click();const reviewed=page.getByRole('region',{name:'Saved revision',exact:true});await expect(reviewed).toContainText('Last run used version 1.');await expect(reviewed).not.toContainText('helperId');await shot(page,reviewed.getByRole('heading',{name:'Latest run — version 1',exact:true}),'full-readable-activity-projection');
   const beforeRestart=(await entry.fixture.core.getTask(owner.id)).session!.moduleStates;await entry.fixture.restart();await expect(workspace(page).getByRole('heading',{name:'Label workshop',exact:true})).toBeVisible();await menu(page,'Files');await page.getByRole('dialog',{name:'Files',exact:true}).getByRole('button',{name:/^Text helper notes Document/}).click();await expect(document(page)).toContainText('Recorded demonstration for check 2');await expect(document(page)).toContainText('Last run used version 1.');await back(page);await menu(page,'Files');await page.getByRole('dialog',{name:'Files',exact:true}).getByRole('button',{name:/^Text helper Document/}).click();scope=helper(page);await expect(scope.getByLabel('Helper result',{exact:true})).toHaveJSProperty('textContent','KEEP:   Dock  ');expect((await entry.fixture.core.getTask(owner.id)).session!.moduleStates).toEqual(beforeRestart);
   await onlyLocal(entry,1,1);await record(entry,'teaching-versions-restart-ledger');
  }finally{await entry.close();}

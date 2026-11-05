@@ -1,7 +1,7 @@
 import {BotImage,characterStill,CharacterAdornment} from './bot-art';
 import {createContext,useCallback,useContext,useEffect,useId,useLayoutEffect,useRef,useState,type ReactNode} from 'react';
 import {ChevronDown} from 'lucide-react';
-import {CHARACTER_SHAPES,CHARACTER_PICKER_SHAPES,CHARACTER_COLORS,CHARACTER_FACES,DEFAULT_CHARACTER,characterLabel,readCharacterState,readCharacterCommit,sameCharacter,type CharacterProfile,type CharacterSnapshot,type CharacterState,type CharacterCommit} from '../../shared/character-catalog';
+import {CHARACTER_SHAPES,CHARACTER_PICKER_SHAPES,CHARACTER_COLORS,CHARACTER_FACES,DEFAULT_CHARACTER,characterDefaultName,characterLabel,readCharacterState,readCharacterCommit,sameCharacter,type CharacterProfile,type CharacterSnapshot,type CharacterState,type CharacterCommit} from '../../shared/character-catalog';
 import {useNavigationDraft} from './draft-navigation';
 import {mountOriginal,type OriginalActor} from './character-original/actor-runtime.js';
 import {fallbackMotion} from './thumbnail-motion';
@@ -107,6 +107,9 @@ function AppearanceForm({initial,onCancel,heading}:{initial:CharacterSnapshot;on
  useLayoutEffect(()=>{session.previewLook(value.look);return()=>session.previewLook(undefined);},[session.previewLook,value.look]);
  const previewRef=useCallback((node:HTMLSpanElement|null)=>session.preview(node),[session.preview]);
  const name=value.personalName??'',nameInvalid=[...name].length>40||/[\p{Cc}\p{Cf}]/u.test(name);
+ // In a scrolling panel the status sits above the sticky Save bar; keep it (and any conflict action) in view when it changes.
+ const messageRef=useRef<HTMLParagraphElement>(null),conflictRef=useRef<HTMLButtonElement>(null);
+ useEffect(()=>{if(message)(conflictRef.current??messageRef.current)?.scrollIntoView({block:'nearest'});},[message,conflict]);
  const patch=(change:Partial<CharacterProfile>)=>{setMessage('');setValue(previous=>({...previous,...change}));};
  async function save(){
   if(lock.current||!dirty||nameInvalid||conflict)return;lock.current=true;setSaving(true);setMessage('');
@@ -115,10 +118,10 @@ function AppearanceForm({initial,onCancel,heading}:{initial:CharacterSnapshot;on
   catch{if(mounted.current)setMessage('Your appearance could not be saved. Your edits are still here. Try Save again.');}
   finally{lock.current=false;if(mounted.current)setSaving(false);}
  }
- const choices=(items:readonly typeof CHARACTER_SHAPES[number][])=>items.map(shape=><button type="button" key={shape.id} aria-pressed={value.look.shape===shape.id} disabled={saving} onClick={()=>patch({look:{...value.look,shape:shape.id}})}><BotImage profile={{...value,look:{...value.look,shape:shape.id}}}/>{shape.label}</button>);
+ const choices=(items:readonly typeof CHARACTER_SHAPES[number][])=>items.map(shape=><button type="button" key={shape.id} aria-pressed={value.look.shape===shape.id} disabled={saving} onClick={()=>patch({look:{...value.look,shape:shape.id}})}><BotImage profile={{...value,look:{...value.look,shape:shape.id}}}/>{characterDefaultName(shape.id)}</button>);
  return <form className="appearance-editor" onSubmit={event=>{event.preventDefault();void save();}} aria-label="Character appearance">
   {heading&&<h3>Make it yours</h3>}
-  <div className="appearance-layout"><div className="appearance-preview-column"><div className="appearance-preview"><span className="character-portrait"><span ref={previewRef} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={value.look}/></span><span className="sr-only">Preview of your selected character</span></div>   <label className="appearance-name">Name <span>Optional</span><input aria-label="Character name" value={name} placeholder="Glint" disabled={saving} maxLength={80} aria-invalid={nameInvalid} aria-describedby="character-name-help" onChange={event=>patch({personalName:event.target.value||null})}/></label><p id="character-name-help" className={nameInvalid?'warning':'tiny'}>{nameInvalid?'Use up to 40 characters without control characters.':'Leave blank to use Glint.'}</p></div>
+  <div className="appearance-layout"><div className="appearance-preview-column"><div className="appearance-preview"><span className="character-portrait"><span ref={previewRef} className="character-slot" data-t-generate-skip aria-hidden="true"/><CharacterAdornment look={value.look}/></span><span className="sr-only">Preview of your selected character</span></div>   <label className="appearance-name">Name <span>Optional</span><input aria-label="Character name" value={name} placeholder={characterDefaultName(value.look.shape)} disabled={saving} maxLength={80} aria-invalid={nameInvalid} aria-describedby="character-name-help" onChange={event=>patch({personalName:event.target.value||null})}/></label><p id="character-name-help" className={nameInvalid?'warning':'tiny'}>{nameInvalid?'Use 40 characters or fewer, with no hidden formatting characters.':'Leave blank to use '+characterDefaultName(value.look.shape)+'.'}</p></div>
   <div className="appearance-controls">
 
    <fieldset disabled={saving}><legend>Shape</legend><div className="character-shapes">{choices(CHARACTER_PICKER_SHAPES.slice(0,6))}</div><details className="character-more" open={CHARACTER_PICKER_SHAPES.slice(6).some(shape=>shape.id===value.look.shape)||undefined}><summary>{CHARACTER_PICKER_SHAPES.length-6} more shapes</summary><div className="character-shapes">{choices(CHARACTER_PICKER_SHAPES.slice(6))}</div></details></fieldset>
@@ -129,8 +132,8 @@ function AppearanceForm({initial,onCancel,heading}:{initial:CharacterSnapshot;on
    <label className="character-movement"><input type="checkbox" checked={value.look.motion} disabled={saving} onChange={event=>patch({look:{...value.look,motion:event.target.checked}})}/><span>Subtle movement<small>Follows your pointer nearby. Respects reduced motion.</small></span></label>
   </div></div>
   {session.failed&&<p className="character-static-note" role="status">Using the original character artwork. <button type="button" onClick={session.retry}>Try 3D again</button></p>}
-  {message&&<p className="appearance-message" role={conflict?'alert':'status'}>{message}</p>}
-  {conflict&&<button type="button" disabled={saving} onClick={()=>{setSaving(true);void session.reload().then(current=>{if(!mounted.current||current.kind!=='available')return;setBase(current.current);setValue(current.current.profile);setConflict(undefined);setMessage('Saved appearance loaded.');clearDraft();}).catch(()=>{if(mounted.current)setMessage('Your saved appearance could not be opened. Your edits are still here.');}).finally(()=>{if(mounted.current)setSaving(false);});}}>Load saved appearance</button>}
+  {message&&<p ref={messageRef} className="appearance-message" role={conflict?'alert':'status'}>{message}</p>}
+  {conflict&&<button ref={conflictRef} type="button" disabled={saving} onClick={()=>{setSaving(true);void session.reload().then(current=>{if(!mounted.current||current.kind!=='available')return;setBase(current.current);setValue(current.current.profile);setConflict(undefined);setMessage('Saved appearance loaded.');clearDraft();}).catch(()=>{if(mounted.current)setMessage('Your saved appearance could not be opened. Your edits are still here.');}).finally(()=>{if(mounted.current)setSaving(false);});}}>Load saved appearance</button>}
   <div className="appearance-actions"><button type="submit" className="primary" disabled={saving||!dirty||nameInvalid||!!conflict}>{saving?'Saving…':'Save appearance'}</button><button type="button" disabled={saving} onClick={()=>{clearDraft();onCancel();}}>Cancel</button></div>
  </form>;
 }

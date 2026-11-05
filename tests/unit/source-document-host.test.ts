@@ -105,7 +105,7 @@ it('the production follow command requires its separate host review then refresh
  const f=await fixture();await f.capture();const first=(await f.core.getTask(f.task.id)).sources[0];expect(first.versions[0].documentStamp?.digest).toBe('a'.repeat(64));
  await f.host.command({type:'source.follow.enable'});f.state.digest='b'.repeat(64);await f.host.documentFollow.poll();
  const task=await f.core.getTask(f.task.id);expect(task.sources[0]).toMatchObject({currentVersion:2,freshness:'fresh'});expect(task.sources[0].versions.map(v=>v.documentStamp?.digest)).toEqual(['a'.repeat(64),'b'.repeat(64)]);
- expect(f.calls.pixels).toBe(2);expect(f.calls.transports).toBe(0);expect(f.calls.confirmations.map(c=>c.message)).toEqual(['Capture this window?','Follow this selected window for this session?']);
+ expect(f.calls.pixels).toBe(2);expect(f.calls.transports).toBe(0);expect(f.calls.confirmations.map(c=>c.message)).toEqual(['Take a screenshot of this window?','Follow this selected window for this session?']);
  expect(JSON.parse(task.sources[0].versions[1].content)).toMatchObject({captureId:'fixture-capture-2',transform:{sequence:2}});
  expect(JSON.parse(await readFile(join(f.directory,'capture-settings.json'),'utf8')).policy).toEqual({policyVersion:1,setupApproval:'approved',privateApps:[]});
 });
@@ -273,7 +273,7 @@ it('a verified same-source explicit refresh continues the approved session follo
  f.state.edited=true;await f.host.documentFollow.poll();expect(f.host.documentFollow.read()).toMatchObject({automaticSnapshots:'paused'});
  await f.host.dispatch({type:'windows.capture',taskId:f.task.id,windowId:f.target.id,sourceId:original.id});expect(f.host.documentFollow.read()).toMatchObject({automaticSnapshots:'on'});
  await f.host.dispatch({type:'source.follow.enable'});f.state.digest='b'.repeat(64);await f.host.documentFollow.poll();
- const saved=await f.core.getTask(f.task.id);expect(saved.sources[0]).toMatchObject({currentVersion:3,freshness:'fresh'});expect(f.calls.pixels).toBe(3);expect(f.calls.transports).toBe(0);expect(f.calls.confirmations.map(confirmation=>confirmation.message)).toEqual(['Capture this window?','Follow this selected window for this session?','Capture this window?']);
+ const saved=await f.core.getTask(f.task.id);expect(saved.sources[0]).toMatchObject({currentVersion:3,freshness:'fresh'});expect(f.calls.pixels).toBe(3);expect(f.calls.transports).toBe(0);expect(f.calls.confirmations.map(confirmation=>confirmation.message)).toEqual(['Take a screenshot of this window?','Follow this selected window for this session?','Take a screenshot of this window?']);
  expect(saved.session?.draft).toBe('Keep this unsent correction');expect(saved.artifacts[0].revisions[0].sourceRefs[0].version).toBe(1);
  const reads=f.calls.metadata;f.state.foreground={...f.target,id:'window:99',osId:99};await f.host.documentFollow.poll();expect(f.calls.metadata).toBe(reads);expect(f.calls.pixels).toBe(3);
 });

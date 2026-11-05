@@ -93,7 +93,7 @@ test('first-run picker owns the startup reveal and Continue does not replay it',
   const intro=page.locator('.onboarding-root[data-runtime-scope="whole-surface"]');
   await expect(intro).toHaveAttribute('data-surface-reveal','settled');
   const entrance=await intro.getAttribute('data-presentation-entrance');
-  await page.getByRole('radio',{name:'Star',exact:true}).click();
+  await page.getByRole('radio',{name:'Lumi',exact:true}).click();
   await expect(intro).toHaveAttribute('data-presentation-entrance',entrance!);
   await page.getByRole('button',{name:'Continue',exact:true}).click();
   const workspace=page.locator('.workspace:not([hidden])');

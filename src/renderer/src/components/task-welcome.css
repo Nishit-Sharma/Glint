@@ -1,0 +1,28 @@
+/* Character-led empty task (UI-GAPS 3): the companion greets within the first 100px, the saved source is
+   one quiet chip, and starters only fill the composer. Tone matches onboarding: short, warm, no forms. */
+.new-conversation.task-welcome{gap:16px;padding-top:0}
+.task-welcome-hello{display:flex;align-items:center;gap:14px;min-width:0}
+.task-welcome-portrait{position:relative;display:block;width:56px;height:56px;flex:none}
+.task-welcome-portrait>.bot-image.character-slot{display:block;width:100%;height:100%;min-height:0}
+.task-welcome-copy{min-width:0}
+.task-welcome-greeting{font-size:21px;line-height:29px;font-weight:450;letter-spacing:-.35px;color:var(--ink);overflow-wrap:anywhere}
+.task-welcome-lede{margin-top:2px;color:var(--muted);font-size:var(--text-body-size,14px);line-height:var(--text-body-line,21px);text-wrap:pretty}
+/* Source chip: wraps instead of truncating so a stale-snapshot note is never hidden. */
+.task-welcome-source{display:flex;align-items:center;gap:8px;width:fit-content;max-width:100%;min-height:36px;padding:2px 2px 2px 12px;border:1px solid #ffffff16;border-radius:18px;color:var(--muted);font-size:13px;line-height:18px}
+.task-welcome-source>svg{flex:none}
+.task-welcome-source-text{min-width:0;padding-block:6px;color:var(--ink);overflow-wrap:anywhere}
+.task-welcome-source-prefix{color:var(--muted)}
+.app .task-welcome-review{flex:none;min-height:32px;padding:4px 12px;border:0;border-radius:16px;color:var(--ink);font-size:13px;line-height:18px}
+.app .task-welcome-review:hover:not(:disabled){background:#ffffff0d}
+.task-welcome-starters{display:flex;flex-direction:column;align-items:flex-start;gap:8px;width:100%}
+.app .task-welcome-starter{justify-content:flex-start;max-width:100%;min-height:36px;padding:8px 14px;border:1px solid #ffffff16;border-radius:14px;background:#ffffff05;color:var(--ink);font-size:14px;line-height:20px;text-align:left;overflow-wrap:anywhere;transition:background-color 120ms,border-color 120ms}
+.app .task-welcome-starter:hover:not(:disabled){background:#ffffff0d;border-color:color-mix(in srgb,var(--accent) 45%,#ffffff16)}
+@media (prefers-reduced-motion:reduce){.app .task-welcome-starter{transition:none}}
+/* Refresh stays reachable below the welcome, without competing with it. */
+.task-welcome~.conversation-refresh{margin-top:20px}
+
+/* Compact companion: one small character and one short line in the answer plate. */
+.compact-welcome{display:flex;align-items:center;gap:10px;min-width:0}
+.compact-welcome-portrait{position:relative;display:block;width:32px;height:32px;flex:none}
+.compact-welcome-portrait>.bot-image.character-slot{display:block;width:100%;height:100%;min-height:0}
+.compact-welcome>p{min-width:0;margin:0;color:var(--ink);font-size:var(--text-insight-size,15px);line-height:var(--text-insight-line,22px);overflow-wrap:anywhere}

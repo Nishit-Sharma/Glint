@@ -5,7 +5,7 @@ import {pickingPublicFrame as frame} from '../support/saved-text-source-frame';
 import {taskTool} from '../support/ui-tools';
 
 const title='Saved source recovery',second='Second saved source';
-const dialog=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const dialog=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 const field=(page:Page,name:string)=>dialog(page).getByRole('textbox',{name,exact:true});
 const body=(page:Page)=>field(page,'Source text');
 const save=(page:Page)=>dialog(page).getByRole('button',{name:'Save new version',exact:true});
@@ -36,7 +36,7 @@ test('ordinary saved source exposes failed uncertain and stale recovery, preserv
   await expect(dialog(page).getByRole('region',{name:'Source snapshot',exact:true})).toContainText('Initial source A.');
   // A second source is also created through ordinary public intake before any
   // save transport is held. It supplies an actual React/source retarget later.
-  await dialog(page).getByRole('button',{name:'All context',exact:true}).click();
+  await dialog(page).getByRole('button',{name:'All attachments',exact:true}).click();
   await dialog(page).getByRole('button',{name:'Add source',exact:true}).click();
   await dialog(page).getByRole('button',{name:'Paste text',exact:true}).click();
   await field(page,'Source name (optional)').fill(second);await body(page).fill('Initial source B.');

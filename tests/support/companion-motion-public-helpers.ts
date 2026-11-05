@@ -37,8 +37,8 @@ async function focusRing(card:Locator){return card.evaluate(node=>{
 });}
 
 export async function verifyNarrowFocus(page:Page,shapes:Locator,hop:boolean){
- const first=shapes.getByRole('radio',{name:'Dumpling',exact:true});await first.focus();await page.keyboard.press('Home');const cards=[];
-  for(const [index,[label,shape]] of [['Dumpling','soup'],['Onigiri','onigiri'],['Mushroom','mushroom'],['Star','star'],['Dollop','sprout']].entries()){
+ const first=shapes.getByRole('radio',{name:'Bao',exact:true});await first.focus();await page.keyboard.press('Home');const cards=[];
+  for(const [index,[label,shape]] of [['Bao','soup'],['Nori','onigiri'],['Moss','mushroom'],['Lumi','star'],['Miso','sprout']].entries()){
    if(index)await page.keyboard.press('ArrowRight');const card=shapes.getByRole('radio',{name:label,exact:true});await expect(card).toBeFocused();await expect(card).toBeChecked();await expect(card.locator('[data-character-state="live"]')).toHaveCount(1);
    const ring=await focusRing(card);cards.push({shape,ring});await json('narrow-picker-focus-rings',cards);
    expect(ring.focusVisible).toBe(true);expect(ring.painted).toBe(true);expect(ring.outline.style).toBe('solid');expect(ring.outline.width).toBeGreaterThanOrEqual(3);expect(ring.outline.offset).toBeGreaterThanOrEqual(5);

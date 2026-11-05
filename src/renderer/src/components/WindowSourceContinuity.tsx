@@ -22,9 +22,9 @@ export function WindowSourceContinuity({task,sourceId,onReview,isCurrent}:{task:
   try{
    const checked=await window.companion.invoke<Task>({type:'tasks.get',taskId:owner});if(!current())return;
    const saved=checked.sources.find(source=>source.id===ref.sourceId),exact=saved?.versions.find(version=>version.id===ref.sourceId&&version.version===saved.currentVersion);
-   if(checked.id!==owner||exact?.kind!=='window'||exact.version!==ref.version||exact.digest!==ref.digest){setReviewState({key,pending:false,issue:'This saved window source changed or is unavailable. Return to Context and choose its current snapshot.'});return;}
+   if(checked.id!==owner||exact?.kind!=='window'||exact.version!==ref.version||exact.digest!==ref.digest){setReviewState({key,pending:false,issue:'This saved window source changed or is unavailable. Return to Attachments and choose its current snapshot.'});return;}
    setReviewState({key,pending:false});live.current.onReview?.(ref,current);
-  }catch{if(current())setReviewState({key,pending:false,issue:'This saved window source could not be verified. Return to Context and choose it again.'});}
+  }catch{if(current())setReviewState({key,pending:false,issue:'This saved window source could not be verified. Return to Attachments and choose it again.'});}
   finally{if(mounted.current)setReviewState(previous=>previous?.key===key&&previous.pending?{key,pending:false}:previous);}
  }
  return <section className={'window-source-continuity'+(source.freshness!=='fresh'?' needs-review':'')} aria-label="Selected window source review">

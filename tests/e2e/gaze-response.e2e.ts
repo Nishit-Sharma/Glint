@@ -24,8 +24,8 @@ async function landmarks(page:import('@playwright/test').Page){return page.locat
 test('App character responds in screen directions then rests after quiet and distant pointer',async({page})=>{
  await page.emulateMedia({reducedMotion:'no-preference'});const fixture=await BrowserFixture.open(page);await observe(page);await page.reload();
  try{
-  await expect(page.getByRole('button',{name:'Customize Glint',exact:true})).toBeVisible();await page.waitForTimeout(900);await capture(page,'workspace-rest');
-  await page.getByRole('button',{name:'Customize Glint',exact:true}).click();await expect(page.locator('.appearance-preview canvas')).toBeVisible();await page.waitForTimeout(900);await capture(page,'appearance-rest');
+  await expect(page.getByRole('button',{name:'Customize Bao',exact:true})).toBeVisible();await page.waitForTimeout(900);await capture(page,'workspace-rest');
+  await page.getByRole('button',{name:'Customize Bao',exact:true}).click();await expect(page.locator('.appearance-preview canvas')).toBeVisible();await page.waitForTimeout(900);await capture(page,'appearance-rest');
   const box=(await page.locator('.appearance-preview canvas').boundingBox())!;const cx=box.x+box.width/2,cy=box.y+box.height/2;
   const samples:Record<string,unknown>={},pixels:Record<string,Awaited<ReturnType<typeof landmarks>>>={rest:await landmarks(page)};
   for(const [name,x,y] of [['right',cx+box.width*.45,cy],['left',cx-box.width*.45,cy],['up',cx,cy-box.height*.45],['down',cx,cy+box.height*.45]] as const){await page.mouse.move(x,y);await page.waitForTimeout(450);samples[name]=await live(page);pixels[name]=await landmarks(page);await capture(page,'appearance-'+name);}

@@ -21,12 +21,17 @@
 @media(max-width:799px){.context-inspector[data-kind="Make it yours"]>.inspector-toolbar{height:64px;min-height:64px;padding-inline:24px}.context-inspector[data-kind="Make it yours"]>.inspector-content{padding:10px 24px 20px}.context-inspector[data-kind="Make it yours"] .appearance-actions{margin-left:0}}
 @media(max-width:540px){.appearance-preview-column{position:static;width:100%}.appearance-preview-column .appearance-preview{width:160px;margin:auto}.appearance-preview-column .appearance-name{margin-top:18px}.appearance-preview-column>p{margin-top:4px}.context-inspector[data-kind="Make it yours"] .appearance-actions{bottom:-20px}}
 
-/* Reserve the footer's space so scrolling or keyboard focus cannot pass behind it. */
-.context-inspector[data-kind="Make it yours"]>.inspector-content{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
-.context-inspector[data-kind="Make it yours"] .appearance-editor{display:flex;flex-direction:column;flex:1;min-height:0}
-.context-inspector[data-kind="Make it yours"] .appearance-layout{flex:1;min-height:0;overflow:auto;scroll-padding:6px;padding:6px;margin-inline:-6px}
-.context-inspector[data-kind="Make it yours"] .appearance-actions{position:static;flex-shrink:0;margin-top:18px;padding:16px 0 20px}
-.context-inspector[data-kind="Make it yours"] .appearance-message,.context-inspector[data-kind="Make it yours"] .character-static-note{flex-shrink:0}
+/* The whole panel scrolls as one column at any roster length (a long roster once clipped the editor to 0px).
+   Save and Cancel stay pinned to the panel's bottom edge while the editor is on screen; scroll-padding keeps focus clear of them. */
+.context-inspector[data-kind="Make it yours"]>.inspector-content{display:block;overflow-y:auto;overscroll-behavior:contain;padding-bottom:0;scroll-padding:12px 0 104px}
+.context-inspector[data-kind="Make it yours"] .appearance-editor{display:block}
+.context-inspector[data-kind="Make it yours"] .appearance-layout{overflow:visible;padding:6px;margin-inline:-6px}
+.context-inspector[data-kind="Make it yours"] .appearance-actions{position:sticky;bottom:0;z-index:3;margin:18px 0 0;padding:14px 0 20px 240px;background:var(--paper);border-top:1px solid var(--line)}
+@media(min-width:800px) and (max-width:999px){.context-inspector[data-kind="Make it yours"] .appearance-actions{padding-left:172px}}
+@media(max-width:799px){.context-inspector[data-kind="Make it yours"] .appearance-actions{padding-left:0}}
+.context-inspector[data-kind="Make it yours"] .appearance-heading{margin:36px 0 16px;padding-top:24px;border-top:1px solid var(--line);font-size:19px;font-weight:550;letter-spacing:-.3px;scroll-margin-top:12px}
+.context-inspector[data-kind="Make it yours"] .identity-preferences{display:grid;gap:22px;margin:36px 0 28px;padding-top:24px;border-top:1px solid var(--line)}
+.identity-preferences h3{margin:0 0 6px}.identity-preferences .identity-startup,.identity-preferences .identity-floating{display:grid;gap:8px}
 
 .anchor{touch-action:none;user-select:none;cursor:grab}.anchor[data-source-drag=searching],.anchor[data-source-drag=target]{cursor:grabbing;outline:2px solid var(--accent);outline-offset:-3px}.anchor[data-source-drag=blocked]{outline:2px solid #b6aaa0;outline-offset:-3px}
 /* Companion management uses the existing quiet settings/list layout. */
@@ -37,3 +42,22 @@
 
 /* Static symbols keep workflow state visible with motion off or a 3D fallback. */
 .character-cue{position:absolute;right:0;bottom:0;z-index:3;display:grid;place-items:center;width:16px;height:16px;border:1px solid var(--ink);border-radius:50%;background:var(--paper);color:var(--ink);font:600 12px/1 system-ui;pointer-events:none}
+
+/* Companion roster: the companion in use leads, one primary action per row, the rest under More. */
+.identity-picker .identity-intro{display:grid;gap:6px;margin-bottom:4px}.identity-picker .identity-intro h3{font-size:19px;font-weight:550;letter-spacing:-.3px}
+.identity-picker .identity-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:12px 12px;border:1px solid transparent;border-bottom-color:var(--line);border-radius:0}
+.identity-picker .identity-row[data-in-use]{border-color:color-mix(in srgb,var(--accent) 45%,transparent);border-radius:14px;background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.identity-picker .identity-summary{flex:1 1 140px;min-width:0}.identity-picker .identity-summary .bot-thumbnail{width:44px;height:44px}
+.identity-picker .identity-summary strong{display:block;font-size:15px;font-weight:550;overflow-wrap:anywhere}
+.identity-badges{display:flex;flex-wrap:wrap;gap:4px 6px;margin:6px 0 0;padding:0;list-style:none}.identity-badges li{font-size:12px;line-height:18px;padding:0 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.identity-row[data-in-use] .identity-badges li:first-child{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--ink)}
+.identity-picker .identity-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:nowrap}
+.identity-picker .identity-actions>button{min-height:32px;padding:5px 12px;font-size:13px}
+.identity-picker .identity-actions .identity-primary{border-color:color-mix(in srgb,var(--accent) 60%,var(--line))}
+.identity-picker .identity-actions .task-menu-items{width:240px}
+.identity-picker .identity-details{flex:1 1 100%;padding:14px;border:1px solid var(--line);border-radius:12px;scroll-margin:12px}
+.identity-picker .identity-details button{margin-right:8px}
+.identity-feedback{flex:1 1 100%;margin:0;font-size:13px;color:var(--muted)}.identity-feedback:empty{display:block;height:0;margin:0}.identity-feedback[role=alert]{color:#e4c7a0}
+.identity-picker .identity-hidden summary{font-size:13px;color:var(--muted);padding:6px 0}
+.identity-picker>.identity-add{justify-self:start;margin-top:6px}
+

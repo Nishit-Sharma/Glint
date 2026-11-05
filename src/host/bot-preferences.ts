@@ -9,7 +9,7 @@ import {BotSnapshotSchema,botNameOptions,freshBotChoice,newCharacterProfile,read
 
 const FileSchema=Schema.Struct({schemaVersion:Schema.Literal(2),current:BotSnapshotSchema});
 const unavailable:Extract<BotState,{kind:'unavailable'}>={kind:'unavailable',message:'Your companions could not be opened. Saved appearances and tasks have not been replaced.'};
-function creationProfile(input:Parameters<typeof newCharacterProfile>[0]){const profile=newCharacterProfile(input),names=botNameOptions(profile.look.shape);return {...profile,personalName:profile.personalName??names[randomInt(names.length)]};}
+function creationProfile(input:Parameters<typeof newCharacterProfile>[0]){const profile=newCharacterProfile(input),names=botNameOptions(profile.look.shape);return {...profile,personalName:profile.personalName??names[0]};}
 export class BotPreferences{
  private queue:Promise<unknown>=Promise.resolve();
  private constructor(private readonly directory:string,private readonly core:Companion){}

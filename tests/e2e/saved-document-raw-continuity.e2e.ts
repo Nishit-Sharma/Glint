@@ -118,7 +118,7 @@ test('a publicly linked document reviews a refreshed source, keeps newer typing 
  const submitted:Raw={title:'Raw document Ω',content:'Submitted document Ω.\n\nName | Seats\n--- | ---\nAda | 3'};
  const newer:Raw={title:'Newer document Δ',content:'Newer raw after dispatch.\n\nName | Seats\n--- | ---\nAda | 4'};
  const finalRaw:Raw={title:'Lost discard raw',content:'Retain this exact raw until Check.\n\nName | Seats\n--- | ---\nAda | 5'};
- const context=()=>workspace(page).getByRole('dialog',{name:'Context',exact:true}),files=()=>workspace(page).getByRole('dialog',{name:'Files',exact:true}),save=()=>document(page).getByRole('button',{name:'Save revision',exact:true});
+ const context=()=>workspace(page).getByRole('dialog',{name:'Attachments',exact:true}),files=()=>workspace(page).getByRole('dialog',{name:'Files',exact:true}),save=()=>document(page).getByRole('button',{name:'Save revision',exact:true});
  let owner:{taskId:string;basis:ArtifactRef;artifact:Artifact}|undefined,held:ReturnType<typeof entry.holdNextDocumentReply>|undefined;
  try{
   expect(await entry.fixture.core.listTasks()).toEqual([]);

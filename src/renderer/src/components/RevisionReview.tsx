@@ -14,7 +14,7 @@ import {readModelDraft,expressionLabel} from './ModelDraftReview';
 import {DeveloperDetails} from './DeveloperDetails';
 import {readScreenBrief,screenBriefNotes} from '../../../core/screen-brief';
 import {savedRevisionDraftSelection,type SavedRevisionDraftResult} from '../saved-revision-draft';
-export function RevisionReview({task,artifact,revision,back,backLabel='Back to Activity',onLatest,onDraft,disabled=false}:{task:Task;artifact:Artifact;revision:ArtifactRevision;back:()=>void;backLabel?:string;onLatest:()=>void;onDraft?:(reference:ArtifactRef)=>Promise<SavedRevisionDraftResult>;disabled?:boolean}){
+export function RevisionReview({task,artifact,revision,back,backLabel='Back to History',onLatest,onDraft,disabled=false}:{task:Task;artifact:Artifact;revision:ArtifactRevision;back:()=>void;backLabel?:string;onLatest:()=>void;onDraft?:(reference:ArtifactRef)=>Promise<SavedRevisionDraftResult>;disabled?:boolean}){
  const [preparing,setPreparing]=useState(false),[result,setResult]=useState<SavedRevisionDraftResult>(),preparingRef=useRef(false),reference={artifactId:artifact.id,revision:revision.revision,digest:revision.digest};
  const recoverable=!!onDraft&&!!savedRevisionDraftSelection(artifact,reference);
  async function prepare(){if(!onDraft||disabled||preparingRef.current)return;preparingRef.current=true;setPreparing(true);try{setResult(await onDraft(reference));}catch{setResult({kind:'held',message:'The draft could not be prepared. Open the current version to review your input.'});}finally{preparingRef.current=false;setPreparing(false);}}

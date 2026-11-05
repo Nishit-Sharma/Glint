@@ -87,7 +87,7 @@ describe('production source drop integration, substituted OS only',()=>{
    else f.seams.target={...f.target,id:'window:43',osId:43,title:'Other owned window',documentToken:'metadata-43-v1'};
    f.mouse('mouseUp');await f.settled();const pending=await f.command({type:'context.pending'});expect(pending.kind).toBe('ready');
    const result=await f.command({type:'context.capture',activationId:pending.activation.activationId,windowId:f.seams.target.id,taskId:task.id});
-   expect(result.state).toBe('captured');expect(f.calls.dialogs).toEqual(['Capture this window?']);expect(f.calls.provider).toBe(0);
+   expect(result.state).toBe('captured');expect(f.calls.dialogs).toEqual(['Take a screenshot of this window?']);expect(f.calls.provider).toBe(0);
   }
  });
  it('falls back to manual capture review when the displayed disclosure becomes clipped before release',async()=>{
@@ -95,7 +95,7 @@ describe('production source drop integration, substituted OS only',()=>{
   f.seams.workArea={x:500,y:0,width:1300,height:1100};f.mouse('mouseUp');await f.settled();
   const pending=await f.command({type:'context.pending'});expect(pending.kind).toBe('ready');expect(f.calls.captures).toBe(0);
   const result=await f.command({type:'context.capture',activationId:pending.activation.activationId,windowId:'window:42',taskId:task.id});
-  expect(result.state).toBe('captured');expect(f.calls.dialogs).toEqual(['Capture this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);
+  expect(result.state).toBe('captured');expect(f.calls.dialogs).toEqual(['Take a screenshot of this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);
  });
  it('a displayed drop is one-shot and cannot outlive a privacy change',async()=>{
   const f=await fixture(),task=await f.core.createTask({title:'Owned one-shot task'});await f.command({type:'context.view',taskId:task.id});await showDropPreview(f);f.mouse('mouseUp');await f.settled();
@@ -120,7 +120,7 @@ describe('production source drop integration, substituted OS only',()=>{
   const settings=await CaptureSettings.open(f.directory);await settings.update({kind:'approve-setup',expectedRevision:0,policyVersion:1,privateApps:[]});
   await f.command({type:'source.choose'});const pending=await f.command({type:'context.pending'});expect(pending.activation.origin).toBe('source-picker');
   expect((await f.command({type:'context.capture',activationId:pending.activation.activationId,windowId:'window:42',taskId:task.id})).state).toBe('captured');
-  expect(f.calls.dialogs).toEqual(['Capture this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);
+  expect(f.calls.dialogs).toEqual(['Take a screenshot of this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);
  });
  it('keeps the exact one-snapshot drop through the explicit no-room recovery',async()=>{
   const f=await fixture(),task=await f.core.createTask({title:'Owned no-room task'});f.seams.target={...f.target,bounds:{x:0,y:0,width:1800,height:1100}};await f.command({type:'context.view',taskId:task.id});
@@ -147,7 +147,7 @@ describe('production source drop integration, substituted OS only',()=>{
   const release=await f.drop();expect(release.preventDefault).toHaveBeenCalled();const pending=await f.command({type:'context.pending'});
   expect(pending.kind).toBe('ready');expect(pending.activation).toMatchObject({origin:'user-drop',intent:'attach',tucked:true,ownerTaskId:task.id,target:{id:'window:42'}});expect(pending.activation.trigger).toBeUndefined();expect(f.calls.captures).toBe(0);expect(f.calls.provider).toBe(0);
   const result=await f.command({type:'context.capture',activationId:pending.activation.activationId,windowId:'window:42',taskId:task.id});
-  expect(result.state).toBe('captured');expect(result.task.sources[0].versions[0]).toMatchObject({kind:'window',windowId:'window:42',windowProcessId:123});expect(f.calls.dialogs).toEqual(['Capture this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);expect((await f.command({type:'capture.settings.get'})).current.policy.setupApproval).toBe('not-approved');
+  expect(result.state).toBe('captured');expect(result.task.sources[0].versions[0]).toMatchObject({kind:'window',windowId:'window:42',windowProcessId:123});expect(f.calls.dialogs).toEqual(['Take a screenshot of this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);expect((await f.command({type:'capture.settings.get'})).current.policy.setupApproval).toBe('not-approved');
   expect(f.calls.events.filter(event=>event.type==='surface'&&event.mode==='companion')).toHaveLength(1);
  });
  it.each(['unconfirmed','changing'])('does not arm, preview titles or bind when session health is already %s',async health=>{
@@ -162,7 +162,7 @@ describe('production source drop integration, substituted OS only',()=>{
   expect(pending.activation).toMatchObject({newTask:true,intent:'attach',origin:'user-drop'});
   const command={type:'context.capture',activationId:pending.activation.activationId,windowId:'window:42'};
   expect((await f.command(command)).state).toBe('no-room');expect((await f.command({type:'context.pending'})).activation).toEqual(pending.activation);expect(f.calls.dialogs).toEqual([]);expect(f.calls.captures).toBe(0);
-  await f.command({type:'surface.standalone'});expect((await f.command(command)).state).toBe('captured');expect(f.calls.dialogs).toEqual(['Capture this window?']);expect(f.calls.provider).toBe(0);
+  await f.command({type:'surface.standalone'});expect((await f.command(command)).state).toBe('captured');expect(f.calls.dialogs).toEqual(['Take a screenshot of this window?']);expect(f.calls.provider).toBe(0);
  });
  it('keeps metadata binding honest when manual capture is cancelled and opens an attach-only picker for retry',async()=>{
   const f=await fixture();await f.drop();const pending=await f.command({type:'context.pending'}),attached=f.bounds();f.seams.response=0;
@@ -229,7 +229,7 @@ describe('production source drop integration, substituted OS only',()=>{
   if(origin==='drop')await f.drop();else await f.command({type:'source.choose'});
   const activation=(await f.command({type:'context.pending'})).activation;await f.command({type:'context.view',taskId:a.id});
   expect((await f.command({type:'context.pending'})).activation).toEqual(activation);
-  expect((await f.command({type:'context.capture',activationId:activation.activationId,windowId:'window:42',taskId:a.id})).state).toBe('captured');expect(f.calls.dialogs).toEqual(['Capture this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);
+  expect((await f.command({type:'context.capture',activationId:activation.activationId,windowId:'window:42',taskId:a.id})).state).toBe('captured');expect(f.calls.dialogs).toEqual(['Take a screenshot of this window?']);expect(f.calls.captures).toBe(1);expect(f.calls.provider).toBe(0);
  });
 });
 
@@ -267,11 +267,11 @@ describe('exact native protection across capture entry points',()=>{
   const request=await f.selectShortcut();await expect(f.command(request)).rejects.toThrow();expect(f.calls.dialogs).toEqual([]);expect(f.calls.captures).toBe(0);expect((await f.core.getTask(f.task.id)).sources).toEqual([]);expect(f.calls.provider).toBe(0);expect((await f.command({type:'capture.settings.get'})).current.policy.setupApproval).toBe('not-approved');
  });
  it('unprotected focused shortcut succeeds through setup and repeated exact protection checks',async()=>{
-  const f=await protectionFixture(),request=await f.selectShortcut(),result=await f.command(request);expect(result.state).toBe('captured');expect(f.calls.dialogs).toEqual(['Set up shortcut snapshots?']);expect(f.calls.captures).toBe(1);expect(result.task.sources[0].versions[0]).toMatchObject({windowId:'window:42',windowProcessId:123});expect(f.checks()).toBeGreaterThan(2);expect(f.calls.provider).toBe(0);
+  const f=await protectionFixture(),request=await f.selectShortcut(),result=await f.command(request);expect(result.state).toBe('captured');expect(f.calls.dialogs).toEqual(['Set up shortcut screenshots?']);expect(f.calls.captures).toBe(1);expect(result.task.sources[0].versions[0]).toMatchObject({windowId:'window:42',windowProcessId:123});expect(f.checks()).toBeGreaterThan(2);expect(f.calls.provider).toBe(0);
  });
  it('a protection change at the native capture fence refuses pixels after reviewed setup',async()=>{
   const f=await protectionFixture(),capture=f.deps.captureWindow!;f.deps.captureWindow=async(id,fence)=>{f.protect();return capture(id,fence);};
-  await expect(f.command(await f.selectShortcut())).rejects.toThrow('protected');expect(f.calls.dialogs).toEqual(['Set up shortcut snapshots?']);expect(f.calls.captures).toBe(0);expect((await f.core.getTask(f.task.id)).sources).toEqual([]);expect(f.calls.provider).toBe(0);
+  await expect(f.command(await f.selectShortcut())).rejects.toThrow('protected');expect(f.calls.dialogs).toEqual(['Set up shortcut screenshots?']);expect(f.calls.captures).toBe(0);expect((await f.core.getTask(f.task.id)).sources).toEqual([]);expect(f.calls.provider).toBe(0);
  });
  it.each(['manual','update'] as const)('the %s capture entry point shares exact protection refusal',async mode=>{
   const f=await protectionFixture();let sourceId:string|undefined;if(mode==='update'){const saved=await f.command({type:'windows.capture',taskId:f.task.id,windowId:'window:42'});sourceId=saved.sources[0].id;}

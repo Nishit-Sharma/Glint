@@ -26,13 +26,13 @@ test('malformed source-formula bytes are not rendered as conversation text',asyn
  try{
   const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content='MALFORMED_PRIVATE_SENTINEL';
   const before=JSON.stringify(task),html=renderText(createElement(Conversation,{task,active:true,renderBrief:()=>null,onArtifact:()=>{},onConnection:()=>{}}));
-  expect(html).toContain('This saved source formula needs inspection.');expect(html).toContain('Its original content is kept.');expect(html).not.toContain('Open '+f.input.title);expect(html).not.toContain('MALFORMED_PRIVATE_SENTINEL');expect(JSON.stringify(task)).toBe(before);
+  expect(html).toContain('This saved formula needs a check.');expect(html).toContain('Nothing in it was changed.');expect(html).not.toContain('Open '+f.input.title);expect(html).not.toContain('MALFORMED_PRIVATE_SENTINEL');expect(JSON.stringify(task)).toBe(before);
  }finally{await f.close();}
 });
 
 
 test('formula MIME takes precedence over a valid but unrelated screen-brief envelope',async()=>{
  const f=await sourceFormulaFixture();try{
-  const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'UNRELATED_BRIEF_SENTINEL',actions:[]});expect(readScreenBrief(revision.content,revision.sourceRefs)).toBeDefined();const renderBrief=vi.fn(()=>createElement('p',{},'UNRELATED_BRIEF_SENTINEL'));const html=renderText(createElement(Conversation,{task,active:true,renderBrief,onArtifact:()=>{},onConnection:()=>{}}));expect(renderBrief).not.toHaveBeenCalled();expect(html).toContain('This saved source formula needs inspection.');expect(html).not.toContain('UNRELATED_BRIEF_SENTINEL');
+  const saved=await saveSourceFormula(f.core,{input:f.input}),task=await f.core.getTask(f.task.id),revision=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions[0];revision.content=JSON.stringify({schemaVersion:1,kind:'screen-brief',insight:'UNRELATED_BRIEF_SENTINEL',actions:[]});expect(readScreenBrief(revision.content,revision.sourceRefs)).toBeDefined();const renderBrief=vi.fn(()=>createElement('p',{},'UNRELATED_BRIEF_SENTINEL'));const html=renderText(createElement(Conversation,{task,active:true,renderBrief,onArtifact:()=>{},onConnection:()=>{}}));expect(renderBrief).not.toHaveBeenCalled();expect(html).toContain('This saved formula needs a check.');expect(html).not.toContain('UNRELATED_BRIEF_SENTINEL');
  }finally{await f.close();}
 });

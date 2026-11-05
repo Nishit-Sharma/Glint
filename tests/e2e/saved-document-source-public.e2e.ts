@@ -10,7 +10,7 @@ import {parseSavedDocumentDraft,SAVED_DOCUMENT_DRAFT_SLOT} from '../../src/share
 test.use({viewport:{width:1080,height:800}});
 const workspace=(page:Page)=>page.locator('.workspace:visible');
 const document=(page:Page)=>workspace(page).getByRole('dialog',{name:'Document',exact:true});
-const context=(page:Page)=>workspace(page).getByRole('dialog',{name:'Context',exact:true});
+const context=(page:Page)=>workspace(page).getByRole('dialog',{name:'Attachments',exact:true});
 const picker=(page:Page)=>context(page).getByRole('region',{name:'Saved document source',exact:true});
 async function selectTask(page:Page,title:string){await taskTool(page,'Work');await workspace(page).getByRole('complementary',{name:'Task navigation',exact:true}).getByRole('button',{name:title,exact:true}).click();await expect(workspace(page).getByRole('button',{name:'Choose task',exact:true})).toContainText(title);}
 async function openDocument(page:Page,id:string){await taskTool(page,'Files');await workspace(page).getByRole('dialog',{name:'Files',exact:true}).locator(`button.artifact-row[data-view-focus="artifact:${id}"]`).click();await expect(document(page)).toBeVisible();}

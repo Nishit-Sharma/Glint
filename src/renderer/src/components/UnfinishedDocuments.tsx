@@ -22,8 +22,8 @@ export function UnfinishedDocuments({tasks,cache,onOpen}:{tasks:readonly Task[];
   const scope:SavedWorkOpenScope={current,started(){if(current()){opening.current=true;setPending(true);}},finished(){if(live()){opening.current=false;setPending(false);}},failed(reason){if(live())setError(publicErrorMessage(reason));}};
   try{onOpen(item.match,scope);}catch(reason){scope.failed(reason);scope.finished();}
  }
- return <section className="saved-work-search unfinished-documents" aria-label="Unfinished documents">
-  <p>Find unapplied edits to saved plain-text and Markdown documents across tasks. Names below identify the owning task and saved document. Draft text stays in its document editor.</p>
+ return <section className="saved-work-search unfinished-documents" aria-label="Drafts">
+  <p>Edits you haven’t saved yet, across all your tasks. Each one shows its task and document. Your unsaved text stays in the document.</p>
   <p className="tiny">Opening a draft does not send a request or save a document revision. Source edits, revision instructions and lesson forms remain in each task’s Files → Unfinished practice.</p>
   <form onSubmit={event=>event.preventDefault()}><Field label="Filter by task or document"><input type="search" maxLength={200} value={query} onChange={event=>{invalidate();setQuery(event.target.value);}}/></Field><Field label="Show drafts"><select value={filter} onChange={event=>{invalidate();setFilter(event.target.value==='review'?'review':'all');}}><option value="all">All document edits</option><option value="review">Needs review or storage check</option></select></Field></form>
   {!state.ready?<p role="status">Loading unfinished document edits…</p>:state.error?<p role="alert">Unfinished document edits could not be read. Existing draft bytes are kept; check draft storage in Files before continuing.</p>:state.frozen||state.maintenance?<p role="status">Draft editing is paused while storage is being checked or saved. Your edits are kept.</p>:null}

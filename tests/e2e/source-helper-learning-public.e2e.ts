@@ -9,7 +9,7 @@ import {projectTaskDialogue} from '../../src/core/task-dialogue';
 import {taskContext} from '../../src/host/browser/coordinator';
 import {taskTool} from '../support/ui-tools';
 import {pickingPublicFrame as frame} from '../support/picking-public-frame';
-const workspace=(page:Page)=>page.locator('.workspace:visible'),document=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const workspace=(page:Page)=>page.locator('.workspace:visible'),document=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 const title='Grounded helper learning',csv='Quantity,Reviewed,Protected,Ignored\n25,true,false,UNMAPPED_PRIVATE\n75,true,false,UNMAPPED_PRIVATE\n10,false,false,UNMAPPED_PRIVATE\n10,true,true,UNMAPPED_PRIVATE\n';
 const batch=(page:Page)=>document(page).getByRole('region',{name:'Apply helper to a saved table',exact:true}),lesson=(page:Page)=>batch(page).getByRole('region',{name:'Learn from a saved record',exact:true});
 async function expand(details:Locator){await expect(details).toHaveCount(1);if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();await expect(details).toHaveAttribute('open','');}

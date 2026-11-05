@@ -1,8 +1,7 @@
 import {Schema} from 'effect';
-import {CharacterProfileSchema,CHARACTER_PICKER_SHAPES,DEFAULT_CHARACTER,type CharacterProfile} from './character-catalog';
+import {CharacterProfileSchema,CHARACTER_PICKER_SHAPES,DEFAULT_CHARACTER,characterNameOptions,type CharacterProfile} from './character-catalog';
 
-const defaultNames=[{shape:'soup',names:['Bao','Momo']},{shape:'onigiri',names:['Nori']},{shape:'mushroom',names:['Moss']},{shape:'star',names:['Lumi']},{shape:'sprout',names:['Miso']}];
-export const botNameOptions=(shape:CharacterProfile['look']['shape']):readonly string[]=>defaultNames.find(value=>value.shape===shape)?.names??['Glint'];
+export const botNameOptions=(shape:CharacterProfile['look']['shape']):readonly string[]=>characterNameOptions(shape);
 export const ONBOARDING_SHAPES=CHARACTER_PICKER_SHAPES.slice(0,5);
 const revision=Schema.Number.pipe(Schema.int(),Schema.between(0,Number.MAX_SAFE_INTEGER));
 const id=Schema.String.pipe(Schema.minLength(1),Schema.maxLength(200));

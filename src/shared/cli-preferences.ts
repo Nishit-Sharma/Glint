@@ -13,8 +13,8 @@ export const readCliPreferencesUpdate=Schema.decodeUnknownSync(CliPreferencesUpd
 export const readCliPreferencesCommit=Schema.decodeUnknownSync(Schema.Struct({kind:Schema.Literal('saved','conflict'),current:CliPreferencesSchema}),{onExcessProperty:'error'});
 export const CLI_SETTINGS=[
  {key:'format',label:'Output format',description:'Default text or JSON output.'},
- {key:'includeSourceLabels',label:'Source labels',description:'Include source labels when inspecting a task.'},
- {key:'excerptChars',label:'Text excerpt length',description:'Characters per text source, from 0 (off) to 256.'},
+ {key:'includeSourceLabels',label:'File and window names',description:'Include file and window names when viewing a task.'},
+ {key:'excerptChars',label:'Text excerpt length',description:'Characters per shared text, from 0 (off) to 256.'},
 ] as const;
 export const searchCliSettings=(query:string)=>CLI_SETTINGS.filter(item=>`${item.key} ${item.label} ${item.description}`.toLowerCase().includes(query.trim().toLowerCase()));
 export const CliPreviewSchema=Schema.Union(Schema.Struct({kind:Schema.Literal('ready'),output:Schema.String.pipe(Schema.maxLength(262144)),launcher:Schema.String.pipe(Schema.maxLength(4096))}),Schema.Struct({kind:Schema.Literal('unavailable'),message:Schema.String.pipe(Schema.maxLength(1000))}));

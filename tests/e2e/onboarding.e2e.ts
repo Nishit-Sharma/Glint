@@ -9,13 +9,13 @@ test('original 3D choice persists, continues into an honest editable local examp
  try{
   await expect(page.getByRole('heading',{name:'Choose your companion'})).toBeVisible();await expect(page.getByText('Glint · Pick a shape. Change it anytime.',{exact:true})).toBeVisible();
   const shapes=page.getByRole('radiogroup',{name:'Companion shape'});await expect(shapes.getByRole('radio')).toHaveCount(5);
-  for(const name of ['Dumpling','Onigiri','Mushroom','Star','Dollop'])await expect(shapes.getByRole('radio',{name,exact:true})).toBeVisible();
+  for(const name of ['Bao','Nori','Moss','Lumi','Miso'])await expect(shapes.getByRole('radio',{name,exact:true})).toBeVisible();
   await expect(page.getByText('Crescent',{exact:true})).toHaveCount(0);await expect(shapes.locator('canvas')).toHaveCount(5);
   await settleCapture(page);await page.screenshot({path:'evidence/onboarding/picker-desktop.png'});
   await page.getByRole('radio',{name:'Sage',exact:true}).click();await expect(page.locator('.choice-colors small')).toHaveText('Sage');
   const previews=await shapes.locator('img').evaluateAll(images=>images.map(image=>(image as HTMLImageElement).src));expect(new Set(previews).size).toBe(5);
-  await page.getByRole('radio',{name:'Dumpling',exact:true}).focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('radio',{name:'Onigiri',exact:true})).toBeChecked();
-  await fixture.restart();await expect(page.getByRole('radio',{name:'Onigiri',exact:true})).toBeChecked();await expect(page.getByRole('radio',{name:'Sage',exact:true})).toBeChecked();
+  await page.getByRole('radio',{name:'Bao',exact:true}).focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('radio',{name:'Nori',exact:true})).toBeChecked();
+  await fixture.restart();await expect(page.getByRole('radio',{name:'Nori',exact:true})).toBeChecked();await expect(page.getByRole('radio',{name:'Sage',exact:true})).toBeChecked();
   await settleCapture(page);await page.screenshot({path:'evidence/onboarding/picker-sage.png'});
   await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByText('Local example · Bundled on this device')).toBeVisible();
   await expect(page.locator('#main').getByText('Doors open at 18:00.',{exact:false})).toBeVisible();await expect(page.locator('#main').getByRole('heading',{name:'Before your visit'})).toBeVisible();
@@ -36,12 +36,12 @@ test('320px keyboard choice retains a visible footer and original reduced-motion
  await page.setViewportSize({width:320,height:640});await page.emulateMedia({reducedMotion:'reduce'});
  const fixture=await OnboardingFixture.open(page);
  try{
-  await expect(page.getByRole('heading',{name:'Choose your companion'})).toBeVisible();await page.getByRole('radio',{name:'Dumpling',exact:true}).focus();await page.keyboard.press('End');await expect(page.getByRole('radio',{name:'Dollop',exact:true})).toBeChecked();
+  await expect(page.getByRole('heading',{name:'Choose your companion'})).toBeVisible();await page.getByRole('radio',{name:'Bao',exact:true}).focus();await page.keyboard.press('End');await expect(page.getByRole('radio',{name:'Miso',exact:true})).toBeChecked();
   await expect(page.getByRole('button',{name:'Continue',exact:true})).toBeInViewport();
   const box=await page.getByRole('button',{name:'Continue',exact:true}).boundingBox();expect(box!.y+box!.height).toBeLessThanOrEqual(640);
   await settleCapture(page);await page.screenshot({path:'evidence/onboarding/picker-320-keyboard.png'});
   await page.getByRole('radio',{name:'Dough',exact:true}).focus();await page.keyboard.press('ArrowRight');await expect(page.getByRole('radio',{name:'Iris',exact:true})).toBeChecked();
-  await page.getByRole('button',{name:'Pick for me',exact:true}).click();await expect(page.getByRole('radio',{name:'Dollop',exact:true})).not.toBeChecked();await expect(page.getByRole('radio',{name:'Iris',exact:true})).toBeChecked();
+  await page.getByRole('button',{name:'Pick for me',exact:true}).click();await expect(page.getByRole('radio',{name:'Miso',exact:true})).not.toBeChecked();await expect(page.getByRole('radio',{name:'Iris',exact:true})).toBeChecked();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await settleCapture(page);await page.screenshot({path:'evidence/onboarding/picker-320-color.png'});await page.getByRole('radiogroup',{name:'Companion color',exact:true}).scrollIntoViewIfNeeded();await settleCapture(page);await page.screenshot({path:'evidence/onboarding/picker-320-color-controls.png'});
   await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByText('Local example · Bundled on this device')).toBeVisible();await expect(page.locator('[data-character-render="live"]')).toHaveCount(1);
  }finally{await fixture.close();}
@@ -52,8 +52,8 @@ test('multiple identities remain opt-in and follow assigned threads through head
  try{
   await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByText('Local example · Bundled on this device')).toBeVisible();const first=(await fixture.core.listTasks())[0];
   await page.getByRole('button',{name:/^Customize (Bao|Momo)$/}).click();await page.getByRole('button',{name:'Add another companion',exact:true}).click();
-  await page.getByRole('radio',{name:'Star',exact:true}).click();await page.getByRole('radio',{name:'Iris',exact:true}).click();await page.getByRole('button',{name:'Add companion',exact:true}).click();
-  await page.getByRole('button',{name:'Use by default for new tasks',exact:true}).click();
+  await page.getByRole('radio',{name:'Lumi',exact:true}).click();await page.getByRole('radio',{name:'Iris',exact:true}).click();await page.getByRole('button',{name:'Add companion',exact:true}).click();
+  await page.getByRole('region',{name:'Manage companions',exact:true}).locator('.identity-row').nth(1).getByRole('button',{name:/^More for /}).click();await page.getByRole('button',{name:'Use by default for new tasks',exact:true}).click();
   const catalog=await fixture.ready();expect(catalog.bots).toHaveLength(2);expect(catalog.defaultBotId).toBe(catalog.bots[1].id);expect((await fixture.core.getTask(first.id)).assignedBotId).toBe(catalog.bots[0].id);
   const second=await fixture.invoke({type:'tasks.create',title:'Second task'}) as Task;await fixture.core.saveComposerDraft(first.id,0,{text:'First task draft',kind:'explain'});await fixture.core.saveComposerDraft(second.id,0,{text:'Second task draft',kind:'explain'});await fixture.emit({type:'changed'});
   await page.getByRole('button',{name:'Back to task',exact:true}).click();await page.getByRole('button',{name:'Second task',exact:true}).click();
@@ -96,8 +96,8 @@ test('the unchanged original actor stops work for reduced motion and destroys st
 test('optional custom names remain editable and survive shape changes and restart',async({page})=>{
  await page.emulateMedia({reducedMotion:'reduce'});const fixture=await OnboardingFixture.open(page);
  try{
-  await page.getByText('Add a name',{exact:false}).click();await page.getByRole('textbox',{name:'Companion name',exact:true}).fill('Juniper');await page.getByRole('radio',{name:'Mushroom',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click();
-  await page.getByRole('button',{name:'Customize Juniper',exact:true}).click();await page.getByRole('textbox',{name:'Character name',exact:true}).fill('Aster');await page.getByRole('button',{name:'Star',exact:true}).click();await page.getByRole('button',{name:'Save appearance',exact:true}).click();await expect(page.getByText('Appearance saved.',{exact:true})).toBeVisible();
+  await page.getByText('Add a name',{exact:false}).click();await page.getByRole('textbox',{name:'Companion name',exact:true}).fill('Juniper');await page.getByRole('radio',{name:'Moss',exact:true}).click();await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await page.getByRole('button',{name:'Customize Juniper',exact:true}).click();await page.getByRole('textbox',{name:'Character name',exact:true}).fill('Aster');await page.getByRole('button',{name:'Lumi',exact:true}).click();await page.getByRole('button',{name:'Save appearance',exact:true}).click();await expect(page.getByText('Appearance saved.',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Back to task',exact:true}).click();await expect(page.getByRole('button',{name:'Customize Aster',exact:true})).toBeVisible();await fixture.restart();await expect(page.getByRole('button',{name:'Customize Aster',exact:true})).toBeVisible();
   const catalog=await fixture.ready();expect(catalog.bots[0].profile).toMatchObject({personalName:'Aster',look:{shape:'star'}});await expect(page.locator('.workspace')).toHaveAttribute('data-surface-reveal',/settled|skipped|cancelled/);await settleCapture(page);await page.screenshot({path:'evidence/onboarding/custom-name.png'});
  }finally{await fixture.close();}
@@ -109,13 +109,41 @@ test('appearance conflict reload stays on the active bot and reassignment respec
   await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByText('Local example · Bundled on this device')).toBeVisible();let catalog=await fixture.ready();const first=catalog.bots[0],task=(await fixture.core.listTasks())[0];
   await fixture.bots.command({type:'add',expectedRevision:catalog.revision,profile:{personalName:null,look:{shape:'star',color:'iris',face:'curious',motion:true}}});await fixture.restart();catalog=await fixture.ready();
   await page.getByRole('button',{name:'Customize '+first.profile.personalName,exact:true}).click();await page.getByRole('textbox',{name:'Character name',exact:true}).fill('Unsaved local name');
-  await page.getByRole('region',{name:'Manage companions',exact:true}).getByRole('button',{name:'Use for this task',exact:true}).click();await expect(page.getByRole('dialog',{name:'Keep your unsaved edits?'})).toBeVisible();expect((await fixture.core.getTask(task.id)).assignedBotId).toBe(first.id);await page.getByRole('button',{name:'Keep editing',exact:true}).click();
+  await page.getByRole('region',{name:'Manage companions',exact:true}).locator('.identity-row').nth(1).getByRole('button',{name:/^More for /}).click();await page.getByRole('region',{name:'Manage companions',exact:true}).getByRole('button',{name:'Use for this task',exact:true}).click();await expect(page.getByRole('dialog',{name:'Keep your unsaved edits?'})).toBeVisible();expect((await fixture.core.getTask(task.id)).assignedBotId).toBe(first.id);await page.getByRole('button',{name:'Keep editing',exact:true}).click();
   await fixture.bots.command({type:'update',expectedRevision:catalog.revision,botId:first.id,profile:{...first.profile,personalName:'Changed elsewhere'}});
   await page.getByRole('button',{name:'Save appearance',exact:true}).click();await expect(page.getByText('Your saved appearance changed elsewhere. Your edits have not been saved.',{exact:true})).toBeVisible();await page.getByRole('button',{name:'Load saved appearance',exact:true}).click();await expect(page.getByRole('textbox',{name:'Character name',exact:true})).toHaveValue('Changed elsewhere');
   await page.getByRole('textbox',{name:'Character name',exact:true}).fill('Saved name');await page.getByRole('button',{name:'Save appearance',exact:true}).click();await expect(page.getByText('Appearance saved.',{exact:true})).toBeVisible();
   expect(fixture.commands.filter(command=>command.type==='preferences.get'||command.type==='preferences.update')).toHaveLength(0);
-  await page.getByRole('region',{name:'Manage companions',exact:true}).getByRole('button',{name:'Use for this task',exact:true}).click();await expect.poll(async()=>(await fixture.core.getTask(task.id)).assignedBotId).toBe(catalog.bots[1].id);
+  await page.getByRole('region',{name:'Manage companions',exact:true}).locator('.identity-row').nth(1).getByRole('button',{name:/^More for /}).click();await page.getByRole('region',{name:'Manage companions',exact:true}).getByRole('button',{name:'Use for this task',exact:true}).click();await expect.poll(async()=>(await fixture.core.getTask(task.id)).assignedBotId).toBe(catalog.bots[1].id);
   await page.getByRole('button',{name:'Add another companion',exact:true}).click();await expect(page.getByRole('radiogroup',{name:'Companion shape'}).locator('canvas')).toHaveCount(5);await page.getByRole('button',{name:'Cancel',exact:true}).click();
+ }finally{await fixture.close();}
+});
+
+test('a long companion roster scrolls as one panel and brings each edit form and confirmation into view',async({page})=>{
+ await page.emulateMedia({reducedMotion:'reduce'});const fixture=await OnboardingFixture.open(page);
+ try{
+  await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByText('Local example · Bundled on this device')).toBeVisible();let catalog=await fixture.ready();const first=catalog.bots[0];
+  for(let index=1;index<=5;index++){await fixture.bots.command({type:'add',expectedRevision:catalog.revision,profile:{personalName:'Roster pal '+index,look:{shape:'star',color:'iris',face:'curious',motion:false}}});catalog=await fixture.ready();}
+  expect(catalog.bots).toHaveLength(6);await fixture.restart();await page.setViewportSize({width:430,height:760});
+  await page.getByRole('button',{name:'Customize '+first.profile.personalName,exact:true}).click();
+  const panel=page.locator('.context-inspector[data-kind="Make it yours"]'),content=panel.locator('.inspector-content'),rows=page.getByRole('region',{name:'Manage companions',exact:true}).locator('.identity-row');
+  await expect(rows).toHaveCount(6);await expect(page.getByRole('textbox',{name:'Character name',exact:true})).toBeAttached();
+  const layout=await content.evaluate(element=>{const editor=element.querySelector('.appearance-editor')!.getBoundingClientRect(),picker=element.querySelector('.identity-picker')!.getBoundingClientRect(),style=getComputedStyle(element);return {overflowY:style.overflowY,clientHeight:element.clientHeight,scrollHeight:element.scrollHeight,editorHeight:editor.height,pickerHeight:picker.height};});
+  expect(layout.editorHeight).toBeGreaterThan(300);expect(['auto','scroll']).toContain(layout.overflowY);expect(layout.scrollHeight).toBeGreaterThan(layout.clientHeight+layout.pickerHeight/2);
+  await content.hover();await page.mouse.wheel(0,500);await expect.poll(()=>content.evaluate(element=>element.scrollTop)).toBeGreaterThan(0);
+  await content.evaluate(element=>{element.scrollTop=0;});
+  await rows.nth(4).getByRole('button',{name:'Edit appearance',exact:true}).click();
+  const name=page.getByRole('textbox',{name:'Character name',exact:true});await expect(name).toBeFocused();await expect(name).toHaveValue(/^Roster pal /);await expect(name).toBeInViewport();
+  await expect(page.getByRole('button',{name:'Save appearance',exact:true})).toBeInViewport();await expect(page.getByRole('button',{name:'Cancel',exact:true})).toBeInViewport();
+  await content.evaluate(element=>{element.scrollTop=0;});await name.fill('Roster pal saved');await page.getByRole('button',{name:'Save appearance',exact:true}).click();const saved=panel.locator('.appearance-message',{hasText:'Appearance saved.'});await expect(saved).toBeVisible();await expect(saved).toBeInViewport();await expect(page.getByRole('button',{name:'Save appearance',exact:true})).toBeInViewport();
+  await content.evaluate(element=>{element.scrollTop=element.scrollHeight;});await expect(page.getByRole('button',{name:'Save appearance',exact:true})).toBeInViewport();
+  await content.evaluate(element=>{element.scrollTop=0;});await rows.nth(3).getByRole('button',{name:/^More for /}).click();await page.getByRole('button',{name:'Edit details',exact:true}).click();
+  const title=page.getByRole('form',{name:'Companion display details'}).getByRole('textbox',{name:'Title',exact:true});await expect(title).toBeFocused();await expect(title).toBeInViewport();
+  await page.getByRole('form',{name:'Companion display details'}).getByRole('button',{name:'Cancel',exact:true}).click();
+  await rows.nth(5).getByRole('button',{name:/^More for /}).click();await page.getByRole('button',{name:'Duplicate',exact:true}).click();
+  const confirmation=rows.filter({hasText:'Companion duplicated.'});await expect(confirmation).toHaveCount(1);await expect(confirmation.getByRole('status')).toBeInViewport();await expect.poll(async()=>(await fixture.ready()).bots.length).toBe(7);
+  await settleCapture(page);await page.screenshot({path:'evidence/onboarding/long-roster-430.png'});
+  expect(fixture.external).toEqual([]);
  }finally{await fixture.close();}
 });
 

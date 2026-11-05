@@ -30,7 +30,11 @@ export function readCharacterUpdate(input:unknown):CharacterUpdate {
  const value=Schema.decodeUnknownSync(CharacterUpdateSchema,{onExcessProperty:'error'})(input);
  return {...value,profile:{...value.profile,personalName:value.profile.personalName?.normalize('NFC').trim()||null}};
 }
-export const characterLabel=(profile:CharacterProfile)=>profile.personalName??'Glint';
+// Glint is the app. Each companion has its own name: the user's choice, else its shape's first default.
+const CHARACTER_DEFAULT_NAMES:{readonly [Shape in CharacterProfile['look']['shape']]:readonly [string,...string[]]}={soup:['Bao','Momo'],onigiri:['Nori'],mushroom:['Moss'],star:['Lumi'],sprout:['Miso'],dumpling:['Mochi'],pillow:['Bo'],bean:['Fig'],pebble:['Pip'],drop:['Dotty'],bloom:['Fenn']};
+export const characterNameOptions=(shape:CharacterProfile['look']['shape']):readonly [string,...string[]]=>CHARACTER_DEFAULT_NAMES[shape];
+export const characterDefaultName=(shape:CharacterProfile['look']['shape'])=>characterNameOptions(shape)[0];
+export const characterLabel=(profile:CharacterProfile)=>profile.personalName??characterDefaultName(profile.look.shape);
 export const sameCharacter=(left:CharacterProfile,right:CharacterProfile)=>left.personalName===right.personalName&&left.look.shape===right.look.shape&&left.look.color===right.look.color&&left.look.face===right.look.face&&left.look.motion===right.look.motion&&(left.look.glasses??'none')===(right.look.glasses??'none')&&(left.look.accessory??'none')===(right.look.accessory??'none');
 const UnavailableSchema=Schema.Struct({kind:Schema.Literal('unavailable'),message:Schema.String});
 export const readCharacterState=Schema.decodeUnknownSync(Schema.Union(Schema.Struct({kind:Schema.Literal('available'),current:CharacterSnapshotSchema}),UnavailableSchema),{onExcessProperty:'error'});

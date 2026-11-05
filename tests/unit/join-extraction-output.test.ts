@@ -28,7 +28,7 @@ test('failure diagnostics identify schema paths without retaining source values 
  ] as const){
   let error:unknown;try{parseJoinExtractionOutput(JSON.stringify(value));}catch(cause){error=cause;}
   expect(error).toBeInstanceOf(Error);expect(String(error)).toContain('Diagnostic: schema at '+path);
-  expect(String(error)).not.toMatch(/private|PRIVATE/);expect(publicErrorMessage(error)).toBe('The response could not be turned into a usable draft. Change your request and try again.');
+  expect(String(error)).not.toMatch(/private|PRIVATE/);expect(publicErrorMessage(error)).toBe('The response could not be turned into a usable draft. Change your question and try again.');
  }
  for(const [raw,code] of [['```json\nPRIVATE\n```','json'],['{"secret":1,"secret":2}','duplicate-key'],['['.repeat(13),'depth'],[' '.repeat(128001),'size'],['{"schemaVersion":1,"kind":"unsupported-source","reason":"<PRIVATE>"}','unsupported-shape']] as const){
   expect(()=>parseJoinExtractionOutput(raw)).toThrow('Diagnostic: '+code+' at $');

@@ -18,7 +18,7 @@ test('fresh native character choice reaches local value and preserves bot, selec
  try{
   await expect(current.page.getByRole('heading',{name:'Choose your companion',exact:true})).toBeVisible();
   await current.page.emulateMedia({reducedMotion:'reduce'});
-  await current.page.getByRole('radio',{name:'Star',exact:true}).click();
+  await current.page.getByRole('radio',{name:'Lumi',exact:true}).click();
   await current.page.getByRole('radio',{name:'Sage',exact:true}).click();
   await current.page.getByRole('button',{name:'Continue',exact:true}).click();
   await expect(current.page.getByText('Local example · Bundled on this device')).toBeVisible();

@@ -58,8 +58,8 @@ test('compact response and citations belong to the original request rather than 
  await fixture.core.saveArtifact(taskId,{title:'Unrelated saved file',content:'An unrelated newer file.',sourceRefs:[{sourceId:other.id,version:1,digest:other.versions[0].digest}]});await fixture.changed(taskId);
  const compact=page.locator('.compact-companion');await expect(compact).toContainText('The original request answer.');
  await expect(compact).not.toContainText('A later manual edit.');await expect(compact).not.toContainText('An unrelated newer file.');
- await expect(compact.getByLabel('Response sources').getByRole('button',{name:'Alpha brief',exact:true})).toBeVisible();
- await expect(compact.getByLabel('Response sources')).not.toContainText('Unrelated reference');
+ await expect(compact.getByLabel('What this answer used').getByRole('button',{name:'Alpha brief',exact:true})).toBeVisible();
+ await expect(compact.getByLabel('What this answer used')).not.toContainText('Unrelated reference');
 });
 
 test('a stale pending response cannot cover a newer request outcome in compact',async({page})=>{
@@ -75,7 +75,7 @@ test('a stale pending response cannot cover a newer request outcome in compact',
 test('narrow compact reviewed outcome keeps recovery and composer reachable without overflow',async({page})=>{
  await page.setViewportSize({width:360,height:440});fixture=await BrowserFixture.open(page,'companion');const requestId=await uncertainTurn();await review(requestId);await fixture.changed(fixture.taskA.id);
  const compact=page.locator('.compact-companion');await expect(compact.getByRole('status').filter({hasText:'Reviewed as completed'})).toBeVisible();
- const recovery=compact.getByRole('button',{name:'View request in conversation',exact:true});await recovery.scrollIntoViewIfNeeded();await expect(recovery).toBeVisible();
+ const recovery=compact.getByRole('button',{name:'View in conversation',exact:true});await recovery.scrollIntoViewIfNeeded();await expect(recovery).toBeVisible();
  const bounds=await recovery.boundingBox(),composer=await compact.locator('.compact-compose').boundingBox();expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(composer!.y);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1);await expect(compact.getByRole('textbox',{name:'Ask companion',exact:true})).toBeVisible();
  await expect(page.locator('.t-gen,.t-tig')).toHaveCount(0);await expect(compact).toHaveAttribute('data-surface-reveal',/^(settled|cancelled)$/);await page.screenshot({path:'evidence/browser-outcome-ui/compact-reviewed-360.png'});
@@ -93,7 +93,7 @@ test('compact shows the later uncertain and reviewed turn instead of an older su
  await expect(compact.getByRole('status').filter({hasText:'Reviewed as completed'})).toBeVisible();
  await expect(compact).toContainText('You reviewed a fresh page');
  await fixture.restartCore();await page.reload();await expect(compact.getByRole('status').filter({hasText:'Reviewed as completed'})).toBeVisible();
- await compact.getByRole('button',{name:'View request in conversation',exact:true}).click();
+ await compact.getByRole('button',{name:'View in conversation',exact:true}).click();
  await expect(page.locator('.workspace').getByLabel('Task conversation')).toContainText('No draft was submitted or saved.');
  await expect(page.locator('.workspace .conversation-turn').last().locator('.conversation-status')).toHaveText('Reviewed as completed');
  expect(fixture.externalRequests).toEqual([]);
@@ -107,7 +107,7 @@ test('compact exposes a later denied action and keeps the earlier answer in hist
  const compact=page.locator('.compact-companion');await expect(compact.getByRole('status').filter({hasText:'Not run'})).toBeVisible();
  await expect(compact).toContainText('The last browser action was not run.');
  await expect(compact).not.toContainText('Older comparison only.');
- await compact.getByRole('button',{name:'View request in conversation',exact:true}).click();
+ await compact.getByRole('button',{name:'View in conversation',exact:true}).click();
  await expect(page.locator('.workspace').getByLabel('Task conversation')).toContainText('Older comparison only.');
 });
 

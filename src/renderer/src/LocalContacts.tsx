@@ -12,7 +12,7 @@ export function LocalContacts({onInsert}:{onInsert?:(text:string)=>void}){
  const dirty=surface.kind==='edit'&&JSON.stringify(details)!==JSON.stringify(surface.initial);
  const clearDraft=useNavigationDraft(dirty||pending);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
- useEffect(()=>{let current=true;void window.companion.invoke({type:'contacts.get'}).then(value=>{if(current){setBook(readLocalContacts(value));setError('');}}).catch(()=>{if(current)setError('Local contacts could not be opened. Your saved data has been kept.');});return()=>{current=false;};},[opening]);
+ useEffect(()=>{let current=true;void window.companion.invoke({type:'contacts.get'}).then(value=>{if(current){setBook(readLocalContacts(value));setError('');}}).catch(()=>{if(current)setError('Contacts could not be opened. Your saved data has been kept.');});return()=>{current=false;};},[opening]);
  useEffect(()=>{if(surface.kind==='edit')nameInput.current?.focus();},[surface.kind]);
  function go(next:Surface){setSurface(next);setError('');setNotice('');}
  function edit(contact?:LocalContact){
@@ -49,7 +49,7 @@ export function LocalContacts({onInsert}:{onInsert?:(text:string)=>void}){
  }
  const selected=surface.kind==='detail'?book?.contacts.find(contact=>contact.id===surface.id):undefined;
  const preview=surface.kind==='preview'?localContactMessage(surface.contact,fields):'';
- return <section className="preference-area local-contacts" aria-label="Local contacts">
+ return <section className="preference-area local-contacts" aria-label="Contacts">
   <p className="preference-explanation">Contacts stay on this Mac. Choose fields and review them before inserting them into a message. Nothing is shared until you send that message.</p>
   <p className="tiny">This is local storage, not a secure vault or a connected Google, Zoho or macOS address book. Keep passwords and secrets out. Archived contacts remain recoverable.</p>
   {!book?<><p role={error?'alert':'status'}>{error||'Opening local contacts…'}</p>{error&&<Button onClick={()=>setOpening(value=>value+1)}>Open contacts again</Button>}</>:<>

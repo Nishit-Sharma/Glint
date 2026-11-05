@@ -7,7 +7,7 @@ import {inspectTargetPractice,inspectOriginalTargetPractice,submitTargetPractice
 import {evaluateExperiment} from '../../src/core/experiments';
 import {projectTaskDialogue} from '../../src/core/task-dialogue';
 const source='total = 2\nfor item in range(5):\n    total += item',title='Source-derived CS range learning',modelTitle='Reviewed integer range sum';
-const ws=(page:Page)=>page.locator('.workspace:visible'),doc=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const ws=(page:Page)=>page.locator('.workspace:visible'),doc=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 async function expand(details:Locator){if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();await expect(details).toHaveAttribute('open','');}
 async function open(page:Page,id:string){await taskTool(page,'Files');await page.getByRole('dialog',{name:'Files',exact:true}).locator(`.artifact-row[data-view-focus="artifact:${id}"]`).click();await expect(doc(page)).toBeVisible();}
 

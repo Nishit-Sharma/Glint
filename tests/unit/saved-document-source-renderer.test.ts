@@ -55,5 +55,5 @@ it('adds the exact optional preview after a newer saved revision appears',async(
  const command=f.send.mock.calls[0][0] as {artifact:{revision:number};expectedSnapshot:string};expect(command.artifact.revision).toBe(1);expect(JSON.parse(command.expectedSnapshot).content).toBe('Saved document text');expect(command.expectedSnapshot).not.toContain('Later saved text');
 });
 it('allows leaving optional details without attaching or freezing the request selection',()=>{
- const f=mount();f.choose();f.r.find(node=>node.type==='button'&&text(node)==='Back to Context').props.onClick();expect(f.onCancel).toHaveBeenCalledTimes(1);expect(f.beforeAdd).not.toHaveBeenCalled();expect(f.send).not.toHaveBeenCalled();
+ const f=mount();f.choose();f.r.find(node=>node.type==='button'&&text(node)==='Back to Attachments').props.onClick();expect(f.onCancel).toHaveBeenCalledTimes(1);expect(f.beforeAdd).not.toHaveBeenCalled();expect(f.send).not.toHaveBeenCalled();
 });

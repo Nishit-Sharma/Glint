@@ -8,7 +8,7 @@ import {parseSavedDocumentDraft,SAVED_DOCUMENT_DRAFT_SLOT} from '../../src/share
 
 test.use({viewport:{width:1080,height:800}});
 const workspace=(page:Page)=>page.locator('.workspace:visible');
-const context=(page:Page)=>workspace(page).getByRole('dialog',{name:'Context',exact:true});
+const context=(page:Page)=>workspace(page).getByRole('dialog',{name:'Attachments',exact:true});
 const document=(page:Page)=>workspace(page).getByRole('dialog',{name:'Document',exact:true});
 const body=(page:Page)=>document(page).getByRole('textbox',{name:'Draft content',exact:true});
 async function openDocument(page:Page,id:string){await taskTool(page,'Files');await workspace(page).getByRole('dialog',{name:'Files',exact:true}).locator(`button.artifact-row[data-view-focus="artifact:${id}"]`).click();await expect(document(page)).toBeVisible();}
@@ -37,7 +37,7 @@ async function links(page:Page){
  return document(page).getByRole('region',{name:'Linked sources',exact:true});
 }
 async function addText(page:Page,label:string,content:string){
- await context(page).getByRole('button',{name:'All context',exact:true}).click();await context(page).getByRole('button',{name:'Add source',exact:true}).click();await context(page).getByRole('button',{name:'Paste text',exact:true}).click();
+ await context(page).getByRole('button',{name:'All attachments',exact:true}).click();await context(page).getByRole('button',{name:'Add source',exact:true}).click();await context(page).getByRole('button',{name:'Paste text',exact:true}).click();
  await context(page).getByRole('textbox',{name:'Source name (optional)',exact:true}).fill(label);await context(page).getByRole('textbox',{name:'Source text',exact:true}).fill(content);await context(page).getByRole('button',{name:'Add text',exact:true}).click();await expect(context(page).getByRole('region',{name:'Source snapshot',exact:true})).toContainText(content);
 }
 async function refreshText(page:Page,label:string,content:string){

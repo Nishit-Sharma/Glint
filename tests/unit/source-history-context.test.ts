@@ -58,7 +58,7 @@ test('Context keeps inherited dependencies visible through explicit direct-sourc
   expect(controller.snapshot().fields).toEqual({...raw,sourceRefs:[a1,b1]});expect(controller.snapshot().canSave).toBe(false);
   const review=controller.snapshot().sourceReview;expect(review).toBeDefined();expect(controller.reviewSources(review!,a)).toBe(true);await cache.flush();
   expect(controller.snapshot().fields).toEqual({...raw,sourceRefs:[a2,b1]});expect(await core.getTask(task.id)).toEqual(before);
-  expect(await controller.save()).toBe(true);r.find(node=>node.type==='button'&&node.props.title==='All context').props.onClick();r.render();
+  expect(await controller.save()).toBe(true);r.find(node=>node.type==='button'&&node.props.title==='All attachments').props.onClick();r.render();
   expect(text(row(a))).toContain('3 saved items to review');expect(text(row(b))).not.toContain('saved item');
   const revisions=task.artifacts.find(item=>item.id===saved.artifactId)!.revisions;
   expect(revisions.slice(0,2)).toEqual([saved.revision,authored.revision]);expect(revisions.at(-1)).toMatchObject({...raw,sourceRefs:[a2,b1]});

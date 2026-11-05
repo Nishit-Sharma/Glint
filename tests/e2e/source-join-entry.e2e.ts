@@ -100,15 +100,15 @@ test('full App source action admits reviewed tables, computes changes, saves and
   await page.getByRole('dialog',{name:'Files',exact:true}).getByRole('button').filter({hasText:'Review the cited tables notes'}).click();
   await expect(document).toContainText('Current join: LEFT equality on Members.Team = Invitations.Team');await page.screenshot({path:evidence+'/reopened-document.png'});
   await document.getByRole('button',{name:'Back to task',exact:true}).click();
-  await scope.getByRole('button',{name:'Task options',exact:true}).click();await scope.getByRole('button',{name:'Activity',exact:true}).click();
-  await page.getByRole('dialog',{name:'Activity',exact:true}).getByRole('button',{name:'Review the cited tables · Revision 1',exact:true}).click();
+  await scope.getByRole('button',{name:'Task options',exact:true}).click();await scope.getByRole('button',{name:'History',exact:true}).click();
+  await page.getByRole('dialog',{name:'History',exact:true}).getByRole('button',{name:'Review the cited tables · Revision 1',exact:true}).click();
   const activity=page.getByRole('region',{name:'Saved revision',exact:true});await expect(activity).toContainText('Current join: LEFT equality on Members.Team = Invitations.Team');
   expect(await activity.innerText()).not.toMatch(/contextDigest|source-join-[a-f0-9]|p-key|Shipments/);await page.screenshot({path:evidence+'/activity-practice.png'});
   await page.getByRole('dialog',{name:'Saved revision',exact:true}).getByRole('button',{name:'Back to task',exact:true}).click();
   await scope.getByRole('button',{name:'Try separate challenge',exact:true}).click();
   await expect(scope.getByRole('region',{name:'Computed result',exact:true})).toHaveCount(0);await expect(scope).toContainText('separate synthetic problem');
-  await scope.getByRole('button',{name:'Task options',exact:true}).click();await scope.getByRole('button',{name:'Activity',exact:true}).click();
-  await page.getByRole('dialog',{name:'Activity',exact:true}).getByRole('button',{name:'Review the cited tables · Revision 1',exact:true}).click();
+  await scope.getByRole('button',{name:'Task options',exact:true}).click();await scope.getByRole('button',{name:'History',exact:true}).click();
+  await page.getByRole('dialog',{name:'History',exact:true}).getByRole('button',{name:'Review the cited tables · Revision 1',exact:true}).click();
   await expect(activity).toContainText('Current join: LEFT equality on Shipments.Dock = Scans.Dock');await expect(activity).toContainText('Prior practice prediction: 4; computed result: 5 rows. Incorrect.');
   expect(await activity.innerText()).not.toMatch(/6 output rows|Transfer score:|transfer-a|contextDigest/);
   await activity.getByText('Current join: LEFT equality on Shipments.Dock = Scans.Dock.',{exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:evidence+'/activity-transfer-pending.png'});
@@ -187,7 +187,7 @@ test('first pending answer hides only its own empty-task intake before hydration
   };
   const workspace=page.locator('.workspace');
   const intake=workspace.getByRole('heading',{name:'Bring a window into this task.',exact:true});
-  const savedIntake=workspace.getByRole('heading',{name:'Source saved',exact:true});
+  const savedIntake=workspace.getByRole('heading',{name:'Added to this task',exact:true});
   await expect(savedIntake).toBeVisible();await expect(intake).toHaveCount(0);
   await page.getByRole('textbox',{name:'Ask about this task',exact:true}).fill('Explain the reset.');
   await page.getByRole('button',{name:'Ask',exact:true}).click();

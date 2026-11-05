@@ -61,7 +61,7 @@ test('review a source signal pair, change hypothetical execution, save a distinc
    const saved=await entry.fixture.core.getTask(found.id);return saved.sources[0]?.versions.at(-1)?.content;
   }).toBe(source);
   await expect(ws(page).getByRole('heading',{level:1,name:title,exact:true})).toBeVisible();
-  const context=ws(page).getByRole('dialog',{name:'Context',exact:true});await expect(context).toBeVisible();
+  const context=ws(page).getByRole('dialog',{name:'Attachments',exact:true});await expect(context).toBeVisible();
   await context.getByRole('button',{name:'Back to task',exact:true}).click();await expect(context).toBeHidden();
   await taskTool(page,'Files');const files=ws(page).getByRole('dialog',{name:'Files',exact:true});
   await files.getByRole('button',{name:'New file',exact:true}).click();await files.getByRole('button',{name:'Draft',exact:true}).click();

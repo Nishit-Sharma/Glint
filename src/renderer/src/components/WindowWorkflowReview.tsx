@@ -42,7 +42,7 @@ function WindowWorkflowEntryAction({task,basis,disabled,onPropose,onOpen}:Parame
   catch{current=await window.companion.invoke<Task>({type:'tasks.get',taskId:task.id});}
   const output=resultRef(current,requestId,WINDOW_WORKFLOW_MIME,basis);
   if(output){if(attempt.mounted.current)onOpen(current,output);return;}
-  throw Error('No image review was confirmed. Check Activity and this saved attempt before requesting another response.');
+  throw Error('No image review was confirmed. Check History and this saved attempt before requesting another response.');
  };
  return <div className="window-workflow-entry"><button type="button" className="screen-brief-action" disabled={disabled||attempt.busy||!attempt.ready} onClick={()=>void attempt.act(start)}>Review state transitions</button>{attempt.saved?.form.value.requestId&&<button type="button" disabled={disabled||attempt.busy||!attempt.ready} onClick={()=>void attempt.act(attempt.newAttempt)}>Start a separate review attempt</button>}{attempt.saved?.feedback}{attempt.message&&<p role="status">{attempt.message}</p>}</div>;
 }

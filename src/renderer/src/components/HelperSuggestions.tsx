@@ -17,11 +17,11 @@ export function HelperSuggestions({task,scope,disabled,isCurrent,invoke,onOpen,o
   finally{if(generation.current===turn){working.current=false;setBusy(false);}}
  }
  return <section className="saved-helpers" aria-label="Suggestions for this task">
-  <p>Find possible helpers already saved in this task, using its current goal and included sources. Review a helper before choosing inputs, activation or a run.</p>
-  <p className="tiny">This explicit local search uses exact words, without AI or background observation. Results are temporary; find them again after a restart or context change.</p>
+  <p>Find helpers you’ve already saved in this task that fit its goal and attachments. Look a helper over before you use it.</p>
+  <p className="tiny">This search matches exact words on this Mac. It doesn’t use AI or watch in the background. Results clear after a restart or when attachments change.</p>
   <Button disabled={disabled||busy} onClick={()=>void perform({type:'helper.suggestions.preview',taskId:task.id})}>{busy?'Checking…':preview?'Find suggestions again':'Find helper suggestions'}</Button>
-  {busy&&<p role="status">Checking current task, source and helper versions…</p>}{error&&<p role="alert">{error}</p>}
-  {preview&&<><p className="tiny">{preview.limits}</p>{preview.candidates.length===0?<p role="status">{preview.eligibleHelperCount===0?'No eligible saved helpers in this task. Save and check a helper here first; helpers with withheld or outdated context are omitted.':'No exact-word matches within this search’s limits. Try a more specific task goal or review your helpers directly.'}</p>:preview.candidates.map(candidate=><article className="saved-helper" key={candidate.helper.artifactId+':'+candidate.helper.moduleId} aria-label={'Suggested helper: '+candidate.helper.name}>
+  {busy&&<p role="status">Checking this task, its attachments and helpers…</p>}{error&&<p role="alert">{error}</p>}
+  {preview&&<><p className="tiny">{preview.limits}</p>{preview.candidates.length===0?<p role="status">{preview.eligibleHelperCount===0?'No saved helpers fit this task yet. Save and check a helper here first. Helpers with hidden or out-of-date attachments aren’t shown.':'No exact-word matches within this search’s limits. Try a more specific task goal or review your helpers directly.'}</p>:preview.candidates.map(candidate=><article className="saved-helper" key={candidate.helper.artifactId+':'+candidate.helper.moduleId} aria-label={'Suggested helper: '+candidate.helper.name}>
    <h3>{candidate.helper.name}</h3><p>{candidate.helper.description}</p><p className="tiny">{candidate.helper.activeVersion===null?'Inactive · saved version '+candidate.helper.version:'Active version '+candidate.helper.activeVersion} · helper state revision {candidate.helper.stateRevision}</p>
    <p>Possible fit: the helper’s name, purpose or discovery label shares {candidate.terms.map(term=>'“'+term+'”').join(', ')} with this task’s context.</p>
    {candidate.evidence.map((item,index)=><blockquote key={index}><p>{item.excerpt}</p><footer>{item.label} · matching {item.terms.join(', ')}</footer></blockquote>)}

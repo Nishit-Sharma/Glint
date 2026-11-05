@@ -9,7 +9,7 @@ import {projectTaskDialogue} from '../../src/core/task-dialogue';
 import {taskContext} from '../../src/host/browser/coordinator';
 import {taskTool} from '../support/ui-tools';
 import {pickingPublicFrame as frame} from '../support/picking-public-frame';
-const workspace=(page:Page)=>page.locator('.workspace:visible'),document=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const workspace=(page:Page)=>page.locator('.workspace:visible'),document=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 const tableText='Quantity,Reviewed,Protected,Ignored\n25,true,false,PRIVATE_UNMAPPED_A\n75,true,false,PRIVATE_UNMAPPED_B\n10,false,false,PRIVATE_UNMAPPED_C\n10,true,true,PRIVATE_UNMAPPED_D\n10,yes,false,PRIVATE_UNMAPPED_E\n';
 const panel=(page:Page)=>document(page).getByRole('region',{name:'Apply helper to a saved table',exact:true});
 async function expand(details:Locator){await expect(details).toHaveCount(1);if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();await expect(details).toHaveAttribute('open','');}

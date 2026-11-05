@@ -18,7 +18,7 @@ async function markdown(page:Page){
 }
 async function openDocument(page:Page,id:string){await taskTool(page,'Files');await workspace(page).getByRole('dialog',{name:'Files',exact:true}).locator(`button.artifact-row[data-view-focus="artifact:${id}"]`).click();await expect(document(page)).toBeVisible();}
 async function openHistorical(page:Page){
- await taskTool(page,'History');const activity=workspace(page).getByRole('dialog',{name:'Activity',exact:true});await activity.getByText('Saved at this point',{exact:true}).click();await activity.getByRole('button',{name:'Earlier visit plan · Revision 1',exact:true}).click();await expect(revision(page)).toBeVisible();
+ await taskTool(page,'History');const activity=workspace(page).getByRole('dialog',{name:'History',exact:true});await activity.getByText('Saved at this point',{exact:true}).click();await activity.getByRole('button',{name:'Earlier visit plan · Revision 1',exact:true}).click();await expect(revision(page)).toBeVisible();
 }
 type Entry=Awaited<ReturnType<typeof offlineTaskEntry>>;
 async function rawRecord(entry:Entry,taskId:string,artifactId:string){

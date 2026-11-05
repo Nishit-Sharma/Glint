@@ -20,7 +20,7 @@ export const documentImportMessages={
  stale:'This document review has ended. Choose the file again before adding it.',
  inactive:'Open and resume the destination task before importing a document.',
  busy:'Finish or cancel the current document import before choosing another file.',
- changed:'This import was already added with different text. Review its saved source in Context.',
+ changed:'This import was already added with different text. Review its saved source in Attachments.',
 } as const;
 export type ImportedDocument={fileName:string;fileDigest:string;byteLength:number;format:'pdf'|'docx'|'doc'|'txt'|'md'|'csv'|'xlsx'|'pptx';method:string;extractedAt:string;text:string;warnings:string[];pageCount?:number};
 export type DocumentImportPreview=ImportedDocument&{kind:'review';taskId:string;attemptId:string};

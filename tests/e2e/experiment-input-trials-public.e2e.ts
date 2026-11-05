@@ -6,7 +6,7 @@ import {inspectTargetPractice,inspectOriginalTargetPractice,submitTargetPractice
 import {taskTool} from '../support/ui-tools';
 import {pickingPublicFrame as frame} from '../support/picking-public-frame';
 const title='Owned one-input model learning',modelTitle='Reviewed cost relationship',formula='cost = rate * time + fee',source=formula+'\nA constant rate and one-time fee are assumed for this exercise.',reason='  I chose 70 before accounting for the fixed fee. Keep my first reasoning.  ';
-const ws=(page:Page)=>page.locator('.workspace:visible'),doc=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Context',exact:true});
+const ws=(page:Page)=>page.locator('.workspace:visible'),doc=(page:Page)=>page.getByRole('dialog',{name:'Document',exact:true}),context=(page:Page)=>page.getByRole('dialog',{name:'Attachments',exact:true});
 async function expand(details:Locator){if(await details.getAttribute('open')===null)await details.locator(':scope > summary').click();await expect(details).toHaveAttribute('open','');}
 async function openArtifact(page:Page,id:string){await taskTool(page,'Files');await page.getByRole('dialog',{name:'Files',exact:true}).locator(`.artifact-row[data-view-focus="artifact:${id}"]`).click();await expect(doc(page)).toBeVisible();}
 

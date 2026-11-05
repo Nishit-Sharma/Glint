@@ -81,7 +81,7 @@ it('admits a new explicit context capture after Keep app open without reviving o
  const captured=await f.host.dispatch({type:'context.capture',activationId:pending.activation.activationId,windowId:f.target.id,taskId:f.task.id}) as {state:string};
  expect(captured.state).toBe('captured');expect(f.calls.pixels).toBe(before.pixels+1);expect(f.calls.transports).toBe(0);
  expect(f.host.documentFollow.read()).toMatchObject({kind:'bound',automaticSnapshots:'off'});
- expect(f.calls.confirmations.at(-1)?.message).toBe('Capture this window?');
+ expect(f.calls.confirmations.at(-1)?.message).toBe('Take a screenshot of this window?');
 });
 
 
@@ -105,7 +105,7 @@ it('retires the old model signal and accepts only a fresh capture plus separatel
  expect(f.calls.transports).toBe(1);expect(f.calls.providerSignals[1].aborted).toBe(false);expect(oldSignal.aborted).toBe(true);
  }finally{gate.release();await rejected;}const task=await f.core.getTask(f.task.id);
  expect(task.requests.find(r=>r.id==='before-quit')?.status).toBe('cancelled');expect(task.requests.find(r=>r.id==='after-quit')?.status).toBe('completed');expect(task.artifacts).toHaveLength(1);expect(f.calls.transports).toBe(1);
- expect(f.calls.confirmations.filter(c=>c.message.startsWith('Send this request'))).toHaveLength(2);
+ expect(f.calls.confirmations.filter(c=>c.message.startsWith('Send your question'))).toHaveLength(2);
 });
 it('late quit IDs cannot resume a second quit or authorize a gesture while its barrier is pending',async()=>{
  const f=await fixture(),oldId=await cancelQuit(f);f.state.quitFlush=undefined;f.state.response=0;

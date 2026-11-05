@@ -17,7 +17,7 @@ test('selected-window metadata review stays beside the saved result and leads to
   }
   return invoke(command);
  };
- const workspace=page.locator('.workspace:visible'),compact=page.locator('.compact-companion:visible'),review=()=>page.getByRole('region',{name:'Selected window source review',exact:true}),context=()=>page.getByRole('dialog',{name:'Context',exact:true});
+ const workspace=page.locator('.workspace:visible'),compact=page.locator('.compact-companion:visible'),review=()=>page.getByRole('region',{name:'Selected window source review',exact:true}),context=()=>page.getByRole('dialog',{name:'Attachments',exact:true});
  try{
   await page.reload();await workspace.getByRole('complementary',{name:'Task navigation',exact:true}).getByRole('button',{name:created.title,exact:true}).click();await workspace.getByRole('textbox',{name:'Ask about this task',exact:true}).fill('Keep my unsent correction exactly.');await expect.poll(async()=>(await fixture.core.getTask(created.id)).session?.draft).toBe('Keep my unsent correction exactly.');
   await fixture.core.reconcileDocumentSource(binding,{kind:'document',stamp:{...stamp,digest:'b'.repeat(64)}});await fixture.emit({type:'changed',taskId:created.id});await fixture.emit({type:'surface',mode:'companion',attachedWindow:{id:'window:41',title:'Selected editor',ownerName:'Owned editor'}});

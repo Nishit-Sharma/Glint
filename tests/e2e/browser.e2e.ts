@@ -58,7 +58,7 @@ test('an incomplete provider response reports failure and never announces a save
 });
 
 test('malicious source markup remains text and causes no injected elements or external requests', async ({ page }) => {
-  await taskTool(page,'Context');
+  await taskTool(page,'Attachments');
   await page.getByRole('button',{name:'Add source',exact:true}).click();await page.getByRole('button',{name:'Paste text',exact:true}).click();
   const malicious = '<img id="injected-image" src="https://browser-fixture.invalid/exfil" onerror="window.__injected=true"><script>window.__injected=true</script>';
   await page.getByLabel('Source name (optional)',{exact:true}).fill('Untrusted fixture source');
@@ -177,7 +177,7 @@ test('manual calculation saves a submitted input snapshot and blocks changed pro
 test('image replacement cannot save old decoded pixels with new source provenance',async({page})=>{
   const colors=await page.evaluate(()=>['#e54040','#2040e5'].map(color=>{const canvas=document.createElement('canvas');canvas.width=2;canvas.height=2;const ctx=canvas.getContext('2d')!;ctx.fillStyle=color;ctx.fillRect(0,0,2,2);return canvas.toDataURL('image/png')}));
   let task=await fixture.core.putSource(fixture.taskA.id,{kind:'image',label:'Editable synthetic image',role:'fact',content:colors[0]});const source=task.sources.at(-1)!;await fixture.changed(task.id);
-  await taskTool(page,'Context');await page.getByRole('button',{name:'Editable synthetic image Source material',exact:true}).click();
+  await taskTool(page,'Attachments');await page.getByRole('button',{name:'Editable synthetic image Source material',exact:true}).click();
   await sourceTool(page,'Crop & annotate');await expect(page.getByRole('button',{name:'Save edited image',exact:true})).toBeEnabled();
   await page.evaluate(next=>{const Original=window.Image;const descriptor=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src')!;(window as any).__releaseImage=undefined;window.Image=function(){const image=new Original();Object.defineProperty(image,'src',{get:()=>descriptor.get!.call(image),set:(value:string)=>{if(value===next)(window as any).__releaseImage=()=>descriptor.set!.call(image,value);else descriptor.set!.call(image,value)}});return image} as unknown as typeof Image},colors[1]);
   task=await fixture.core.putSource(task.id,{id:source.id,kind:'image',label:'Editable synthetic image',role:'fact',content:colors[1]});await fixture.changed(task.id);
@@ -216,7 +216,7 @@ test('360 pixel reduced-motion views fit without horizontal overflow and keep th
     expect(overflow.document).toBeLessThanOrEqual(1); expect(overflow.main).toBeLessThanOrEqual(1);
   };
   await checkWidth();
-  await taskTool(page,'Context'); await checkWidth();
+  await taskTool(page,'Attachments'); await checkWidth();
   await taskTool(page,'Work');
   await taskTool(page,'Files');await page.getByRole('button',{name:'New file',exact:true}).click();await page.getByRole('button',{name:'Experiment',exact:true}).click();
   await page.getByLabel('Speed (m/s)', { exact: true }).fill('10');
